@@ -125,30 +125,30 @@
 
 ## W4 RAG 全文索引波次（可并行，依赖 W3-A + W1-D + W2-A）
 
-- [ ] **并行块 W4-A：Chunk 与索引构建管线（前置：W1-D, W2-A, W3-C）**
-  1. [ ] 实现双粒度切块（细粒度 300~500 tokens + 粗粒度摘要块）。
-  2. [ ] 实现全章节 chunk 入库与 embedding upsert。
-  3. [ ] 落实必需元数据字段（`project_id/chapter_no/chunk_id/chunk_type/...`）。
-  4. [ ] 实现章节更新后的增量重建与删除同步。
+- [x] **并行块 W4-A：Chunk 与索引构建管线（前置：W1-D, W2-A, W3-C）**
+  1. [x] 实现双粒度切块（细粒度 300~500 tokens + 粗粒度摘要块）。
+  2. [x] 实现全章节 chunk 入库与 embedding upsert。
+  3. [x] 落实必需元数据字段（`project_id/chapter_no/chunk_id/chunk_type/...`）。
+  4. [x] 实现章节更新后的增量重建与删除同步。
 
-- [ ] **并行块 W4-B：混合检索编排（前置：W4-A）**
-  1. [ ] 实现查询意图分类（事实/关系/创作）。
-  2. [ ] 实现元数据过滤 + 向量 Top-K 召回。
-  3. [ ] 实现实体别名精确匹配补召回。
-  4. [ ] 实现重排（语义相关性 + 时间一致性 + 章节距离）。
-  5. [ ] 实现上下文组装优先级策略。
+- [x] **并行块 W4-B：混合检索编排（前置：W4-A）**
+  1. [x] 实现查询意图分类（事实/关系/创作）。
+  2. [x] 实现元数据过滤 + 向量 Top-K 召回。
+  3. [x] 实现实体别名精确匹配补召回。
+  4. [x] 实现重排（语义相关性 + 时间一致性 + 章节距离）。
+  5. [x] 实现上下文组装优先级策略。
 
-- [ ] **并行块 W4-C：RAG API 契约（前置：W4-B）**
-  1. [ ] 实现 `POST /api/rag/query`（返回 `hits/events/usedGraphRag`）。
-  2. [ ] 实现 `POST /api/rag/reindex`（任务排队与状态）。
-  3. [ ] 实现 `POST /api/rag/embed` 与 `GET /api/rag/index-status`。
-  4. [ ] 为前端共享 TypeScript 契约定义统一类型。
+- [x] **并行块 W4-C：RAG API 契约（前置：W4-B）**
+  1. [x] 实现 `POST /api/rag/query`（返回 `hits/events/usedGraphRag`）。
+  2. [x] 实现 `POST /api/rag/reindex`（任务排队与状态）。
+  3. [x] 实现 `POST /api/rag/embed` 与 `GET /api/rag/index-status`。
+  4. [x] 为前端共享 TypeScript 契约定义统一类型。
 
-- [ ] **并行块 W4-D：RAG 指标评估（前置：W4-C）**
-  1. [ ] 构建跨章节召回评测样例集。
-  2. [ ] 实现 `Recall@K` 与 `Evidence Precision` 统计脚本。
-  3. [ ] 记录查询时延 P95 与失败率。
-  4. [ ] 固化默认检索参数并输出评估结论。
+- [x] **并行块 W4-D：RAG 指标评估（前置：W4-C）**
+  1. [x] 构建跨章节召回评测样例集。
+  2. [x] 实现 `Recall@K` 与 `Evidence Precision` 统计脚本。
+  3. [x] 记录查询时延 P95 与失败率。
+  4. [x] 固化默认检索参数并输出评估结论。
 
 ---
 
