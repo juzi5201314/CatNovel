@@ -1,50 +1,146 @@
 "use client";
 
-import type { ChapterItem, ProjectItem } from "@/components/workspace/types";
+import { useState } from "react";
+import type {
+  ChapterItem,
+  ProjectItem,
+  ProjectSnapshotDiff,
+  ProjectSnapshotSummary,
+  SnapshotRestoreResult,
+} from "@/components/workspace/types";
 import { ApprovalCenter } from "@/components/ai-sidebar/approval-center";
 import { ChatPanel } from "@/components/ai-sidebar/chat-panel";
 import { GhostActions } from "@/components/ai-sidebar/ghost-actions";
+import { SnapshotPanel } from "@/components/ai-sidebar/snapshot-panel";
 import { TimelinePanel } from "@/components/timeline/timeline-panel";
 
 type RightSidebarProps = {
   project: ProjectItem | null;
   chapter: ChapterItem | null;
+  snapshots: ProjectSnapshotSummary[];
+  snapshotDiff: ProjectSnapshotDiff | null;
+  snapshotRestoreResult: SnapshotRestoreResult | null;
+  loadingSnapshots: boolean;
+  creatingSnapshot: boolean;
+  loadingSnapshotDiff: boolean;
+  restoringSnapshotId: string | null;
   onAcceptGhost: (ghostText: string) => Promise<void>;
+  onRefreshSnapshots: () => Promise<void>;
+  onCreateSnapshot: (reason?: string) => Promise<void>;
+  onRestoreSnapshot: (snapshotId: string, reason?: string) => Promise<void>;
+  onLoadSnapshotDiff: (snapshotId: string) => Promise<void>;
+  onClearSnapshotDiff: () => void;
 };
+
+type AITab = "chat" | "history" | "tasks";
 
 export function RightSidebar({
   project,
   chapter,
+  snapshots,
+  snapshotDiff,
+  snapshotRestoreResult,
+  loadingSnapshots,
+  creatingSnapshot,
+  loadingSnapshotDiff,
+  restoringSnapshotId,
   onAcceptGhost,
+  onRefreshSnapshots,
+  onCreateSnapshot,
+  onRestoreSnapshot,
+  onLoadSnapshotDiff,
+  onClearSnapshotDiff,
 }: RightSidebarProps) {
+  const [activeTab, setActiveTab] = useState<AITab>("chat");
+
   return (
-    <section className="cn-column cn-column-right">
-      <header className="cn-column-header">
-        <h2>Assistant</h2>
-        <span>未连接</span>
-      </header>
+    <aside className="flex flex-col h-full border-l border-border bg-background w-[var(--cn-sidebar-right)] fixed right-0 top-0 overflow-hidden">
+      <div className="flex flex-col h-full">
+        {/* Header / Context */}
+        <div className="p-6 border-bottom border-border bg-muted/30">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Assistant</h2>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-[10px] font-medium text-muted-foreground">Connected</span>
+            </div>
+          </div>
+          
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground w-12">Project:</span>
+              <span className="font-medium truncate">{project ? project.name : "None selected"}</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground w-12">Chapter:</span>
+              <span className="font-medium truncate">{chapter ? `${chapter.orderNo}. ${chapter.title}` : "None selected"}</span>
+            </div>
+          </div>
+        </div>
 
-      <article className="cn-panel cn-panel-soft">
-        <h3 className="cn-card-title">上下文</h3>
-        <p className="cn-card-description">
-          项目：{project ? project.name : "未选择"}
-        </p>
-        <p className="cn-card-description">
-          章节：{chapter ? `${chapter.orderNo}. ${chapter.title}` : "未选择"}
-        </p>
-      </article>
+        {/* Tabs Navigation */}
+        <div className="flex px-4 border-b border-border">
+          <button 
+            className={`flex-1 py-3 text-xs font-medium border-b-2 transition-all ${activeTab === 'chat' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setActiveTab('chat')}
+          >
+            AI Chat
+          </button>
+          <button 
+            className={`flex-1 py-3 text-xs font-medium border-b-2 transition-all ${activeTab === 'history' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setActiveTab('history')}
+          >
+            History
+          </button>
+          <button 
+            className={`flex-1 py-3 text-xs font-medium border-b-2 transition-all ${activeTab === 'tasks' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setActiveTab('tasks')}
+          >
+            Tasks
+          </button>
+        </div>
 
-      <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+          {activeTab === "chat" && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
+              <GhostActions
+                projectId={project?.id ?? null}
+                chapter={chapter}
+                onAcceptGhost={onAcceptGhost}
+              />
+            </div>
+          )}
 
-      <GhostActions
-        projectId={project?.id ?? null}
-        chapter={chapter}
-        onAcceptGhost={onAcceptGhost}
-      />
+          {activeTab === "history" && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <TimelinePanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
+              <SnapshotPanel
+                projectId={project?.id ?? null}
+                snapshots={snapshots}
+                snapshotDiff={snapshotDiff}
+                snapshotRestoreResult={snapshotRestoreResult}
+                loadingSnapshots={loadingSnapshots}
+                creatingSnapshot={creatingSnapshot}
+                loadingSnapshotDiff={loadingSnapshotDiff}
+                restoringSnapshotId={restoringSnapshotId}
+                onRefresh={onRefreshSnapshots}
+                onCreate={onCreateSnapshot}
+                onRestore={onRestoreSnapshot}
+                onLoadDiff={onLoadSnapshotDiff}
+                onClearDiff={onClearSnapshotDiff}
+              />
+            </div>
+          )}
 
-      <TimelinePanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
-
-      <ApprovalCenter projectId={project?.id ?? null} />
-    </section>
+          {activeTab === "tasks" && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <ApprovalCenter projectId={project?.id ?? null} />
+            </div>
+          )}
+        </div>
+      </div>
+    </aside>
   );
 }

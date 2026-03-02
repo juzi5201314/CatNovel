@@ -42,13 +42,9 @@ export function ProvidersPanel({
   const [createForm, setCreateForm] = useState<ProviderForm>(EMPTY_PROVIDER_FORM);
   const [editForm, setEditForm] = useState<ProviderForm | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
-  const hasActive = useMemo(
-    () => providers.some((provider) => provider.id === activeProviderId),
-    [providers, activeProviderId],
-  );
 
   const loadProviders = useCallback(async () => {
     setLoading(true);
@@ -61,9 +57,6 @@ export function ProvidersPanel({
       onProvidersChange(rows);
       if (!activeProviderId && rows.length > 0) {
         onActiveProviderIdChange(rows[0].id);
-      }
-      if (activeProviderId && !rows.some((provider) => provider.id === activeProviderId)) {
-        onActiveProviderIdChange(rows[0]?.id ?? null);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "加载 Provider 失败");
@@ -79,7 +72,7 @@ export function ProvidersPanel({
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (createForm.name.trim().length === 0 || createForm.baseURL.trim().length === 0) {
-      setMessage("name 与 baseURL 不能为空");
+      setMessage("Name and Base URL are required.");
       return;
     }
 
@@ -94,6 +87,7 @@ export function ProvidersPanel({
         }),
       });
       setCreateForm(EMPTY_PROVIDER_FORM);
+      setShowCreate(false);
       await loadProviders();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "创建 Provider 失败");
@@ -113,10 +107,7 @@ export function ProvidersPanel({
   }
 
   async function handleSaveEdit(provider: ProviderConfig) {
-    if (!editForm) {
-      return;
-    }
-
+    if (!editForm) return;
     try {
       await requestJson<ProviderConfig>(`/api/settings/providers/${provider.id}`, {
         method: "PATCH",
@@ -137,9 +128,10 @@ export function ProvidersPanel({
     }
   }
 
-  async function handleDelete(provider: ProviderConfig) {
+  async function handleDelete(id: string) {
+    if (!confirm("Are you sure you want to delete this provider?")) return;
     try {
-      await requestJson<{ success: boolean }>(`/api/settings/providers/${provider.id}`, {
+      await requestJson<{ success: boolean }>(`/api/settings/providers/${id}`, {
         method: "DELETE",
       });
       await loadProviders();
@@ -161,212 +153,238 @@ export function ProvidersPanel({
   }
 
   return (
-    <article className="cn-panel">
-      <h3 className="cn-card-title">Providers</h3>
-      <p className="cn-card-description">配置供应商、协议、启停和密钥状态。</p>
-
-      <form onSubmit={handleCreate} className="mt-3 flex flex-col gap-2">
-        <input
-          value={createForm.name}
-          onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
-          placeholder="Provider 名称"
-        />
-        <div className="flex gap-2">
-          <select
-            value={createForm.protocol}
-            onChange={(event) =>
-              setCreateForm((prev) => ({
-                ...prev,
-                protocol: event.target.value as ProviderProtocol,
-              }))
-            }
-          >
-            <option value="openai_compatible">openai_compatible</option>
-            <option value="openai_responses">openai_responses</option>
-          </select>
-
-          <select
-            value={createForm.category}
-            onChange={(event) =>
-              setCreateForm((prev) => ({
-                ...prev,
-                category: event.target.value as ProviderCategory,
-              }))
-            }
-          >
-            <option value="chat">chat</option>
-            <option value="embedding">embedding</option>
-            <option value="both">both</option>
-          </select>
+    <section className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Providers</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Configure your AI service endpoints and authentication.
+          </p>
         </div>
+        <button
+          className="primary"
+          onClick={() => setShowCreate(!showCreate)}
+        >
+          {showCreate ? "Cancel" : "Add Provider"}
+        </button>
+      </div>
 
-        <input
-          value={createForm.baseURL}
-          onChange={(event) =>
-            setCreateForm((prev) => ({ ...prev, baseURL: event.target.value }))
-          }
-          placeholder="https://api.example.com/v1"
-        />
-        <input
-          type="password"
-          value={createForm.apiKey}
-          onChange={(event) =>
-            setCreateForm((prev) => ({ ...prev, apiKey: event.target.value }))
-          }
-          placeholder="可选 API Key"
-        />
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={createForm.enabled}
-            onChange={(event) =>
-              setCreateForm((prev) => ({ ...prev, enabled: event.target.checked }))
-            }
-          />
-          启用
-        </label>
-        <button type="submit">新增 Provider</button>
-      </form>
-
-      {loading ? <p className="cn-card-description">加载中...</p> : null}
-      {message ? <p className="cn-card-description">{message}</p> : null}
-
-      <ul className="mt-3 flex flex-col gap-2">
-        {providers.map((provider) => {
-          const isEditing = editingId === provider.id && editForm;
-          return (
-            <li key={provider.id} className="rounded-md border border-[var(--cn-border)] p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong>{provider.name}</strong>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onActiveProviderIdChange(provider.id)}
-                    disabled={activeProviderId === provider.id}
-                  >
-                    {activeProviderId === provider.id ? "当前" : "设为当前"}
-                  </button>
-                  <button type="button" onClick={() => handleToggleEnabled(provider)}>
-                    {provider.enabled ? "停用" : "启用"}
-                  </button>
-                  <button type="button" onClick={() => startEdit(provider)}>
-                    编辑
-                  </button>
-                  {!provider.isBuiltin ? (
-                    <button type="button" onClick={() => void handleDelete(provider)}>
-                      删除
-                    </button>
-                  ) : null}
-                </div>
+      {showCreate && (
+        <div className="cn-panel animate-in fade-in slide-in-from-top-4 duration-200">
+          <h3 className="text-sm font-medium mb-4">New Provider</h3>
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Name</label>
+                <input
+                  className="w-full"
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. DeepSeek"
+                />
               </div>
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Protocol</label>
+                <select
+                  className="w-full"
+                  value={createForm.protocol}
+                  onChange={(e) => setCreateForm(f => ({ ...f, protocol: e.target.value as any }))}
+                >
+                  <option value="openai_compatible">OpenAI Compatible</option>
+                  <option value="openai_responses">OpenAI Responses</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Category</label>
+                <select
+                  className="w-full"
+                  value={createForm.category}
+                  onChange={(e) => setCreateForm(f => ({ ...f, category: e.target.value as any }))}
+                >
+                  <option value="chat">Chat Only</option>
+                  <option value="embedding">Embedding Only</option>
+                  <option value="both">Both</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">API Key (Optional)</label>
+                <input
+                  type="password"
+                  className="w-full"
+                  value={createForm.apiKey}
+                  onChange={(e) => setCreateForm(f => ({ ...f, apiKey: e.target.value }))}
+                  placeholder="sk-..."
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium uppercase text-muted-foreground">Base URL</label>
+              <input
+                className="w-full"
+                value={createForm.baseURL}
+                onChange={(e) => setCreateForm(f => ({ ...f, baseURL: e.target.value }))}
+                placeholder="https://api.deepseek.com/v1"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="enabled"
+                checked={createForm.enabled}
+                onChange={(e) => setCreateForm(f => ({ ...f, enabled: e.target.checked }))}
+              />
+              <label htmlFor="enabled" className="text-sm">Enabled</label>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button type="submit" className="primary">Create Provider</button>
+            </div>
+          </form>
+        </div>
+      )}
 
-              <p className="cn-card-description">
-                {provider.protocol} / {provider.category} / {provider.baseURL}
-              </p>
-              <p className="cn-card-description">
-                内置：{provider.isBuiltin ? "是" : "否"}，密钥：
-                {provider.hasApiKey ? "已配置" : "未配置"}
-              </p>
+      {message && (
+        <div className="p-3 text-sm rounded-md bg-red-50 text-red-600 border border-red-100">
+          {message}
+        </div>
+      )}
 
-              {isEditing ? (
-                <div className="mt-2 flex flex-col gap-2 rounded-md bg-[var(--cn-surface-muted)] p-2">
-                  <input
-                    value={editForm.name}
-                    onChange={(event) =>
-                      setEditForm((prev) => (prev ? { ...prev, name: event.target.value } : prev))
-                    }
-                    placeholder="名称"
-                    disabled={provider.isBuiltin}
-                  />
-                  <div className="flex gap-2">
-                    <select
-                      value={editForm.protocol}
-                      onChange={(event) =>
-                        setEditForm((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                protocol: event.target.value as ProviderProtocol,
-                              }
-                            : prev,
-                        )
-                      }
-                      disabled={provider.isBuiltin}
-                    >
-                      <option value="openai_compatible">openai_compatible</option>
-                      <option value="openai_responses">openai_responses</option>
-                    </select>
-                    <select
-                      value={editForm.category}
-                      onChange={(event) =>
-                        setEditForm((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                category: event.target.value as ProviderCategory,
-                              }
-                            : prev,
-                        )
-                      }
-                    >
-                      <option value="chat">chat</option>
-                      <option value="embedding">embedding</option>
-                      <option value="both">both</option>
-                    </select>
-                  </div>
-                  <input
-                    value={editForm.baseURL}
-                    onChange={(event) =>
-                      setEditForm((prev) =>
-                        prev ? { ...prev, baseURL: event.target.value } : prev,
-                      )
-                    }
-                    placeholder="baseURL"
-                  />
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={editForm.enabled}
-                      onChange={(event) =>
-                        setEditForm((prev) =>
-                          prev ? { ...prev, enabled: event.target.checked } : prev,
-                        )
-                      }
-                    />
-                    启用
-                  </label>
-                  <input
-                    type="password"
-                    value={editForm.apiKey}
-                    onChange={(event) =>
-                      setEditForm((prev) =>
-                        prev ? { ...prev, apiKey: event.target.value } : prev,
-                      )
-                    }
-                    placeholder="可选：覆盖 API Key"
-                  />
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => void handleSaveEdit(provider)}>
-                      保存
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingId(null);
-                        setEditForm(null);
-                      }}
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+      <div className="cn-panel p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-muted text-muted-foreground text-xs uppercase font-medium border-bottom border-border">
+              <tr>
+                <th className="px-6 py-3">Provider</th>
+                <th className="px-6 py-3">Protocol / Category</th>
+                <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {providers.map((provider) => {
+                const isEditing = editingId === provider.id && editForm;
+                const isActive = activeProviderId === provider.id;
 
-      {!hasActive ? <p className="cn-card-description">当前没有可用 Provider。</p> : null}
-    </article>
+                return (
+                  <tr key={provider.id} className={`hover:bg-muted/50 transition-colors ${isActive ? 'bg-blue-50/30' : ''}`}>
+                    <td className="px-6 py-4">
+                      <div className="font-medium flex items-center gap-2">
+                        {provider.name}
+                        {isActive && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">ACTIVE</span>}
+                        {provider.isBuiltin && <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-bold">BUILTIN</span>}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5 max-w-[200px] truncate" title={provider.baseURL}>
+                        {provider.baseURL}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs uppercase opacity-70">{provider.protocol}</span>
+                        <span className="text-xs font-medium">{provider.category}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className={`h-2 w-2 rounded-full ${provider.enabled ? 'bg-green-500' : 'bg-gray-300'}`} />
+                        {provider.enabled ? 'Enabled' : 'Disabled'}
+                        {provider.hasApiKey && <span title="API Key Configured">🔑</span>}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        {!isActive && provider.enabled && (
+                          <button
+                            className="text-xs px-2 py-1"
+                            onClick={() => onActiveProviderIdChange(provider.id)}
+                          >
+                            Set Active
+                          </button>
+                        )}
+                        <button
+                          className="text-xs px-2 py-1"
+                          onClick={() => handleToggleEnabled(provider)}
+                        >
+                          {provider.enabled ? 'Disable' : 'Enable'}
+                        </button>
+                        <button
+                          className="text-xs px-2 py-1"
+                          onClick={() => startEdit(provider)}
+                        >
+                          Edit
+                        </button>
+                        {!provider.isBuiltin && (
+                          <button
+                            className="text-xs px-2 py-1 text-red-600 hover:text-red-700"
+                            onClick={() => handleDelete(provider.id)}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {providers.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
+                    No providers configured. Click "Add Provider" to get started.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editingId && editForm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-background rounded-lg border border-border shadow-xl max-w-md w-full p-6 space-y-4">
+            <h3 className="text-lg font-semibold">Edit Provider</h3>
+            <div className="space-y-4">
+               {/* Simplified edit form in dialog */}
+               <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Name</label>
+                <input
+                  className="w-full"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm(f => f ? ({ ...f, name: e.target.value }) : f)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Base URL</label>
+                <input
+                  className="w-full"
+                  value={editForm.baseURL}
+                  onChange={(e) => setEditForm(f => f ? ({ ...f, baseURL: e.target.value }) : f)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">API Key (Leave blank to keep current)</label>
+                <input
+                  type="password"
+                  className="w-full"
+                  value={editForm.apiKey}
+                  onChange={(e) => setEditForm(f => f ? ({ ...f, apiKey: e.target.value }) : f)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="edit-enabled"
+                  checked={editForm.enabled}
+                  onChange={(e) => setEditForm(f => f ? ({ ...f, enabled: e.target.checked }) : f)}
+                />
+                <label htmlFor="edit-enabled" className="text-sm">Enabled</label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <button onClick={() => setEditingId(null)}>Cancel</button>
+              <button className="primary" onClick={() => handleSaveEdit(providers.find(p => p.id === editingId)!)}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

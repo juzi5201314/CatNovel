@@ -1,6 +1,9 @@
 import { internalError, ok, fail, parseJsonBody } from "@/lib/http/api-response";
 import { validatePatchChapterInput } from "@/lib/http/validators";
-import { recomputeChapterTimelineEvents } from "@/core/timeline/extraction-service";
+import {
+  recomputeChapterTimelineEvents,
+  type RecomputeChapterTimelineResult,
+} from "@/core/timeline/extraction-service";
 import { ProjectSnapshotsService } from "@/core/snapshots/snapshot-service";
 import { ChaptersRepository } from "@/repositories/chapters-repository";
 
@@ -42,18 +45,35 @@ export async function PATCH(request: Request, context: RouteContext) {
     const shouldRecomputeTimeline =
       validation.data.content !== undefined || validation.data.summary !== undefined;
 
+    let timelineRecompute: RecomputeChapterTimelineResult | null = null;
+    let timelineRecomputeError: string | null = null;
     if (shouldRecomputeTimeline) {
-      void recomputeChapterTimelineEvents({
-        projectId: chapter.projectId,
-        chapterId: chapter.id,
-        chapterNo: chapter.orderNo,
-        chapterTitle: chapter.title,
-        chapterContent: chapter.content ?? "",
-        chapterSummary: chapter.summary ?? null,
-      }).catch(() => {});
+      try {
+        timelineRecompute = await recomputeChapterTimelineEvents({
+          projectId: chapter.projectId,
+          chapterId: chapter.id,
+          chapterNo: chapter.orderNo,
+          chapterTitle: chapter.title,
+          chapterContent: chapter.content ?? "",
+          chapterSummary: chapter.summary ?? null,
+        });
+      } catch (error) {
+        timelineRecomputeError = error instanceof Error ? error.message : "timeline recompute failed";
+      }
     }
 
-    return ok(chapter);
+    return ok({
+      chapter,
+      autoSnapshot: saveResult.autoSnapshot,
+      timelineRecompute: timelineRecompute
+        ? {
+            lowConfidenceEvents: timelineRecompute.lowConfidenceEvents,
+            diffReport: timelineRecompute.diffReport,
+            conflictReport: timelineRecompute.conflictReport,
+          }
+        : null,
+      timelineRecomputeError,
+    });
   } catch (error) {
     return internalError(error);
   }

@@ -9,11 +9,53 @@ const P95_BUDGET_MS = Number(process.env.RAG_P95_BUDGET_MS ?? 1500);
 const FAILURE_RATE_MAX = Number(process.env.RAG_FAILURE_RATE_MAX ?? 0.1);
 const RECALL_AT_K_MIN = Number(process.env.RAG_RECALL_AT_K_MIN ?? 0.75);
 
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value || value.trim().length === 0) {
+    throw new Error(`missing required env: ${name}`);
+  }
+  return value.trim();
+}
+
+function optionalEnv(name) {
+  const value = process.env[name];
+  if (!value || value.trim().length === 0) {
+    return null;
+  }
+  return value.trim();
+}
+
+async function configureEmbedding(projectId) {
+  const baseURL = optionalEnv("EMBEDDING_BASE_URL") ?? requireEnv("OPENAI_BASE_URL");
+  const apiKey = optionalEnv("EMBEDDING_API_KEY") ?? requireEnv("API_KEY");
+  const modelId = optionalEnv("EMBEDDING_MODEL") ?? "text-embedding-3-small";
+
+  const provider = await api("POST", "/api/settings/providers", {
+    name: `W7 Perf Embedding ${Date.now()}`,
+    protocol: "openai_compatible",
+    category: "embedding",
+    baseURL,
+    apiKey,
+    enabled: true,
+  });
+  const preset = await api("POST", "/api/settings/model-presets", {
+    providerId: provider.id,
+    purpose: "embedding",
+    apiFormat: "embeddings",
+    modelId,
+  });
+  await api("PATCH", "/api/settings/llm-defaults", {
+    projectId,
+    defaultEmbeddingPresetId: preset.id,
+  });
+}
+
 async function seedProject() {
   const project = await api("POST", "/api/projects", {
     name: `W7 RAG Perf ${Date.now()}`,
     mode: "webnovel",
   });
+  await configureEmbedding(project.id);
 
   const chapters = [
     {

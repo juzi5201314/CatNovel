@@ -1,61 +1,69 @@
-import type { ChatApiFormat } from "@/mastra/agents/chat-agent";
+import {
+  streamTextFromProvider,
+  type ChatMessage,
+  type ChatOverride,
+} from "@/core/llm";
 
 export type GenerateTaskType = "continue" | "rewrite" | "polish" | "expand";
 
 export type GenerateStreamInput = {
+  projectId: string;
   taskType: GenerateTaskType;
   prompt: string;
   selection?: string;
   chatPresetId?: string;
-  override?: {
-    apiFormat?: ChatApiFormat;
-    baseURL?: string;
-    modelId?: string;
-    thinkingBudget?: unknown;
-  };
+  override?: ChatOverride;
 };
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function splitTextForStream(text: string): string[] {
-  return text.split(/(\s+)/).filter((part) => part.length > 0);
-}
-
-function buildGenerateText(input: GenerateStreamInput): string {
-  const mode = input.override?.apiFormat ?? "chat_completions";
-  const target = input.selection?.slice(0, 80) ?? "当前章节";
-  const base = input.prompt.slice(0, 160);
-
-  const header = `任务=${input.taskType}，format=${mode}。`;
-
-  switch (input.taskType) {
+function taskInstruction(taskType: GenerateTaskType): string {
+  switch (taskType) {
     case "continue":
-      return `${header} 我将围绕 ${target} 继续推进剧情：${base}`;
+      return "基于上下文继续写作，推进剧情并保持节奏连贯。";
     case "rewrite":
-      return `${header} 我将重写 ${target} 的表达与节奏：${base}`;
+      return "在不改变核心信息的前提下重写文本，优化叙述结构与表达。";
     case "polish":
-      return `${header} 我将润色 ${target} 的语言细节：${base}`;
+      return "润色语言细节，提升可读性与情绪感染力。";
     case "expand":
-      return `${header} 我将扩写 ${target} 并补充感官描写：${base}`;
+      return "在原意基础上扩写内容，补足细节与感官描写。";
     default:
-      return `${header} ${base}`;
+      return "按要求完成写作任务。";
   }
+}
+
+function buildGenerateMessages(input: GenerateStreamInput): ChatMessage[] {
+  const selection = input.selection?.trim();
+  const userPromptParts = [
+    `任务类型：${input.taskType}`,
+    `任务说明：${taskInstruction(input.taskType)}`,
+    selection ? `选中文本：\n${selection}` : "选中文本：无（基于章节上下文执行）",
+    `补充要求：${input.prompt.trim()}`,
+    "输出要求：直接输出最终文本，不要解释思路。",
+  ];
+
+  return [
+    {
+      role: "system",
+      content:
+        "你是专业中文小说写作助手，需保持人物与世界观一致，输出可直接写入正文的文本。",
+    },
+    {
+      role: "user",
+      content: userPromptParts.join("\n\n"),
+    },
+  ];
 }
 
 export async function* streamGenerateTokens(
   input: GenerateStreamInput,
   signal: AbortSignal,
 ): AsyncGenerator<string> {
-  const text = buildGenerateText(input);
-  for (const token of splitTextForStream(text)) {
-    if (signal.aborted) {
-      return;
-    }
-    yield token;
-    await sleep(20);
-  }
+  const messages = buildGenerateMessages(input);
+  yield* streamTextFromProvider({
+    requestTag: "generate",
+    projectId: input.projectId,
+    messages,
+    chatPresetId: input.chatPresetId,
+    override: input.override,
+    signal,
+  });
 }

@@ -8,10 +8,19 @@ import Database from "better-sqlite3";
 export const baseUrl = process.env.CATNOVEL_BASE_URL ?? "http://127.0.0.1:3000";
 
 const dbPath = path.join(process.cwd(), ".data", "catnovel.sqlite");
-const migrationFiles = [
-  "src/db/migrations/0000_w1a_init.sql",
-  "src/db/migrations/0001_w5a_timeline.sql",
-];
+const migrationDirectory = path.join(process.cwd(), "src", "db", "migrations");
+
+function listMigrationFiles() {
+  if (!fs.existsSync(migrationDirectory)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(migrationDirectory)
+    .filter((fileName) => fileName.endsWith(".sql"))
+    .sort((left, right) => left.localeCompare(right))
+    .map((fileName) => path.join(migrationDirectory, fileName));
+}
 
 function safeJsonParse(value) {
   try {
@@ -24,11 +33,11 @@ function safeJsonParse(value) {
 export function applyMigrations() {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
+  const migrationFiles = listMigrationFiles();
 
   try {
     for (const migrationFile of migrationFiles) {
-      const fullPath = path.join(process.cwd(), migrationFile);
-      const sql = fs.readFileSync(fullPath, "utf8");
+      const sql = fs.readFileSync(migrationFile, "utf8");
       db.exec(sql);
     }
   } finally {

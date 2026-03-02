@@ -8,7 +8,10 @@ import { ProvidersPanel } from "@/components/settings/providers-panel";
 import { RotateKeyDialog } from "@/components/settings/rotate-key-dialog";
 import type { ModelPreset, ProviderConfig } from "@/components/settings/types";
 
+type Tab = "providers" | "presets" | "defaults";
+
 export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<Tab>("providers");
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [presets, setPresets] = useState<ModelPreset[]>([]);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
@@ -19,45 +22,60 @@ export default function SettingsPage() {
   );
 
   return (
-    <main className="cn-workspace">
-      <section className="cn-column" style={{ gridColumn: "1 / -1" }}>
-        <header className="cn-column-header">
-          <h2>Settings</h2>
-          <span>{providers.length} Providers / {presets.length} Presets</span>
-        </header>
+    <main className="max-w-4xl mx-auto py-12 px-4">
+      <header className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground mt-2">
+          Manage your AI providers, model presets, and project defaults.
+        </p>
+      </header>
 
-        <article className="cn-panel cn-panel-soft">
-          <h3 className="cn-card-title">LLM 配置中心</h3>
-          <p className="cn-card-description">
-            管理 Provider、Model Preset、项目默认选择和密钥轮换。
-          </p>
-          <p className="cn-card-description">
-            当前 Provider：{activeProvider ? activeProvider.name : "未选择"}
-          </p>
-        </article>
-      </section>
+      <nav className="settings-tabs">
+        <button
+          className={`settings-tab ${activeTab === "providers" ? "active" : ""}`}
+          onClick={() => setActiveTab("providers")}
+        >
+          Providers
+        </button>
+        <button
+          className={`settings-tab ${activeTab === "presets" ? "active" : ""}`}
+          onClick={() => setActiveTab("presets")}
+        >
+          Model Presets
+        </button>
+        <button
+          className={`settings-tab ${activeTab === "defaults" ? "active" : ""}`}
+          onClick={() => setActiveTab("defaults")}
+        >
+          Defaults
+        </button>
+      </nav>
 
-      <section className="cn-column">
-        <ProvidersPanel
-          activeProviderId={activeProviderId}
-          onActiveProviderIdChange={setActiveProviderId}
-          onProvidersChange={setProviders}
-        />
-        <RotateKeyDialog
-          providerId={activeProviderId}
-          onDone={async () => {
-            // 复用 ProvidersPanel 的数据回刷逻辑：这里只保留占位，避免额外依赖。
-          }}
-        />
-      </section>
+      <div className="space-y-8">
+        {activeTab === "providers" && (
+          <div className="space-y-6">
+            <ProvidersPanel
+              activeProviderId={activeProviderId}
+              onActiveProviderIdChange={setActiveProviderId}
+              onProvidersChange={setProviders}
+            />
+            <RotateKeyDialog
+              providerId={activeProviderId}
+              onDone={async () => {
+                // Done callback
+              }}
+            />
+          </div>
+        )}
 
-      <section className="cn-column">
-        <ModelPresetsPanel providers={providers} onPresetsChange={setPresets} />
-      </section>
+        {activeTab === "presets" && (
+          <ModelPresetsPanel providers={providers} onPresetsChange={setPresets} />
+        )}
 
-      <section className="cn-column">
-        <DefaultSelectionPanel presets={presets} />
-      </section>
+        {activeTab === "defaults" && (
+          <DefaultSelectionPanel presets={presets} />
+        )}
+      </div>
     </main>
   );
 }

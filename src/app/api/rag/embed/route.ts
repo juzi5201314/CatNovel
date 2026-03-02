@@ -1,15 +1,17 @@
 import { internalError, fail, ok, parseJsonBody } from "@/lib/http/api-response";
-import { embedTexts, embeddingDimensions } from "@/core/retrieval/embedding";
+import { embedTexts } from "@/core/retrieval/embedding";
+
+type EmbedOverride = {
+  baseURL?: string;
+  modelId?: string;
+  thinkingBudget?: unknown;
+};
 
 type EmbedRequest = {
   projectId?: string;
   embeddingPresetId?: string;
   texts: string[];
-  override?: {
-    baseURL?: string;
-    modelId?: string;
-    thinkingBudget?: unknown;
-  };
+  override?: EmbedOverride;
 };
 
 function validateEmbedRequest(payload: unknown): EmbedRequest | null {
@@ -29,15 +31,27 @@ function validateEmbedRequest(payload: unknown): EmbedRequest | null {
     texts.push(item);
   }
 
+  let override: EmbedOverride | undefined;
+  if (record.override !== undefined) {
+    if (!record.override || typeof record.override !== "object") {
+      return null;
+    }
+    const overrideRecord = record.override as Record<string, unknown>;
+    override = {
+      baseURL:
+        typeof overrideRecord.baseURL === "string" ? overrideRecord.baseURL : undefined,
+      modelId:
+        typeof overrideRecord.modelId === "string" ? overrideRecord.modelId : undefined,
+      thinkingBudget: overrideRecord.thinkingBudget,
+    };
+  }
+
   return {
     projectId: typeof record.projectId === "string" ? record.projectId : undefined,
     embeddingPresetId:
       typeof record.embeddingPresetId === "string" ? record.embeddingPresetId : undefined,
     texts,
-    override:
-      record.override && typeof record.override === "object"
-        ? (record.override as EmbedRequest["override"])
-        : undefined,
+    override,
   };
 }
 
@@ -53,9 +67,13 @@ export async function POST(request: Request) {
       return fail("INVALID_INPUT", "texts must be a non-empty string array", 400);
     }
 
-    const vectors = embedTexts(input.texts);
+    const vectors = await embedTexts(input.texts, {
+      projectId: input.projectId,
+      embeddingPresetId: input.embeddingPresetId,
+      override: input.override,
+    });
     return ok({
-      dimensions: embeddingDimensions(),
+      dimensions: vectors[0]?.length ?? 0,
       vectors,
     });
   } catch (error) {

@@ -74,7 +74,7 @@ async function main() {
     }),
   });
 
-  if (updated.content !== "Smoke content") {
+  if (updated.chapter.content !== "Smoke content") {
     throw new Error("chapter content mismatch after PATCH");
   }
 

@@ -7,11 +7,14 @@ import {
   eventEntities,
   events,
   timelineSnapshots,
+  timelineReviewBacklog,
   type EntityAliasRow,
   type TimelineEntityRow,
   type TimelineEntityType,
   type TimelineEventRow,
   type TimelineEventStatus,
+  type TimelineReviewBacklogRow,
+  type TimelineReviewBacklogStatus,
 } from "@/db/schema";
 
 import { BaseRepository } from "./base-repository";
@@ -38,6 +41,39 @@ export type TimelineConflictResult = {
   codes: TimelineConflictCode[];
   conflicts: TimelineConflict[];
 };
+
+export const TIMELINE_EVENT_STATUS_TRANSITIONS: Record<
+  TimelineEventStatus,
+  readonly TimelineEventStatus[]
+> = {
+  auto: ["auto", "pending_review", "confirmed", "rejected"],
+  pending_review: ["pending_review", "confirmed", "rejected", "auto"],
+  confirmed: ["confirmed"],
+  rejected: ["rejected", "pending_review"],
+} as const;
+
+export type TimelineStatusTransition = {
+  from: TimelineEventStatus;
+  to: TimelineEventStatus;
+  changed: boolean;
+};
+
+export class TimelineStatusTransitionError extends Error {
+  readonly code = "TIMELINE_STATUS_TRANSITION_INVALID";
+  readonly from: TimelineEventStatus;
+  readonly to: TimelineEventStatus;
+  readonly eventId?: string;
+
+  constructor(input: { from: TimelineEventStatus; to: TimelineEventStatus; eventId?: string }) {
+    super(
+      `invalid timeline status transition: ${input.from} -> ${input.to}${input.eventId ? ` (${input.eventId})` : ""}`,
+    );
+    this.name = "TimelineStatusTransitionError";
+    this.from = input.from;
+    this.to = input.to;
+    this.eventId = input.eventId;
+  }
+}
 
 export type NormalizeEntityInput = {
   entityId?: string;
@@ -71,6 +107,12 @@ export type UpsertTimelineEventInput = DetectTimelineConflictInput & {
   confidence?: number;
   status?: TimelineEventStatus;
   entityRole?: string;
+  fingerprint?: string | null;
+  reviewReason?: string | null;
+  reviewSource?: string | null;
+  reviewedBy?: string | null;
+  reviewNote?: string | null;
+  statusUpdatedBy?: string | null;
 };
 
 export type TimelineEventWithEntities = {
@@ -83,6 +125,8 @@ export type UpsertTimelineEventResult = {
   entityIds: string[];
   snapshotId: string;
   conflictResult: TimelineConflictResult;
+  statusTransition: TimelineStatusTransition;
+  reviewBacklog: TimelineReviewBacklogRow | null;
 };
 
 export type DeleteChapterEventsResult = {
@@ -94,6 +138,19 @@ export type DeleteChapterEventsResult = {
 export type EntityWithAliases = {
   entity: TimelineEntityRow;
   aliases: EntityAliasRow[];
+};
+
+export type ListReviewBacklogInput = {
+  projectId: string;
+  chapterId?: string;
+  statuses?: TimelineReviewBacklogStatus[];
+  limit?: number;
+};
+
+export type TimelineReviewBacklogItem = {
+  backlog: TimelineReviewBacklogRow;
+  event: TimelineEventRow;
+  entityIds: string[];
 };
 
 type AliasCandidate = {
@@ -158,6 +215,58 @@ function buildEventDedupeKey(input: {
   const normalizedSummary = input.summary ? normalizeToken(input.summary) : "";
   const sortedEntityIds = [...input.entityIds].sort();
   return [input.chapterId, normalizedTitle, normalizedSummary, sortedEntityIds.join(",")].join("|");
+}
+
+function buildStatusTransition(
+  from: TimelineEventStatus,
+  to: TimelineEventStatus,
+  eventId?: string,
+): TimelineStatusTransition {
+  const allowed = TIMELINE_EVENT_STATUS_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(to)) {
+    throw new TimelineStatusTransitionError({ from, to, eventId });
+  }
+  return {
+    from,
+    to,
+    changed: from !== to,
+  };
+}
+
+function normalizeAuditActor(value: string | null | undefined, fallback: string): string {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function normalizeReviewSource(value: string | null | undefined): string {
+  if (!value) {
+    return "llm_low_confidence";
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : "llm_low_confidence";
+}
+
+function resolveBacklogStatusByEventStatus(status: TimelineEventStatus): TimelineReviewBacklogStatus {
+  if (status === "pending_review") {
+    return "queued";
+  }
+  if (status === "confirmed") {
+    return "confirmed";
+  }
+  if (status === "rejected") {
+    return "rejected";
+  }
+  return "resolved";
+}
+
+function normalizeBacklogLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) {
+    return 200;
+  }
+  return Math.min(1000, Math.max(1, Math.trunc(limit ?? 200)));
 }
 
 export class TimelineRepository extends BaseRepository {
@@ -476,6 +585,13 @@ export class TimelineRepository extends BaseRepository {
       const nextVersion = existingEvent ? existingEvent.version + 1 : 1;
       const nextStatus: TimelineEventStatus =
         input.status ?? (conflictResult.hasConflicts ? "pending_review" : "auto");
+      const statusTransition = existingEvent
+        ? buildStatusTransition(existingEvent.status, nextStatus, existingEvent.id)
+        : {
+            from: nextStatus,
+            to: nextStatus,
+            changed: false,
+          };
 
       if (existingEvent) {
         tx.update(events)
@@ -543,6 +659,23 @@ export class TimelineRepository extends BaseRepository {
         .all()
         .map((row) => row.entityId);
 
+      const reviewBacklog = this.upsertReviewBacklogInDb(tx, {
+        projectId: input.projectId,
+        chapterId: input.chapterId,
+        eventId,
+        eventStatus: persistedEvent.status,
+        confidence: persistedEvent.confidence,
+        fingerprint: input.fingerprint ?? null,
+        reason: input.reviewReason ?? null,
+        source: normalizeReviewSource(input.reviewSource),
+        reviewedBy:
+          input.reviewedBy ??
+          (persistedEvent.status === "confirmed" || persistedEvent.status === "rejected"
+            ? normalizeAuditActor(input.statusUpdatedBy, "manual_review")
+            : null),
+        reviewNote: input.reviewNote ?? null,
+      });
+
       const snapshotId = crypto.randomUUID();
       // 每次事件写入都落快照，确保后续可回溯差异。
       tx.insert(timelineSnapshots)
@@ -568,6 +701,18 @@ export class TimelineRepository extends BaseRepository {
               status: persistedEvent.status,
               entityIds: persistedEntityIds,
             },
+            statusTransition,
+            statusUpdatedBy: normalizeAuditActor(input.statusUpdatedBy, "timeline_repository"),
+            reviewBacklog: reviewBacklog
+              ? {
+                  id: reviewBacklog.id,
+                  status: reviewBacklog.status,
+                  reason: reviewBacklog.reason,
+                  queuedAt: reviewBacklog.queuedAt,
+                  processedAt: reviewBacklog.processedAt,
+                  processedBy: reviewBacklog.processedBy,
+                }
+              : null,
             conflictCodes: conflictResult.codes,
             conflicts: conflictResult.conflicts,
           }),
@@ -579,6 +724,8 @@ export class TimelineRepository extends BaseRepository {
         entityIds: persistedEntityIds,
         snapshotId,
         conflictResult,
+        statusTransition,
+        reviewBacklog,
       };
     });
   }
@@ -597,6 +744,140 @@ export class TimelineRepository extends BaseRepository {
     }
 
     const eventRows = rows.map((row) => row.event);
+    const eventEntityMap = this.getEventEntityMap(this.db, eventRows.map((eventRow) => eventRow.id));
+    return eventRows.map((eventRow) => ({
+      event: eventRow,
+      entityIds: eventEntityMap.get(eventRow.id) ?? [],
+    }));
+  }
+
+  listEventsByChapter(projectId: string, chapterId: string): TimelineEventWithEntities[] {
+    const eventRows = this.db
+      .select()
+      .from(events)
+      .where(and(eq(events.projectId, projectId), eq(events.chapterId, chapterId)))
+      .orderBy(asc(events.chapterOrder), asc(events.sequenceNo), asc(events.createdAt))
+      .all();
+
+    if (eventRows.length === 0) {
+      return [];
+    }
+
+    const eventEntityMap = this.getEventEntityMap(this.db, eventRows.map((eventRow) => eventRow.id));
+    return eventRows.map((eventRow) => ({
+      event: eventRow,
+      entityIds: eventEntityMap.get(eventRow.id) ?? [],
+    }));
+  }
+
+  listReviewBacklog(input: ListReviewBacklogInput): TimelineReviewBacklogItem[] {
+    const statuses: TimelineReviewBacklogStatus[] = input.statuses?.length ? input.statuses : ["queued"];
+    const limit = normalizeBacklogLimit(input.limit);
+
+    const rows = input.chapterId
+      ? this.db
+          .select()
+          .from(timelineReviewBacklog)
+          .where(
+            and(
+              eq(timelineReviewBacklog.projectId, input.projectId),
+              eq(timelineReviewBacklog.chapterId, input.chapterId),
+              inArray(timelineReviewBacklog.status, statuses),
+            ),
+          )
+          .orderBy(asc(timelineReviewBacklog.queuedAt), asc(timelineReviewBacklog.createdAt))
+          .limit(limit)
+          .all()
+      : this.db
+          .select()
+          .from(timelineReviewBacklog)
+          .where(and(eq(timelineReviewBacklog.projectId, input.projectId), inArray(timelineReviewBacklog.status, statuses)))
+          .orderBy(asc(timelineReviewBacklog.queuedAt), asc(timelineReviewBacklog.createdAt))
+          .limit(limit)
+          .all();
+
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const eventRows = this.db
+      .select()
+      .from(events)
+      .where(and(eq(events.projectId, input.projectId), inArray(events.id, rows.map((row) => row.eventId))))
+      .all();
+    const eventMap = new Map(eventRows.map((row) => [row.id, row] as const));
+    const eventEntityMap = this.getEventEntityMap(this.db, rows.map((row) => row.eventId));
+
+    return rows
+      .map((row) => {
+        const event = eventMap.get(row.eventId);
+        if (!event) {
+          return null;
+        }
+        return {
+          backlog: row,
+          event,
+          entityIds: eventEntityMap.get(row.eventId) ?? [],
+        };
+      })
+      .filter((item): item is TimelineReviewBacklogItem => item !== null);
+  }
+
+  countReviewBacklog(projectId: string, chapterId?: string): number {
+    const rows = chapterId
+      ? this.db
+          .select({ id: timelineReviewBacklog.id })
+          .from(timelineReviewBacklog)
+          .where(
+            and(
+              eq(timelineReviewBacklog.projectId, projectId),
+              eq(timelineReviewBacklog.chapterId, chapterId),
+              eq(timelineReviewBacklog.status, "queued"),
+            ),
+          )
+          .all()
+      : this.db
+          .select({ id: timelineReviewBacklog.id })
+          .from(timelineReviewBacklog)
+          .where(
+            and(eq(timelineReviewBacklog.projectId, projectId), eq(timelineReviewBacklog.status, "queued")),
+          )
+          .all();
+    return rows.length;
+  }
+
+  listEventsByChapterOrders(
+    projectId: string,
+    chapterOrders: number[],
+    limit = 20,
+  ): TimelineEventWithEntities[] {
+    if (limit <= 0) {
+      return [];
+    }
+
+    const dedupedChapterOrders = [...new Set(chapterOrders.filter((value) => Number.isInteger(value)))];
+    if (dedupedChapterOrders.length === 0) {
+      return [];
+    }
+
+    const eventRows = this.db
+      .select()
+      .from(events)
+      .where(
+        and(
+          eq(events.projectId, projectId),
+          inArray(events.chapterOrder, dedupedChapterOrders),
+          ne(events.status, "rejected"),
+        ),
+      )
+      .orderBy(asc(events.chapterOrder), asc(events.sequenceNo), asc(events.createdAt))
+      .limit(limit)
+      .all();
+
+    if (eventRows.length === 0) {
+      return [];
+    }
+
     const eventEntityMap = this.getEventEntityMap(this.db, eventRows.map((eventRow) => eventRow.id));
     return eventRows.map((eventRow) => ({
       event: eventRow,
@@ -643,6 +924,114 @@ export class TimelineRepository extends BaseRepository {
         snapshotId,
       };
     });
+  }
+
+  private upsertReviewBacklogInDb(
+    database: AppDatabase,
+    input: {
+      projectId: string;
+      chapterId: string;
+      eventId: string;
+      eventStatus: TimelineEventStatus;
+      confidence: number;
+      fingerprint?: string | null;
+      reason?: string | null;
+      source: string;
+      reviewedBy?: string | null;
+      reviewNote?: string | null;
+    },
+  ): TimelineReviewBacklogRow | null {
+    const existing =
+      database
+        .select()
+        .from(timelineReviewBacklog)
+        .where(eq(timelineReviewBacklog.eventId, input.eventId))
+        .get() ?? null;
+    const nextBacklogStatus = resolveBacklogStatusByEventStatus(input.eventStatus);
+    const now = new Date();
+
+    if (nextBacklogStatus === "queued") {
+      const reason =
+        input.reason?.trim() ||
+        (input.confidence < 0.72 ? "low_confidence" : "conflict_or_policy");
+
+      if (existing) {
+        database
+          .update(timelineReviewBacklog)
+          .set({
+            projectId: input.projectId,
+            chapterId: input.chapterId,
+            status: "queued",
+            reason,
+            confidence: input.confidence,
+            fingerprint: input.fingerprint ?? existing.fingerprint,
+            source: normalizeReviewSource(input.source),
+            queuedAt: existing.status === "queued" ? existing.queuedAt : now,
+            processedAt: null,
+            processedBy: null,
+            decisionNote: null,
+            updatedAt: now,
+          })
+          .where(eq(timelineReviewBacklog.id, existing.id))
+          .run();
+      } else {
+        database
+          .insert(timelineReviewBacklog)
+          .values({
+            id: crypto.randomUUID(),
+            projectId: input.projectId,
+            chapterId: input.chapterId,
+            eventId: input.eventId,
+            status: "queued",
+            reason,
+            confidence: input.confidence,
+            fingerprint: input.fingerprint ?? null,
+            source: normalizeReviewSource(input.source),
+            queuedAt: now,
+            processedAt: null,
+            processedBy: null,
+            decisionNote: null,
+          })
+          .run();
+      }
+
+      return (
+        database
+          .select()
+          .from(timelineReviewBacklog)
+          .where(eq(timelineReviewBacklog.eventId, input.eventId))
+          .get() ?? null
+      );
+    }
+
+    if (!existing) {
+      return null;
+    }
+
+    database
+      .update(timelineReviewBacklog)
+      .set({
+        projectId: input.projectId,
+        chapterId: input.chapterId,
+        status: nextBacklogStatus,
+        confidence: input.confidence,
+        fingerprint: input.fingerprint ?? existing.fingerprint,
+        source: normalizeReviewSource(input.source),
+        processedAt: existing.processedAt ?? now,
+        processedBy: normalizeAuditActor(input.reviewedBy, existing.processedBy ?? "timeline_state_machine"),
+        decisionNote: input.reviewNote?.trim() || existing.decisionNote,
+        updatedAt: now,
+      })
+      .where(eq(timelineReviewBacklog.id, existing.id))
+      .run();
+
+    return (
+      database
+        .select()
+        .from(timelineReviewBacklog)
+        .where(eq(timelineReviewBacklog.id, existing.id))
+        .get() ?? null
+    );
   }
 
   private detectConflictsInDb(

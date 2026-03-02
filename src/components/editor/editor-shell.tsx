@@ -9,11 +9,14 @@ import { EditorToolbar } from "./editor-toolbar";
 import { SaveIndicator } from "./save-indicator";
 import type { EditorShellProps, EditorSaveStatus } from "./types";
 
+type EditorMode = "edit" | "preview";
+
 export function EditorShell({
   chapter,
   onSave,
   autosaveDelayMs = 1000,
 }: EditorShellProps) {
+  const [mode, setMode] = useState<EditorMode>("edit");
   const [saveStatus, setSaveStatus] = useState<EditorSaveStatus>("idle");
   const [dirty, setDirty] = useState(false);
   const [wordCount, setWordCount] = useState(0);
@@ -25,10 +28,11 @@ export function EditorShell({
   const editor = useEditor({
     extensions: [StarterKit],
     content: chapter?.content ?? "",
+    immediatelyRender: false,
     editorProps: {
       attributes: {
         class:
-          "min-h-[420px] rounded-lg border border-[var(--cn-border)] bg-white p-4 outline-none focus:border-[#21636b]",
+          "prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[500px] py-12",
       },
     },
     onUpdate({ editor: currentEditor }) {
@@ -40,9 +44,7 @@ export function EditorShell({
   });
 
   useEffect(() => {
-    if (!editor) {
-      return;
-    }
+    if (!editor) return;
 
     if (!chapter) {
       editor.commands.setContent("", { emitUpdate: false });
@@ -59,18 +61,14 @@ export function EditorShell({
     setWordCount(editor.state.doc.textContent.length);
     setDirty(false);
     setSaveStatus("idle");
-  }, [chapter?.id, chapter?.content, editor, chapter]);
+  }, [chapter?.id, chapter?.content, editor]);
 
   const persist = useCallback(
     async (force: boolean) => {
-      if (!editor || !chapter || saveInFlightRef.current) {
-        return;
-      }
+      if (!editor || !chapter || saveInFlightRef.current) return;
 
       const currentContent = editor.getHTML();
-      if (!force && currentContent === lastSavedContentRef.current) {
-        return;
-      }
+      if (!force && currentContent === lastSavedContentRef.current) return;
 
       saveInFlightRef.current = true;
       setSaveStatus("saving");
@@ -94,26 +92,18 @@ export function EditorShell({
   );
 
   useEffect(() => {
-    if (!chapter || !editor || !dirty) {
-      return;
-    }
+    if (!chapter || !editor || !dirty) return;
 
-    // 关键逻辑：内容变更后按固定延时自动保存，减少频繁写入。
     const timer = window.setTimeout(() => {
       void persist(false);
     }, autosaveDelayMs);
 
-    return () => {
-      window.clearTimeout(timer);
-    };
+    return () => window.clearTimeout(timer);
   }, [autosaveDelayMs, chapter, dirty, draftVersion, editor, persist]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!chapter) {
-        return;
-      }
-
+      if (!chapter) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         void persist(true);
@@ -121,47 +111,83 @@ export function EditorShell({
     };
 
     window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [chapter, persist]);
 
   const chapterSubtitle = useMemo(() => {
-    if (!chapter) {
-      return "未选择章节";
-    }
-
-    return `第 ${chapter.orderNo} 章 · ${chapter.title}`;
+    if (!chapter) return "No Chapter Selected";
+    return `Chapter ${chapter.orderNo} · ${chapter.title}`;
   }, [chapter]);
 
   return (
-    <section className="cn-panel flex h-full min-h-[640px] flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-[var(--cn-text-primary)]">{chapterSubtitle}</h3>
-          <p className="text-sm text-[var(--cn-text-secondary)]">支持自动保存与 Ctrl/Cmd+S 手动保存</p>
+    <div className="flex flex-col h-full bg-background animate-in fade-in duration-500">
+      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border px-8 py-4 flex items-center justify-between">
+        <div className="space-y-0.5">
+          <h1 className="text-xl font-semibold tracking-tight">{chapterSubtitle}</h1>
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+             <SaveIndicator status={saveStatus} dirty={dirty} wordCount={wordCount} />
+             <span className="opacity-50">|</span>
+             <span>Autosave active</span>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void persist(true)}
-          disabled={!chapter || saveStatus === "saving"}
-          className="rounded-md border border-[var(--cn-border)] bg-white px-3 py-1.5 text-sm text-[var(--cn-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          立即保存
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-muted rounded-md p-1 mr-2">
+            <button 
+              onClick={() => setMode("edit")}
+              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded transition-all ${mode === 'edit' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              Edit
+            </button>
+            <button 
+              onClick={() => setMode("preview")}
+              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded transition-all ${mode === 'preview' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              Preview
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => void persist(true)}
+            disabled={!chapter || saveStatus === "saving"}
+            className="text-xs px-4 py-1.5 primary"
+          >
+            {saveStatus === "saving" ? "Saving..." : "Save"}
+          </button>
+        </div>
       </header>
 
-      <EditorToolbar editor={editor} />
-      <SaveIndicator status={saveStatus} dirty={dirty} wordCount={wordCount} />
-
-      {chapter ? (
-        <EditorContent editor={editor} />
-      ) : (
-        <div className="flex min-h-[420px] items-center justify-center rounded-lg border border-dashed border-[var(--cn-border)] bg-white text-[var(--cn-text-secondary)]">
-          请选择章节后开始编辑
+      <div className="flex-1 overflow-y-auto px-8 py-12 custom-scrollbar bg-muted/10">
+        <div className="max-w-4xl mx-auto">
+          {mode === "edit" ? (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <EditorToolbar editor={editor} />
+              <div className="min-h-[600px] relative bg-background rounded-xl border border-border shadow-sm overflow-hidden">
+                {chapter ? (
+                  <EditorContent editor={editor} />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground space-y-4">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="opacity-20"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <p className="text-sm font-medium">Select a chapter from the sidebar to start writing.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="animate-in fade-in zoom-in-95 duration-300">
+              <div className="bg-background rounded-xl border border-border shadow-sm p-12 min-h-[800px]">
+                <div className="prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto">
+                  <h1 className="text-4xl font-bold mb-8 border-b border-border pb-4">{chapter?.title}</h1>
+                  <div 
+                    dangerouslySetInnerHTML={{ __html: editor?.getHTML() ?? "" }} 
+                    className="preview-content"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </section>
+      </div>
+    </div>
   );
 }

@@ -4,10 +4,16 @@ import {
   randomBytes,
   type BinaryLike,
 } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 const ALGORITHM = "aes-256-gcm";
 const NONCE_SIZE = 12;
 const REQUIRED_KEY_BYTES = 32;
+const DEV_KEY_PATH = path.join(process.cwd(), ".data", "dev-secret.key");
+
+let cachedDevKey: Buffer | null = null;
+let hasLoggedDevFallback = false;
 
 export type EncryptedSecret = {
   ciphertext: string;
@@ -47,16 +53,74 @@ function decodeUtf8Key(raw: string): Buffer | null {
   return decoded;
 }
 
+function decodeAnyKey(raw: string): Buffer | null {
+  return (
+    decodeBase64Key(raw) ??
+    decodeHexKey(raw) ??
+    decodeUtf8Key(raw)
+  );
+}
+
+function isProductionMode(): boolean {
+  return (process.env.NODE_ENV ?? "").trim().toLowerCase() === "production";
+}
+
+function readDevKeyFromFile(): Buffer | null {
+  if (!fs.existsSync(DEV_KEY_PATH)) {
+    return null;
+  }
+
+  const raw = fs.readFileSync(DEV_KEY_PATH, "utf8").trim();
+  const decoded = decodeAnyKey(raw);
+  if (!decoded) {
+    throw new Error(
+      `Invalid dev secret key at ${DEV_KEY_PATH}; delete this file to regenerate`,
+    );
+  }
+
+  return decoded;
+}
+
+function writeDevKeyToFile(key: Buffer): void {
+  fs.mkdirSync(path.dirname(DEV_KEY_PATH), { recursive: true });
+  fs.writeFileSync(DEV_KEY_PATH, key.toString("base64"), { mode: 0o600 });
+}
+
+function resolveDevelopmentSecretKey(): Buffer {
+  if (cachedDevKey) {
+    return cachedDevKey;
+  }
+
+  const existing = readDevKeyFromFile();
+  if (existing) {
+    cachedDevKey = existing;
+    return cachedDevKey;
+  }
+
+  const generated = randomBytes(REQUIRED_KEY_BYTES);
+  writeDevKeyToFile(generated);
+  cachedDevKey = generated;
+  return cachedDevKey;
+}
+
 export function resolveSecretKey(rawKey: string | undefined): Buffer {
   if (!rawKey || rawKey.trim().length === 0) {
-    throw new Error("CATNOVEL_SECRET_KEY is required");
+    if (isProductionMode()) {
+      throw new Error("CATNOVEL_SECRET_KEY is required");
+    }
+
+    const devKey = resolveDevelopmentSecretKey();
+    if (!hasLoggedDevFallback) {
+      console.warn(
+        "[secret-crypto] CATNOVEL_SECRET_KEY is missing; using persisted dev key at .data/dev-secret.key",
+      );
+      hasLoggedDevFallback = true;
+    }
+    return devKey;
   }
 
   const normalized = rawKey.trim();
-  const decoded =
-    decodeBase64Key(normalized) ??
-    decodeHexKey(normalized) ??
-    decodeUtf8Key(normalized);
+  const decoded = decodeAnyKey(normalized);
 
   if (!decoded) {
     throw new Error(

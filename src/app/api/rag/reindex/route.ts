@@ -59,6 +59,12 @@ async function executeReindex(jobId: string, input: ReindexRequest): Promise<voi
     markJobDone(jobId, summary);
   } catch (error) {
     const message = error instanceof Error ? error.message : "reindex failed";
+    console.error("[rag] reindex job failed", {
+      jobId,
+      projectId: input.projectId,
+      reason: input.reason,
+      message,
+    });
     markJobFailed(jobId, message);
   }
 }

@@ -2,7 +2,19 @@
 
 import { create } from "zustand";
 
-import type { ApiResponse, ApiSuccess, ChapterItem, ProjectItem, ProjectMode } from "@/components/workspace/types";
+import type {
+  ApiResponse,
+  ApiSuccess,
+  ChapterItem,
+  ChapterSaveResponse,
+  ImportErrorReport,
+  ProjectImportResult,
+  ProjectItem,
+  ProjectMode,
+  ProjectSnapshotDiff,
+  ProjectSnapshotSummary,
+  SnapshotRestoreResult,
+} from "@/components/workspace/types";
 
 type SaveChapterPayload = {
   content: string;
@@ -12,23 +24,70 @@ type SaveChapterPayload = {
 type WorkspaceState = {
   projects: ProjectItem[];
   chapters: ChapterItem[];
+  snapshots: ProjectSnapshotSummary[];
+  snapshotDiff: ProjectSnapshotDiff | null;
+  snapshotRestoreResult: SnapshotRestoreResult | null;
   selectedProjectId: string | null;
   selectedChapterId: string | null;
   loadingProjects: boolean;
   loadingChapters: boolean;
+  loadingSnapshots: boolean;
+  loadingSnapshotDiff: boolean;
   creatingProject: boolean;
   creatingChapter: boolean;
   savingChapter: boolean;
+  creatingSnapshot: boolean;
+  restoringSnapshotId: string | null;
+  importingProject: boolean;
+  exportingProject: boolean;
+  importResult: ProjectImportResult | null;
+  importErrorReport: ImportErrorReport | null;
+  lastExportJson: string | null;
   error: string | null;
   fetchProjects: () => Promise<void>;
   createProject: (input: { name: string; mode: ProjectMode }) => Promise<void>;
   selectProject: (projectId: string | null) => Promise<void>;
   fetchChapters: (projectId: string) => Promise<void>;
+  fetchSnapshots: (projectId: string) => Promise<void>;
   createChapter: (input: { title: string }) => Promise<void>;
   selectChapter: (chapterId: string | null) => void;
   saveChapter: (payload: SaveChapterPayload) => Promise<void>;
+  importProjectFromJson: (rawJson: string) => Promise<void>;
+  exportSelectedProject: () => Promise<void>;
+  createManualSnapshot: (reason?: string) => Promise<void>;
+  restoreSnapshot: (snapshotId: string, reason?: string) => Promise<void>;
+  loadSnapshotDiff: (snapshotId: string, againstSnapshotId?: string) => Promise<void>;
+  clearSnapshotDiff: () => void;
+  clearImportFeedback: () => void;
   clearError: () => void;
 };
+
+class ApiRequestError extends Error {
+  readonly code: string;
+  readonly details: unknown;
+  readonly status: number;
+
+  constructor(input: {
+    message: string;
+    code?: string;
+    details?: unknown;
+    status?: number;
+  }) {
+    super(input.message);
+    this.name = "ApiRequestError";
+    this.code = input.code ?? "REQUEST_FAILED";
+    this.details = input.details;
+    this.status = input.status ?? 500;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isApiRequestError(error: unknown): error is ApiRequestError {
+  return error instanceof ApiRequestError;
+}
 
 function normalizeError(reason: unknown, fallback: string): string {
   if (reason instanceof Error) {
@@ -41,10 +100,32 @@ function normalizeError(reason: unknown, fallback: string): string {
 }
 
 async function readJson<T>(response: Response): Promise<ApiSuccess<T>> {
-  const json = (await response.json()) as ApiResponse<T>;
-  if (!response.ok || !json.success) {
-    throw new Error(json.success ? "request_failed" : json.error.message);
+  let json: ApiResponse<T>;
+  try {
+    json = (await response.json()) as ApiResponse<T>;
+  } catch {
+    throw new ApiRequestError({
+      message: "响应解析失败",
+      code: "INVALID_JSON_RESPONSE",
+      status: response.status,
+    });
   }
+
+  if (!response.ok || !json.success) {
+    if (!json.success) {
+      throw new ApiRequestError({
+        message: json.error.message,
+        code: json.error.code,
+        details: json.error.details,
+        status: response.status,
+      });
+    }
+    throw new ApiRequestError({
+      message: "request_failed",
+      status: response.status,
+    });
+  }
+
   return json;
 }
 
@@ -52,16 +133,100 @@ function pickInitialChapter(chapters: ChapterItem[]): string | null {
   return chapters.length > 0 ? chapters[0].id : null;
 }
 
+function normalizeImportErrorReport(raw: unknown): ImportErrorReport | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+
+  const stage = raw.stage;
+  const hint = raw.hint;
+  const recoverable = raw.recoverable;
+  const issues = raw.issues;
+
+  if (
+    (stage !== "validation" &&
+      stage !== "parser" &&
+      stage !== "persistence" &&
+      stage !== "configuration") ||
+    typeof hint !== "string" ||
+    typeof recoverable !== "boolean" ||
+    !Array.isArray(issues)
+  ) {
+    return null;
+  }
+
+  const normalizedIssues: ImportErrorReport["issues"] = [];
+  for (const issue of issues) {
+    if (!isRecord(issue)) {
+      continue;
+    }
+
+    const code = issue.code;
+    const message = issue.message;
+    const issueRecoverable = issue.recoverable;
+    const issueHint = issue.hint;
+    const target = issue.target;
+
+    if (
+      typeof code !== "string" ||
+      typeof message !== "string" ||
+      typeof issueRecoverable !== "boolean" ||
+      typeof issueHint !== "string"
+    ) {
+      continue;
+    }
+
+    normalizedIssues.push({
+      code,
+      message,
+      recoverable: issueRecoverable,
+      hint: issueHint,
+      target: typeof target === "string" ? target : undefined,
+      details: issue.details,
+    });
+  }
+
+  return {
+    stage,
+    hint,
+    recoverable,
+    issues: normalizedIssues,
+  };
+}
+
+function sortSnapshots(input: ProjectSnapshotSummary[]): ProjectSnapshotSummary[] {
+  return [...input].sort((left, right) => {
+    const leftTs = new Date(left.createdAt).getTime();
+    const rightTs = new Date(right.createdAt).getTime();
+    if (leftTs !== rightTs) {
+      return rightTs - leftTs;
+    }
+    return right.id.localeCompare(left.id);
+  });
+}
+
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   projects: [],
   chapters: [],
+  snapshots: [],
+  snapshotDiff: null,
+  snapshotRestoreResult: null,
   selectedProjectId: null,
   selectedChapterId: null,
   loadingProjects: false,
   loadingChapters: false,
+  loadingSnapshots: false,
+  loadingSnapshotDiff: false,
   creatingProject: false,
   creatingChapter: false,
   savingChapter: false,
+  creatingSnapshot: false,
+  restoringSnapshotId: null,
+  importingProject: false,
+  exportingProject: false,
+  importResult: null,
+  importErrorReport: null,
+  lastExportJson: null,
   error: null,
 
   fetchProjects: async () => {
@@ -83,9 +248,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       });
 
       if (selectedProjectId) {
-        await get().fetchChapters(selectedProjectId);
+        await Promise.all([
+          get().fetchChapters(selectedProjectId),
+          get().fetchSnapshots(selectedProjectId),
+        ]);
       } else {
-        set({ chapters: [], selectedChapterId: null });
+        set({
+          chapters: [],
+          snapshots: [],
+          snapshotDiff: null,
+          snapshotRestoreResult: null,
+          selectedChapterId: null,
+        });
       }
     } catch (error) {
       set({
@@ -111,11 +285,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         projects: nextProjects,
         selectedProjectId: created.id,
         chapters: [],
+        snapshots: [],
+        snapshotDiff: null,
+        snapshotRestoreResult: null,
         selectedChapterId: null,
         creatingProject: false,
       });
 
-      await get().fetchChapters(created.id);
+      await Promise.all([get().fetchChapters(created.id), get().fetchSnapshots(created.id)]);
     } catch (error) {
       set({
         creatingProject: false,
@@ -125,12 +302,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   selectProject: async (projectId) => {
-    set({ selectedProjectId: projectId, selectedChapterId: null, error: null });
+    set({
+      selectedProjectId: projectId,
+      selectedChapterId: null,
+      snapshotDiff: null,
+      snapshotRestoreResult: null,
+      error: null,
+    });
     if (!projectId) {
-      set({ chapters: [] });
+      set({ chapters: [], snapshots: [] });
       return;
     }
-    await get().fetchChapters(projectId);
+    await Promise.all([get().fetchChapters(projectId), get().fetchSnapshots(projectId)]);
   },
 
   fetchChapters: async (projectId) => {
@@ -147,15 +330,50 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           ? currentChapterId
           : pickInitialChapter(chapters);
 
+      if (get().selectedProjectId !== projectId) {
+        return;
+      }
+
       set({
         chapters,
         selectedChapterId,
         loadingChapters: false,
       });
     } catch (error) {
+      if (get().selectedProjectId !== projectId) {
+        return;
+      }
       set({
         loadingChapters: false,
         error: normalizeError(error, "章节加载失败"),
+      });
+    }
+  },
+
+  fetchSnapshots: async (projectId) => {
+    set({ loadingSnapshots: true, error: null });
+    try {
+      const response = await fetch(`/api/projects/${projectId}/snapshots?limit=50`, {
+        method: "GET",
+      });
+      const json = await readJson<{ snapshots: ProjectSnapshotSummary[] }>(response);
+      const snapshots = sortSnapshots(json.data.snapshots ?? []);
+
+      if (get().selectedProjectId !== projectId) {
+        return;
+      }
+
+      set({
+        snapshots,
+        loadingSnapshots: false,
+      });
+    } catch (error) {
+      if (get().selectedProjectId !== projectId) {
+        return;
+      }
+      set({
+        loadingSnapshots: false,
+        error: normalizeError(error, "快照加载失败"),
       });
     }
   },
@@ -211,8 +429,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const json = await readJson<ChapterItem>(response);
-      const updated = json.data;
+      const json = await readJson<ChapterSaveResponse>(response);
+      const updated = json.data.chapter;
       const chapters = get().chapters.map((chapter) =>
         chapter.id === updated.id ? { ...chapter, ...updated } : chapter,
       );
@@ -221,6 +439,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         chapters,
         savingChapter: false,
       });
+
+      const selectedProjectId = get().selectedProjectId;
+      if (json.data.autoSnapshot.created && selectedProjectId) {
+        await get().fetchSnapshots(selectedProjectId);
+      }
     } catch (error) {
       set({
         savingChapter: false,
@@ -228,6 +451,229 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       });
       throw error;
     }
+  },
+
+  importProjectFromJson: async (rawJson) => {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(rawJson);
+    } catch {
+      set({
+        error: "导入 JSON 解析失败",
+        importResult: null,
+        importErrorReport: {
+          stage: "validation",
+          recoverable: true,
+          hint: "请修正 JSON 语法后重试",
+          issues: [
+            {
+              code: "INVALID_JSON",
+              message: "无法解析 JSON 文本",
+              recoverable: true,
+              hint: "检查逗号、引号与括号是否匹配",
+            },
+          ],
+        },
+      });
+      return;
+    }
+
+    set({
+      importingProject: true,
+      importResult: null,
+      importErrorReport: null,
+      error: null,
+    });
+
+    try {
+      const response = await fetch("/api/projects/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await readJson<ProjectImportResult>(response);
+      const imported = json.data;
+      const existing = get().projects.filter((project) => project.id !== imported.project.id);
+
+      set({
+        projects: [...existing, imported.project],
+        selectedProjectId: imported.project.id,
+        selectedChapterId: null,
+        snapshots: [],
+        snapshotDiff: null,
+        snapshotRestoreResult: null,
+        importingProject: false,
+        importResult: imported,
+        importErrorReport: null,
+      });
+
+      await Promise.all([
+        get().fetchChapters(imported.project.id),
+        get().fetchSnapshots(imported.project.id),
+      ]);
+    } catch (error) {
+      const report = isApiRequestError(error)
+        ? normalizeImportErrorReport(error.details)
+        : null;
+      set({
+        importingProject: false,
+        importResult: null,
+        importErrorReport: report,
+        error: normalizeError(error, "项目导入失败"),
+      });
+    }
+  },
+
+  exportSelectedProject: async () => {
+    const projectId = get().selectedProjectId;
+    if (!projectId) {
+      set({ error: "请先选择项目" });
+      return;
+    }
+
+    set({ exportingProject: true, error: null });
+    try {
+      const response = await fetch(`/api/projects/${projectId}/export`, {
+        method: "GET",
+      });
+      const json = await readJson<unknown>(response);
+      set({
+        lastExportJson: JSON.stringify(json.data, null, 2),
+        exportingProject: false,
+      });
+    } catch (error) {
+      set({
+        exportingProject: false,
+        error: normalizeError(error, "项目导出失败"),
+      });
+    }
+  },
+
+  createManualSnapshot: async (reason) => {
+    const projectId = get().selectedProjectId;
+    if (!projectId) {
+      set({ error: "请先选择项目" });
+      return;
+    }
+
+    set({ creatingSnapshot: true, error: null });
+    try {
+      const response = await fetch(`/api/projects/${projectId}/snapshots`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : undefined,
+        }),
+      });
+      const json = await readJson<{ snapshot: ProjectSnapshotSummary }>(response);
+      const created = json.data.snapshot;
+
+      set({
+        creatingSnapshot: false,
+        snapshotRestoreResult: null,
+        snapshots: sortSnapshots([created, ...get().snapshots.filter((item) => item.id !== created.id)]),
+      });
+    } catch (error) {
+      set({
+        creatingSnapshot: false,
+        error: normalizeError(error, "创建快照失败"),
+      });
+    }
+  },
+
+  restoreSnapshot: async (snapshotId, reason) => {
+    const projectId = get().selectedProjectId;
+    if (!projectId) {
+      set({ error: "请先选择项目" });
+      return;
+    }
+
+    set({ restoringSnapshotId: snapshotId, error: null });
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/snapshots/${encodeURIComponent(snapshotId)}/restore`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : undefined,
+          }),
+        },
+      );
+      const json = await readJson<{ restore: SnapshotRestoreResult }>(response);
+
+      if (get().selectedProjectId !== projectId) {
+        return;
+      }
+
+      set({
+        snapshotRestoreResult: json.data.restore,
+      });
+
+      await Promise.all([get().fetchChapters(projectId), get().fetchSnapshots(projectId)]);
+    } catch (error) {
+      if (get().selectedProjectId !== projectId) {
+        return;
+      }
+      set({
+        error: normalizeError(error, "恢复快照失败"),
+      });
+    } finally {
+      if (get().selectedProjectId === projectId) {
+        set({ restoringSnapshotId: null });
+      }
+    }
+  },
+
+  loadSnapshotDiff: async (snapshotId, againstSnapshotId) => {
+    const projectId = get().selectedProjectId;
+    if (!projectId) {
+      set({ error: "请先选择项目" });
+      return;
+    }
+
+    const query = new URLSearchParams();
+    if (againstSnapshotId) {
+      query.set("against", againstSnapshotId);
+    }
+
+    set({ loadingSnapshotDiff: true, error: null });
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/snapshots/${encodeURIComponent(snapshotId)}/diff${
+          query.size > 0 ? `?${query.toString()}` : ""
+        }`,
+        {
+          method: "GET",
+        },
+      );
+      const json = await readJson<{ diff: ProjectSnapshotDiff }>(response);
+
+      if (get().selectedProjectId !== projectId) {
+        return;
+      }
+
+      set({
+        snapshotDiff: json.data.diff,
+        loadingSnapshotDiff: false,
+      });
+    } catch (error) {
+      if (get().selectedProjectId !== projectId) {
+        return;
+      }
+      set({
+        loadingSnapshotDiff: false,
+        error: normalizeError(error, "快照差异加载失败"),
+      });
+    }
+  },
+
+  clearSnapshotDiff: () => {
+    set({ snapshotDiff: null });
+  },
+
+  clearImportFeedback: () => {
+    set({ importResult: null, importErrorReport: null });
   },
 
   clearError: () => {

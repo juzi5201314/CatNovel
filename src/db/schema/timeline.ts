@@ -28,10 +28,17 @@ export const TIMELINE_EVENT_STATUSES = [
   "pending_review",
 ] as const;
 export const TIMELINE_SNAPSHOT_TYPES = ["event_upsert", "chapter_rebuild"] as const;
+export const TIMELINE_REVIEW_BACKLOG_STATUSES = [
+  "queued",
+  "confirmed",
+  "rejected",
+  "resolved",
+] as const;
 
 export type TimelineEntityType = (typeof TIMELINE_ENTITY_TYPES)[number];
 export type TimelineEventStatus = (typeof TIMELINE_EVENT_STATUSES)[number];
 export type TimelineSnapshotType = (typeof TIMELINE_SNAPSHOT_TYPES)[number];
+export type TimelineReviewBacklogStatus = (typeof TIMELINE_REVIEW_BACKLOG_STATUSES)[number];
 
 export const entities = sqliteTable(
   "entities",
@@ -215,6 +222,60 @@ export const timelineSnapshots = sqliteTable(
   }),
 );
 
+export const timelineReviewBacklog = sqliteTable(
+  "timeline_review_backlog",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    chapterId: text("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    status: text("status", { enum: TIMELINE_REVIEW_BACKLOG_STATUSES })
+      .$type<TimelineReviewBacklogStatus>()
+      .notNull()
+      .default("queued"),
+    reason: text("reason").notNull(),
+    confidence: real("confidence").notNull().default(0.5),
+    fingerprint: text("fingerprint"),
+    source: text("source").notNull().default("llm_low_confidence"),
+    queuedAt: integer("queued_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    processedAt: integer("processed_at", { mode: "timestamp_ms" }),
+    processedBy: text("processed_by"),
+    decisionNote: text("decision_note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => ({
+    reasonLengthCheck: check("timeline_review_backlog_reason_length_check", sql`length(${table.reason}) >= 1`),
+    sourceLengthCheck: check("timeline_review_backlog_source_length_check", sql`length(${table.source}) >= 1`),
+    confidenceRangeCheck: check(
+      "timeline_review_backlog_confidence_range_check",
+      sql`${table.confidence} >= 0 and ${table.confidence} <= 1`,
+    ),
+    statusProcessedAtCheck: check(
+      "timeline_review_backlog_status_processed_at_check",
+      sql`${table.status} = 'queued' or ${table.processedAt} is not null`,
+    ),
+    eventIdUniqueIdx: uniqueIndex("timeline_review_backlog_event_id_uidx").on(table.eventId),
+    projectStatusQueuedAtIdx: index("timeline_review_backlog_project_status_queued_at_idx").on(
+      table.projectId,
+      table.status,
+      table.queuedAt,
+    ),
+    chapterIdIdx: index("timeline_review_backlog_chapter_id_idx").on(table.chapterId),
+    fingerprintIdx: index("timeline_review_backlog_fingerprint_idx").on(table.fingerprint),
+  }),
+);
+
 export type TimelineEntityRow = typeof entities.$inferSelect;
 export type NewTimelineEntityRow = typeof entities.$inferInsert;
 export type EntityAliasRow = typeof entityAliases.$inferSelect;
@@ -225,3 +286,5 @@ export type EventEntityRow = typeof eventEntities.$inferSelect;
 export type NewEventEntityRow = typeof eventEntities.$inferInsert;
 export type TimelineSnapshotRow = typeof timelineSnapshots.$inferSelect;
 export type NewTimelineSnapshotRow = typeof timelineSnapshots.$inferInsert;
+export type TimelineReviewBacklogRow = typeof timelineReviewBacklog.$inferSelect;
+export type NewTimelineReviewBacklogRow = typeof timelineReviewBacklog.$inferInsert;

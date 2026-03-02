@@ -1,6 +1,13 @@
 import { ChaptersRepository } from "@/repositories/chapters-repository";
+import { TimelineRepository } from "@/repositories/timeline-repository";
 
-import type { EvidenceHit, RagAnswer, RetrievalIntent, RetrievalQueryInput } from "./contracts";
+import type {
+  EvidenceHit,
+  RagAnswer,
+  RetrievalIntent,
+  RetrievalQueryInput,
+  TimelineEvent,
+} from "./contracts";
 import { assembleRagAnswer } from "./context-assembler";
 import { DEFAULT_TOP_K, DEFAULT_VECTOR_CANDIDATES } from "./default-params";
 import { embedText } from "./embedding";
@@ -9,7 +16,7 @@ import {
   runGraphRagRuntimeQuery,
 } from "./graph-rag-runtime";
 import { reRankCandidates, type RankedCandidate } from "./re-ranker";
-import { getProjectChunks } from "./runtime";
+import { LanceDbVectorStore, type ChapterScope as VectorChapterScope } from "./vector-store";
 
 const RELATION_KEYWORDS = ["关系", "关联", "联系", "与", "谁是", "between"];
 const CREATIVE_KEYWORDS = ["续写", "改写", "润色", "扩写", "继续写", "rewrite", "continue"];
@@ -43,9 +50,25 @@ function tokenizeAlias(query: string): string[] {
     .filter((part) => part.length >= 2);
 }
 
+function toVectorScope(scope: RetrievalQueryInput["chapterScope"]): VectorChapterScope | undefined {
+  if (!scope) {
+    return undefined;
+  }
+  const nextScope: VectorChapterScope = {};
+  if (scope.from !== undefined) {
+    nextScope.from = scope.from;
+  }
+  if (scope.to !== undefined) {
+    nextScope.to = scope.to;
+  }
+  return nextScope.from === undefined && nextScope.to === undefined ? undefined : nextScope;
+}
+
 export class HybridRetriever {
   constructor(
     private readonly chapterRepository = new ChaptersRepository(),
+    private readonly timelineRepository = new TimelineRepository(),
+    private readonly vectorStore = new LanceDbVectorStore(),
   ) {}
 
   async query(input: RetrievalQueryInput): Promise<RagAnswer> {
@@ -62,7 +85,7 @@ export class HybridRetriever {
     intent: RetrievalIntent,
   ): Promise<RagAnswer> {
     const topK = input.topK ?? DEFAULT_TOP_K;
-    const fallbackHits = this.retrieveFallbackHits(input, topK);
+    const fallbackHits = await this.retrieveFallbackHits(input, topK);
     const graphConfig = readGraphRagRuntimeConfig();
     const canUseGraphRag =
       graphConfig.enabled &&
@@ -79,73 +102,62 @@ export class HybridRetriever {
       });
 
       if (graphResult.accepted) {
+        const graphEvents = this.resolveTimelineEvents(input.projectId, graphResult.hits, topK);
         return assembleRagAnswer({
           query: input.query,
           intent,
           hits: graphResult.hits,
-          events: [],
+          events: graphEvents,
           usedGraphRag: true,
         });
       }
 
       if (!graphConfig.fallbackToVector && graphResult.executed) {
+        const graphEvents = this.resolveTimelineEvents(input.projectId, graphResult.hits, topK);
         return assembleRagAnswer({
           query: input.query,
           intent,
           hits: graphResult.hits,
-          events: [],
+          events: graphEvents,
           usedGraphRag: true,
         });
       }
     }
 
+    const fallbackEvents = this.resolveTimelineEvents(input.projectId, fallbackHits, topK);
     return assembleRagAnswer({
       query: input.query,
       intent,
       hits: fallbackHits,
-      events: [],
+      events: fallbackEvents,
       usedGraphRag: false,
     });
   }
 
-  private retrieveFallbackHits(input: RetrievalQueryInput, topK: number): EvidenceHit[] {
-    const queryVector = embedText(input.query);
+  private async retrieveFallbackHits(input: RetrievalQueryInput, topK: number): Promise<EvidenceHit[]> {
+    const queryVector = await embedText(input.query, { projectId: input.projectId });
+    if (queryVector.length === 0) {
+      return [];
+    }
     const candidates: RankedCandidate[] = [];
 
-    const allProjectChunks = getProjectChunks(input.projectId);
-    const vectorHits = allProjectChunks
-      .filter((item) => {
-        if (
-          input.chapterScope?.from !== undefined &&
-          item.chapter_no < input.chapterScope.from
-        ) {
-          return false;
-        }
-        if (input.chapterScope?.to !== undefined && item.chapter_no > input.chapterScope.to) {
-          return false;
-        }
-        return true;
-      })
-      .map((item) => {
-        const dot = item.vector.reduce(
-          (sum, value, index) => sum + value * (queryVector[index] ?? 0),
-          0,
-        );
-        const similarity = Math.max(-1, Math.min(1, dot));
-        return {
-          ...item,
-          _similarity: similarity,
-        };
-      })
-      .sort((left, right) => right._similarity - left._similarity)
-      .slice(0, DEFAULT_VECTOR_CANDIDATES)
+    const vectorHits = (
+      await this.vectorStore.queryNearest(
+        {
+          projectId: input.projectId,
+          vector: queryVector,
+          limit: DEFAULT_VECTOR_CANDIDATES,
+        },
+        toVectorScope(input.chapterScope),
+      )
+    )
       .map((item) => ({
         chapter_no: item.chapter_no,
         chapter_id: item.chapter_id,
         chunk_id: item.chunk_id,
         chunk_type: item.chunk_type,
         text: item.text,
-        score: 1 - item._similarity,
+        score: item.score,
       }));
 
     for (const hit of vectorHits) {
@@ -220,5 +232,75 @@ export class HybridRetriever {
     }));
 
     return hits;
+  }
+
+  private resolveTimelineEvents(
+    projectId: string,
+    hits: EvidenceHit[],
+    topK: number,
+  ): TimelineEvent[] {
+    if (hits.length === 0) {
+      return [];
+    }
+
+    const chapterScoreMap = new Map<number, number>();
+    for (const hit of hits) {
+      const existing = chapterScoreMap.get(hit.chapterNo) ?? 0;
+      if (hit.score > existing) {
+        chapterScoreMap.set(hit.chapterNo, hit.score);
+      }
+    }
+
+    const chapterOrders = [...chapterScoreMap.keys()];
+    const eventRows = this.timelineRepository.listEventsByChapterOrders(
+      projectId,
+      chapterOrders,
+      Math.max(topK * 3, topK),
+    );
+
+    if (eventRows.length === 0) {
+      return [];
+    }
+
+    const rankedRows = eventRows
+      .map((row) => ({
+        row,
+        chapterScore: chapterScoreMap.get(row.event.chapterOrder) ?? 0,
+      }))
+      .sort((left, right) => {
+        if (right.chapterScore !== left.chapterScore) {
+          return right.chapterScore - left.chapterScore;
+        }
+        if (left.row.event.chapterOrder !== right.row.event.chapterOrder) {
+          return left.row.event.chapterOrder - right.row.event.chapterOrder;
+        }
+        return left.row.event.sequenceNo - right.row.event.sequenceNo;
+      });
+
+    const deduped: TimelineEvent[] = [];
+    const seenEventIds = new Set<string>();
+    for (const item of rankedRows) {
+      if (seenEventIds.has(item.row.event.id)) {
+        continue;
+      }
+      seenEventIds.add(item.row.event.id);
+      deduped.push({
+        eventId: item.row.event.id,
+        entityId: item.row.entityIds[0] ?? "unknown_entity",
+        chapterNo: item.row.event.chapterOrder,
+        title: item.row.event.title,
+        description:
+          item.row.event.summary?.trim() ||
+          item.row.event.evidence?.trim() ||
+          item.row.event.title,
+        confidence: item.row.event.confidence,
+        status: item.row.event.status,
+      });
+      if (deduped.length >= topK) {
+        break;
+      }
+    }
+
+    return deduped;
   }
 }

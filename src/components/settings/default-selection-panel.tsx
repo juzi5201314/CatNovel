@@ -42,20 +42,19 @@ export function DefaultSelectionPanel({ presets }: DefaultSelectionPanelProps) {
         const rows = await requestJson<ProjectSummary[]>("/api/projects", { method: "GET" });
         setProjects(rows);
         if (rows.length > 0) {
-          setSelectedProjectId((prev) => prev || rows[0].id);
+          setSelectedProjectId(rows[0].id);
         }
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "加载项目失败");
       }
     }
-
     void loadProjects();
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProjectId) {
-      setMessage("请选择项目");
+      setMessage("Please select a project.");
       return;
     }
 
@@ -70,7 +69,7 @@ export function DefaultSelectionPanel({ presets }: DefaultSelectionPanelProps) {
           defaultEmbeddingPresetId: defaults.defaultEmbeddingPresetId,
         }),
       });
-      setMessage("默认预设已保存");
+      setMessage("Default presets saved successfully.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存默认预设失败");
     } finally {
@@ -79,72 +78,75 @@ export function DefaultSelectionPanel({ presets }: DefaultSelectionPanelProps) {
   }
 
   return (
-    <article className="cn-panel">
-      <h3 className="cn-card-title">Project Defaults</h3>
-      <p className="cn-card-description">设置项目级默认 Chat/Embedding 预设。</p>
+    <section className="space-y-6">
+      <div>
+        <h2 className="text-xl font-semibold">Project Defaults</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Set the default LLM configurations for each project.
+        </p>
+      </div>
 
-      <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="cn-card-description">项目</span>
-          <select
-            value={selectedProjectId}
-            onChange={(event) => setSelectedProjectId(event.target.value)}
-          >
-            <option value="">选择项目</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="cn-panel">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium uppercase text-muted-foreground">Select Project</label>
+              <select
+                className="w-full"
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+              >
+                <option value="">Select a project...</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
 
-        <label className="flex flex-col gap-1">
-          <span className="cn-card-description">默认 Chat Preset</span>
-          <select
-            value={defaults.defaultChatPresetId ?? ""}
-            onChange={(event) =>
-              setDefaults((prev) => ({
-                ...prev,
-                defaultChatPresetId: event.target.value || null,
-              }))
-            }
-          >
-            <option value="">不设置</option>
-            {chatPresets.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.modelId} ({preset.apiFormat})
-              </option>
-            ))}
-          </select>
-        </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Default Chat Preset</label>
+                <select
+                  className="w-full"
+                  value={defaults.defaultChatPresetId ?? ""}
+                  onChange={(e) => setDefaults(d => ({ ...d, defaultChatPresetId: e.target.value || null }))}
+                >
+                  <option value="">None (Always ask)</option>
+                  {chatPresets.map((p) => (
+                    <option key={p.id} value={p.id}>{p.modelId} ({p.apiFormat})</option>
+                  ))}
+                </select>
+              </div>
 
-        <label className="flex flex-col gap-1">
-          <span className="cn-card-description">默认 Embedding Preset</span>
-          <select
-            value={defaults.defaultEmbeddingPresetId ?? ""}
-            onChange={(event) =>
-              setDefaults((prev) => ({
-                ...prev,
-                defaultEmbeddingPresetId: event.target.value || null,
-              }))
-            }
-          >
-            <option value="">不设置</option>
-            {embeddingPresets.map((preset) => (
-              <option key={preset.id} value={preset.id}>
-                {preset.modelId} ({preset.apiFormat})
-              </option>
-            ))}
-          </select>
-        </label>
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Default Embedding Preset</label>
+                <select
+                  className="w-full"
+                  value={defaults.defaultEmbeddingPresetId ?? ""}
+                  onChange={(e) => setDefaults(d => ({ ...d, defaultEmbeddingPresetId: e.target.value || null }))}
+                >
+                  <option value="">None</option>
+                  {embeddingPresets.map((p) => (
+                    <option key={p.id} value={p.id}>{p.modelId} ({p.apiFormat})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
 
-        <button type="submit" disabled={loading}>
-          {loading ? "保存中..." : "保存默认配置"}
-        </button>
-      </form>
+          <div className="flex justify-end pt-4 border-t border-border">
+            <button type="submit" className="primary" disabled={loading || !selectedProjectId}>
+              {loading ? "Saving..." : "Save Defaults"}
+            </button>
+          </div>
+        </form>
+      </div>
 
-      {message ? <p className="cn-card-description">{message}</p> : null}
-    </article>
+      {message && (
+        <div className={`p-3 text-sm rounded-md border ${message.includes('success') ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
+          {message}
+        </div>
+      )}
+    </section>
   );
 }

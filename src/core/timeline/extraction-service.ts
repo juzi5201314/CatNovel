@@ -4,7 +4,10 @@ import {
   type TimelineEventCandidate,
 } from "@/mastra/workflows/timeline-workflow";
 import { ChaptersRepository } from "@/repositories/chapters-repository";
-import { TimelineRepository } from "@/repositories/timeline-repository";
+import {
+  TimelineRepository,
+  type TimelineConflictCode,
+} from "@/repositories/timeline-repository";
 
 export type TimelineEventStatus = "auto" | "pending_review" | "confirmed" | "rejected";
 
@@ -30,6 +33,72 @@ export type RecomputeChapterTimelineResult = {
   lowConfidenceEvents: number;
   persistedEvents: number;
   queueBacklog: number;
+  diffReport: ChapterEventDiffReport;
+  conflictReport: ChapterConflictReport;
+  backlog: TimelineReviewBacklogPreviewItem[];
+};
+
+export type ChapterEventDiffTag =
+  | "content_changed"
+  | "status_changed"
+  | "confidence_changed"
+  | "entities_changed"
+  | "fingerprint_changed";
+
+export type ChapterEventDiffItem = {
+  changeType: "added" | "updated" | "removed";
+  eventId: string;
+  chapterId: string;
+  title: string;
+  status: TimelineEventStatus;
+  confidence: number;
+  tags: ChapterEventDiffTag[];
+  previous?: {
+    status?: TimelineEventStatus;
+    confidence?: number;
+    title?: string;
+  };
+  current?: {
+    status?: TimelineEventStatus;
+    confidence?: number;
+    title?: string;
+  };
+};
+
+export type ChapterEventDiffReport = {
+  added: number;
+  updated: number;
+  removed: number;
+  impacted: number;
+  items: ChapterEventDiffItem[];
+};
+
+export type ChapterConflictItem = {
+  eventId: string;
+  code: TimelineConflictCode;
+  message: string;
+  relatedEventId?: string;
+  entityId?: string;
+};
+
+export type ChapterConflictReport = {
+  hasConflicts: boolean;
+  total: number;
+  byCode: Record<TimelineConflictCode, number>;
+  items: ChapterConflictItem[];
+};
+
+export type TimelineReviewBacklogPreviewItem = {
+  backlogId: string;
+  eventId: string;
+  chapterId?: string;
+  chapterNo: number;
+  title: string;
+  confidence: number;
+  queuedAt: string;
+  reason: string;
+  source: string;
+  entityIds: string[];
 };
 
 type PersistableTimelineEntity = {
@@ -55,6 +124,8 @@ type PersistableTimelineEvent = {
   sentenceIndex: number;
   entityNames: string[];
   evidence: string;
+  reviewReason?: string;
+  governanceTags: string[];
 };
 
 type ExistingTimelineEvent = {
@@ -67,6 +138,7 @@ type ExistingTimelineEvent = {
   title?: string;
   description?: string;
   entityNames: string[];
+  sentenceIndex?: number;
 };
 
 type ResolvedChapter = {
@@ -87,8 +159,18 @@ type InvocationResult<T> = {
   value: T | undefined;
 };
 
+type PersistChapterEventsResult = {
+  persistedCount: number;
+  conflictItems: ChapterConflictItem[];
+};
+
 const LOW_CONFIDENCE_THRESHOLD = 0.72;
 const FALLBACK_RUNTIME_KEY = "__catnovel_timeline_runtime_state__";
+const TIMELINE_CONFLICT_CODE_SET = new Set<TimelineConflictCode>([
+  "time_order_conflict",
+  "duplicate_event",
+  "entity_conflict",
+]);
 
 function getFallbackRuntime(): TimelineFallbackRuntime {
   const target = globalThis as typeof globalThis & {
@@ -190,6 +272,9 @@ function readNumber(record: Record<string, unknown>, keys: string[]): number | u
     const value = record[key];
     if (typeof value === "number" && Number.isFinite(value)) {
       return value;
+    }
+    if (value instanceof Date && Number.isFinite(value.getTime())) {
+      return value.getTime();
     }
     if (typeof value === "string" && value.trim().length > 0) {
       const parsed = Number(value);
@@ -364,6 +449,14 @@ function normalizeEventCandidate(
       );
   const fingerprint = fingerprintSeed.startsWith("fp_") ? fingerprintSeed : `fp_${fingerprintSeed}`;
   const confidence = clampConfidence(candidate.confidence);
+  const governanceTags = (candidate.governanceTags ?? [])
+    .filter((item) => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim());
+  const reviewReason = candidate.reviewReason?.trim() ||
+    (governanceTags.length > 0 ? governanceTags.join(",") : undefined);
+  const status = candidate.status === "pending_review" || confidence < LOW_CONFIDENCE_THRESHOLD
+    ? "pending_review"
+    : "auto";
 
   return {
     eventId: toEventId(chapter.projectId, chapter.chapterId, fingerprint),
@@ -374,11 +467,13 @@ function normalizeEventCandidate(
     title,
     description,
     confidence,
-    status: confidence < LOW_CONFIDENCE_THRESHOLD ? "pending_review" : "auto",
+    status,
     fingerprint,
     sentenceIndex: Math.max(0, Math.trunc(candidate.sentenceIndex)),
     entityNames: normalizeEntityNames(candidate.entityNames),
     evidence: candidate.evidence.trim() || description,
+    reviewReason,
+    governanceTags,
   };
 }
 
@@ -392,18 +487,275 @@ function parseExistingTimelineEvents(raw: unknown): ExistingTimelineEvent[] {
     if (!record) {
       continue;
     }
+    const source = toRecord(record.event) ?? record;
+    const sourceEntityNames = readStringArray(source, ["entityNames", "entity_names"]);
+    const entityNames = sourceEntityNames.length > 0
+      ? sourceEntityNames
+      : readStringArray(record, ["entityNames", "entity_names", "entities"]);
     output.push({
-      eventId: readString(record, ["eventId", "event_id", "id"]),
-      status: normalizeStatus(record.status),
-      confidence: readNumber(record, ["confidence"]),
-      fingerprint: readString(record, ["fingerprint", "fingerprintHash", "fingerprint_hash"]),
-      chapterId: readString(record, ["chapterId", "chapter_id"]),
-      eventType: readString(record, ["eventType", "event_type", "type"]),
-      title: readString(record, ["title"]),
-      description: readString(record, ["description", "content"]),
-      entityNames: readStringArray(record, ["entityNames", "entity_names", "entities"]),
+      eventId: readString(source, ["eventId", "event_id", "id"]),
+      status: normalizeStatus(source.status),
+      confidence: readNumber(source, ["confidence"]),
+      fingerprint: readString(source, ["fingerprint", "fingerprintHash", "fingerprint_hash"]),
+      chapterId: readString(source, ["chapterId", "chapter_id"]),
+      eventType: readString(source, ["eventType", "event_type", "type"]),
+      title: readString(source, ["title"]),
+      description: readString(source, ["description", "summary", "content"]),
+      entityNames: entityNames.length > 0 ? entityNames : [],
+      sentenceIndex: readNumber(source, ["sentenceIndex", "sentence_index", "sequenceNo", "sequence_no"]),
     });
   }
+  return output;
+}
+
+function parseConflictItemsFromUpsertResult(raw: unknown, fallbackEventId: string): ChapterConflictItem[] {
+  const record = toRecord(raw);
+  if (!record) {
+    return [];
+  }
+
+  const eventId = readString(record, ["eventId", "event_id", "id"]) ??
+    readString(toRecord(record.event) ?? {}, ["id", "eventId", "event_id"]) ??
+    fallbackEventId;
+  const conflictResult = toRecord(record.conflictResult);
+  if (!conflictResult) {
+    return [];
+  }
+
+  const conflicts = Array.isArray(conflictResult.conflicts) ? conflictResult.conflicts : [];
+  const output: ChapterConflictItem[] = [];
+  for (const conflict of conflicts) {
+    const conflictRecord = toRecord(conflict);
+    if (!conflictRecord) {
+      continue;
+    }
+    const codeRaw = readString(conflictRecord, ["code"]);
+    if (!codeRaw || !TIMELINE_CONFLICT_CODE_SET.has(codeRaw as TimelineConflictCode)) {
+      continue;
+    }
+    output.push({
+      eventId,
+      code: codeRaw as TimelineConflictCode,
+      message: readString(conflictRecord, ["message"]) ?? "timeline conflict",
+      relatedEventId: readString(conflictRecord, ["relatedEventId", "related_event_id"]),
+      entityId: readString(conflictRecord, ["entityId", "entity_id"]),
+    });
+  }
+  return output;
+}
+
+function buildConflictReport(items: ChapterConflictItem[]): ChapterConflictReport {
+  const byCode: Record<TimelineConflictCode, number> = {
+    time_order_conflict: 0,
+    duplicate_event: 0,
+    entity_conflict: 0,
+  };
+  for (const item of items) {
+    byCode[item.code] += 1;
+  }
+  return {
+    hasConflicts: items.length > 0,
+    total: items.length,
+    byCode,
+    items,
+  };
+}
+
+function toDiffKey(event: {
+  eventId?: string;
+  fingerprint?: string;
+  eventType?: string;
+  title?: string;
+  description?: string;
+  entityNames?: string[];
+}): string {
+  if (event.eventId && event.eventId.trim().length > 0) {
+    return `id:${event.eventId.trim()}`;
+  }
+  if (event.fingerprint && event.fingerprint.trim().length > 0) {
+    return `fp:${event.fingerprint.trim()}`;
+  }
+  return `mk:${buildEventMergeKey(event)}`;
+}
+
+function sameEntityNames(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const normalizedLeft = [...left].map((item) => normalizeText(item)).sort();
+  const normalizedRight = [...right].map((item) => normalizeText(item)).sort();
+  return normalizedLeft.every((item, index) => item === normalizedRight[index]);
+}
+
+function buildDiffReport(
+  previous: ExistingTimelineEvent[],
+  current: PersistableTimelineEvent[],
+): ChapterEventDiffReport {
+  const previousByKey = new Map<string, ExistingTimelineEvent>();
+  for (const event of previous) {
+    previousByKey.set(toDiffKey(event), event);
+  }
+
+  const currentByKey = new Map<string, PersistableTimelineEvent>();
+  for (const event of current) {
+    currentByKey.set(toDiffKey(event), event);
+  }
+
+  const items: ChapterEventDiffItem[] = [];
+
+  for (const [key, event] of currentByKey.entries()) {
+    const existing = previousByKey.get(key);
+    if (!existing) {
+      items.push({
+        changeType: "added",
+        eventId: event.eventId,
+        chapterId: event.chapterId,
+        title: event.title,
+        status: event.status,
+        confidence: event.confidence,
+        tags: [],
+        current: {
+          status: event.status,
+          confidence: event.confidence,
+          title: event.title,
+        },
+      });
+      continue;
+    }
+
+    const tags: ChapterEventDiffTag[] = [];
+    if (normalizeText(existing.title ?? "") !== normalizeText(event.title)) {
+      tags.push("content_changed");
+    }
+    if (normalizeText(existing.description ?? "") !== normalizeText(event.description)) {
+      tags.push("content_changed");
+    }
+    if ((existing.status ?? "auto") !== event.status) {
+      tags.push("status_changed");
+    }
+    if (Math.abs((existing.confidence ?? 0) - event.confidence) >= 0.01) {
+      tags.push("confidence_changed");
+    }
+    if (!sameEntityNames(existing.entityNames ?? [], event.entityNames)) {
+      tags.push("entities_changed");
+    }
+    if ((existing.fingerprint ?? "") !== event.fingerprint) {
+      tags.push("fingerprint_changed");
+    }
+
+    if (tags.length === 0) {
+      continue;
+    }
+
+    const dedupedTags = [...new Set(tags)];
+    items.push({
+      changeType: "updated",
+      eventId: event.eventId,
+      chapterId: event.chapterId,
+      title: event.title,
+      status: event.status,
+      confidence: event.confidence,
+      tags: dedupedTags,
+      previous: {
+        status: existing.status,
+        confidence: existing.confidence,
+        title: existing.title,
+      },
+      current: {
+        status: event.status,
+        confidence: event.confidence,
+        title: event.title,
+      },
+    });
+  }
+
+  for (const [key, event] of previousByKey.entries()) {
+    if (currentByKey.has(key)) {
+      continue;
+    }
+    const eventId = event.eventId ?? `removed_${hashText(key)}`;
+    items.push({
+      changeType: "removed",
+      eventId,
+      chapterId: event.chapterId ?? "",
+      title: event.title ?? "removed event",
+      status: event.status ?? "pending_review",
+      confidence: event.confidence ?? 0,
+      tags: [],
+      previous: {
+        status: event.status,
+        confidence: event.confidence,
+        title: event.title,
+      },
+    });
+  }
+
+  let added = 0;
+  let updated = 0;
+  let removed = 0;
+  for (const item of items) {
+    if (item.changeType === "added") {
+      added += 1;
+    } else if (item.changeType === "updated") {
+      updated += 1;
+    } else {
+      removed += 1;
+    }
+  }
+
+  return {
+    added,
+    updated,
+    removed,
+    impacted: items.length,
+    items,
+  };
+}
+
+function parseBacklogPreviewItems(raw: unknown): TimelineReviewBacklogPreviewItem[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const output: TimelineReviewBacklogPreviewItem[] = [];
+  for (const item of raw) {
+    const record = toRecord(item);
+    if (!record) {
+      continue;
+    }
+    const backlog = toRecord(record.backlog);
+    const event = toRecord(record.event);
+    if (!backlog || !event) {
+      continue;
+    }
+
+    const backlogId = readString(backlog, ["id"]);
+    const eventId = readString(backlog, ["eventId", "event_id"]) ?? readString(event, ["id", "eventId"]);
+    const title = readString(event, ["title"]);
+    const chapterNo = readNumber(event, ["chapterOrder", "chapter_order", "chapterNo", "chapter_no"]);
+    const confidence = readNumber(backlog, ["confidence"]) ?? readNumber(event, ["confidence"]);
+    const queuedAtRaw = readNumber(backlog, ["queuedAt", "queued_at", "createdAt", "created_at"]);
+    const reason = readString(backlog, ["reason"]);
+    const source = readString(backlog, ["source"]) ?? "llm_low_confidence";
+    if (!backlogId || !eventId || !title || chapterNo === undefined || confidence === undefined || !reason) {
+      continue;
+    }
+
+    const queuedAt = new Date(queuedAtRaw ?? Date.now()).toISOString();
+    output.push({
+      backlogId,
+      eventId,
+      chapterId: readString(backlog, ["chapterId", "chapter_id"]) ?? readString(event, ["chapterId", "chapter_id"]),
+      chapterNo: Math.trunc(chapterNo),
+      title,
+      confidence: clampConfidence(confidence),
+      queuedAt,
+      reason,
+      source,
+      entityIds: readStringArray(record, ["entityIds", "entity_ids"]),
+    });
+  }
+
   return output;
 }
 
@@ -487,6 +839,10 @@ function toRepositoryEventPayload(event: PersistableTimelineEvent): Record<strin
     entityNames: event.entityNames,
     entity_names: event.entityNames,
     evidence: event.evidence,
+    reviewReason: event.reviewReason,
+    review_reason: event.reviewReason,
+    governanceTags: event.governanceTags,
+    governance_tags: event.governanceTags,
   };
 }
 
@@ -551,16 +907,20 @@ export class TimelineExtractionService {
     const deduped = dedupeEvents(normalizedEvents);
     const existingEvents = await this.listExistingChapterEvents(chapter.projectId, chapter.chapterId);
     const merged = mergeWithExistingEvents(deduped.events, existingEvents);
+    const diffReport = buildDiffReport(existingEvents, merged.events);
 
-    const persistedEvents = await this.persistChapterEvents(
+    const persistResult = await this.persistChapterEvents(
       chapter.projectId,
       chapter.chapterId,
       merged.events,
       entityLookup,
     );
+    const conflictReport = buildConflictReport(persistResult.conflictItems);
 
     const pendingEvents = merged.events.filter((event) => event.status === "pending_review");
-    const queueBacklog = await this.enqueuePendingReview(chapter.projectId, chapter.chapterId, pendingEvents);
+    await this.enqueuePendingReview(chapter.projectId, chapter.chapterId, pendingEvents);
+    const queueBacklog = await this.countReviewBacklog(chapter.projectId, chapter.chapterId);
+    const backlog = await this.listReviewBacklogPreview(chapter.projectId, chapter.chapterId);
 
     return {
       projectId: chapter.projectId,
@@ -572,8 +932,11 @@ export class TimelineExtractionService {
       dedupedEvents: deduped.removedCount,
       mergedEvents: merged.mergedCount,
       lowConfidenceEvents: pendingEvents.length,
-      persistedEvents,
+      persistedEvents: persistResult.persistedCount,
       queueBacklog,
+      diffReport,
+      conflictReport,
+      backlog,
     };
   }
 
@@ -757,7 +1120,7 @@ export class TimelineExtractionService {
     chapterId: string,
     events: PersistableTimelineEvent[],
     entityLookup: Map<string, string>,
-  ): Promise<number> {
+  ): Promise<PersistChapterEventsResult> {
     const repositoryRecord = toRecord(this.timelineRepository);
     const hasNativeRebuildFlow =
       !!repositoryRecord &&
@@ -765,6 +1128,7 @@ export class TimelineExtractionService {
       typeof repositoryRecord.upsertEventWithSnapshot === "function";
 
     if (hasNativeRebuildFlow) {
+      const conflictItems: ChapterConflictItem[] = [];
       await invokeRepositoryMethod<unknown>(this.timelineRepository, ["deleteByChapterForRebuild"], [
         [projectId, chapterId],
         [{ projectId, chapterId }],
@@ -775,7 +1139,7 @@ export class TimelineExtractionService {
         const event = sorted[index];
         const entityIds = await this.resolveEntityIds(projectId, event.entityNames, entityLookup);
 
-        await invokeRepositoryMethod<unknown>(this.timelineRepository, ["upsertEventWithSnapshot"], [
+        const upsertResult = await invokeRepositoryMethod<unknown>(this.timelineRepository, ["upsertEventWithSnapshot"], [
           [
             {
               id: event.eventId,
@@ -788,13 +1152,24 @@ export class TimelineExtractionService {
               evidence: event.evidence,
               confidence: event.confidence,
               status: event.status,
+              fingerprint: event.fingerprint,
+              reviewReason: event.reviewReason ?? null,
+              reviewSource: "llm_low_confidence",
+              reviewNote: event.governanceTags.join(","),
+              statusUpdatedBy: "timeline_recompute",
               entityIds,
             },
           ],
         ]);
+        if (upsertResult.called) {
+          conflictItems.push(...parseConflictItemsFromUpsertResult(upsertResult.value, event.eventId));
+        }
       }
 
-      return events.length;
+      return {
+        persistedCount: events.length,
+        conflictItems,
+      };
     }
 
     const payload = events.map((event) => toRepositoryEventPayload(event));
@@ -812,7 +1187,10 @@ export class TimelineExtractionService {
     ]);
 
     if (bulkReplace.called) {
-      return events.length;
+      return {
+        persistedCount: events.length,
+        conflictItems: [],
+      };
     }
 
     let repositoryAcceptedAnyWrite = false;
@@ -846,7 +1224,10 @@ export class TimelineExtractionService {
       putFallbackEvents(projectId, chapterId, events);
     }
 
-    return events.length;
+    return {
+      persistedCount: events.length,
+      conflictItems: [],
+    };
   }
 
   private async enqueuePendingReview(
@@ -892,6 +1273,58 @@ export class TimelineExtractionService {
     }
 
     return pendingEvents.length;
+  }
+
+  private async countReviewBacklog(projectId: string, chapterId: string): Promise<number> {
+    const response = await invokeRepositoryMethod<unknown>(this.timelineRepository, [
+      "countReviewBacklog",
+      "countPendingReviewBacklog",
+    ], [
+      [projectId, chapterId],
+      [{ projectId, chapterId }],
+      [projectId],
+      [{ projectId }],
+    ]);
+
+    if (!response.called) {
+      return 0;
+    }
+
+    if (typeof response.value === "number" && Number.isFinite(response.value)) {
+      return Math.max(0, Math.trunc(response.value));
+    }
+
+    const record = toRecord(response.value);
+    if (!record) {
+      return 0;
+    }
+    const count = readNumber(record, ["count", "total", "queueBacklog", "queue_backlog"]);
+    if (count === undefined) {
+      return 0;
+    }
+    return Math.max(0, Math.trunc(count));
+  }
+
+  private async listReviewBacklogPreview(
+    projectId: string,
+    chapterId: string,
+  ): Promise<TimelineReviewBacklogPreviewItem[]> {
+    const response = await invokeRepositoryMethod<unknown>(this.timelineRepository, [
+      "listReviewBacklog",
+      "listPendingReviewBacklog",
+      "listBacklog",
+    ], [
+      [{ projectId, chapterId, statuses: ["queued"], limit: 50 }],
+      [projectId, chapterId, 50],
+      [projectId],
+      [{ projectId }],
+    ]);
+
+    if (!response.called) {
+      return [];
+    }
+
+    return parseBacklogPreviewItems(response.value);
   }
 }
 

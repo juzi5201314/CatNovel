@@ -1,5 +1,6 @@
 import { fail } from "@/lib/http/api-response";
 import { createSseResponse } from "@/lib/ai/sse";
+import { parseThinkingBudget, toStreamErrorPayload } from "@/core/llm";
 import {
   isValidApiFormat,
   prepareGenerateStream,
@@ -72,6 +73,38 @@ function validateGenerateBody(payload: unknown): ValidationOk | ValidationFailed
     };
   }
 
+  if ("baseURL" in overrideRecord) {
+    if (
+      typeof overrideRecord.baseURL !== "string" ||
+      overrideRecord.baseURL.trim().length === 0
+    ) {
+      return {
+        ok: false,
+        response: fail("INVALID_INPUT", "override.baseURL must be non-empty string", 400),
+      };
+    }
+  }
+
+  if ("modelId" in overrideRecord) {
+    if (
+      typeof overrideRecord.modelId !== "string" ||
+      overrideRecord.modelId.trim().length === 0
+    ) {
+      return {
+        ok: false,
+        response: fail("INVALID_INPUT", "override.modelId must be non-empty string", 400),
+      };
+    }
+  }
+
+  const thinkingBudgetResult = parseThinkingBudget(overrideRecord.thinkingBudget);
+  if (!thinkingBudgetResult.ok) {
+    return {
+      ok: false,
+      response: fail("INVALID_INPUT", thinkingBudgetResult.message, 400),
+    };
+  }
+
   return {
     ok: true,
     data: {
@@ -87,7 +120,7 @@ function validateGenerateBody(payload: unknown): ValidationOk | ValidationFailed
           : undefined,
         baseURL: typeof overrideRecord.baseURL === "string" ? overrideRecord.baseURL : undefined,
         modelId: typeof overrideRecord.modelId === "string" ? overrideRecord.modelId : undefined,
-        thinkingBudget: overrideRecord.thinkingBudget,
+        thinkingBudget: thinkingBudgetResult.data,
       },
     },
   };
@@ -107,23 +140,31 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return createSseResponse(request.signal, async (writer, signal) => {
-    const prepared = await prepareGenerateStream(validated.data);
-    writer.emit("tool_call", prepared.toolCall);
-    writer.emit("context_used", prepared.contextUsed);
+    try {
+      const prepared = await prepareGenerateStream(validated.data);
+      writer.emit("tool_call", prepared.toolCall);
+      writer.emit("context_used", prepared.contextUsed);
 
-    let index = 0;
-    for await (const token of runGenerateStream(validated.data, signal)) {
+      let index = 0;
+      for await (const token of runGenerateStream(validated.data, signal)) {
+        if (signal.aborted) {
+          return;
+        }
+
+        writer.emit("token", {
+          index,
+          text: token,
+        });
+        index += 1;
+      }
+
+      writer.emit("done", { finishReason: "stop" });
+    } catch (error) {
       if (signal.aborted) {
         return;
       }
-
-      writer.emit("token", {
-        index,
-        text: token,
-      });
-      index += 1;
+      writer.emit("error", toStreamErrorPayload(error));
+      writer.emit("done", { finishReason: "error" });
     }
-
-    writer.emit("done", { finishReason: "stop" });
   });
 }

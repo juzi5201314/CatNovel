@@ -47,26 +47,29 @@ export class LanceDbClient {
       return existingTable;
     }
 
-    const initialRows = seedRows.length > 0 ? seedRows : [this.buildSeedRow()];
+    const initialRows = [this.buildSeedRow(seedRows[0]), ...seedRows];
     const connection = await this.getConnection();
     const table = await connection.createTable(this.tableName, initialRows);
-    if (seedRows.length === 0) {
-      await table.delete("project_id = '__seed__'");
-    }
+    await table.delete("project_id = '__seed__'");
     return table;
   }
 
-  private buildSeedRow(): ChunkVectorRecord {
+  private buildSeedRow(source?: ChunkVectorRecord): ChunkVectorRecord {
+    const seedVector =
+      source && Array.isArray(source.vector) && source.vector.length > 0
+        ? source.vector.map((value) => Number(value))
+        : [0];
+
     return {
       project_id: "__seed__",
       chapter_no: -1,
       chapter_id: "__seed__",
       chunk_id: "__seed__",
       chunk_type: "summary",
-      entity_ids: [],
+      entity_ids: ["__seed_entity__"],
       position_in_chapter: -1,
       updated_at: new Date(0).toISOString(),
-      vector: [0],
+      vector: seedVector,
       text: "seed",
     };
   }

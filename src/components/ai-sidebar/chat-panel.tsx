@@ -28,7 +28,7 @@ async function consumeSse(
   onEvent: SseEventHandler,
 ): Promise<void> {
   if (!response.ok || !response.body) {
-    throw new Error(`chat request failed: ${response.status}`);
+    throw new Error(`Chat request failed: ${response.status}`);
   }
 
   const reader = response.body.getReader();
@@ -37,9 +37,7 @@ async function consumeSse(
 
   while (!signal.aborted) {
     const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
+    if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
     let boundary = buffer.indexOf("\n\n");
@@ -65,20 +63,16 @@ async function consumeSse(
         try {
           onEvent(event, JSON.parse(rawData) as unknown);
         } catch {
-          // 忽略无法解析的单条事件，保持流不中断。
+          // Ignore parse errors
         }
       }
-
       boundary = buffer.indexOf("\n\n");
     }
   }
 }
 
 function toRequestMessages(messages: ChatItem[]): ChatRequestMessage[] {
-  return messages.map((message) => ({
-    role: message.role,
-    content: message.content,
-  }));
+  return messages.map((m) => ({ role: m.role, content: m.content }));
 }
 
 export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
@@ -88,6 +82,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [lastRequest, setLastRequest] = useState<ChatRequestMessage[] | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const canSend = useMemo(
     () => Boolean(projectId) && input.trim().length > 0 && !isStreaming,
@@ -103,7 +98,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   const runStream = useCallback(
     async (requestMessages: ChatRequestMessage[]) => {
       if (!projectId) {
-        setError("请先选择项目");
+        setError("Please select a project first.");
         return;
       }
 
@@ -112,10 +107,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
       abortRef.current = controller;
       setIsStreaming(true);
       setError(null);
-      setMessages((prev) => [
-        ...prev,
-        { id: assistantId, role: "assistant", content: "" },
-      ]);
+      setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "" }]);
 
       try {
         const response = await fetch("/api/ai/chat", {
@@ -132,34 +124,25 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
 
         await consumeSse(response, controller.signal, (event, payload) => {
           if (event === "token") {
-            const text =
-              payload && typeof payload === "object" && "text" in payload
-                ? String((payload as { text: unknown }).text ?? "")
-                : "";
-            if (!text) {
-              return;
-            }
+            const text = (payload as any)?.text ?? "";
+            if (!text) return;
 
             setMessages((prev) =>
-              prev.map((message) =>
-                message.id === assistantId
-                  ? { ...message, content: message.content + text }
-                  : message,
-              ),
+              prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + text } : m))
             );
+            
+            if (scrollRef.current) {
+              scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }
           }
 
           if (event === "error") {
-            const message =
-              payload && typeof payload === "object" && "message" in payload
-                ? String((payload as { message: unknown }).message ?? "生成失败")
-                : "生成失败";
-            setError(message);
+            setError((payload as any)?.message ?? "Generation failed");
           }
         });
-      } catch (streamError) {
+      } catch (e) {
         if (!controller.signal.aborted) {
-          setError(streamError instanceof Error ? streamError.message : "对话请求失败");
+          setError(e instanceof Error ? e.message : "Chat request failed");
         }
       } finally {
         setIsStreaming(false);
@@ -170,18 +153,12 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   );
 
   const handleSubmit = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
+    async (e: FormEvent) => {
+      e.preventDefault();
       const prompt = input.trim();
-      if (!prompt || !projectId || isStreaming) {
-        return;
-      }
+      if (!prompt || !projectId || isStreaming) return;
 
-      const userMessage: ChatItem = {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: prompt,
-      };
+      const userMessage: ChatItem = { id: crypto.randomUUID(), role: "user", content: prompt };
       const nextMessages = [...messages, userMessage];
       const requestMessages = toRequestMessages(nextMessages);
 
@@ -193,64 +170,75 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
     [input, isStreaming, messages, projectId, runStream],
   );
 
-  const handleRetry = useCallback(async () => {
-    if (!lastRequest || isStreaming) {
-      return;
-    }
-    await runStream(lastRequest);
-  }, [isStreaming, lastRequest, runStream]);
-
   return (
-    <article className="cn-panel">
-      <h3 className="cn-card-title">AI 对话</h3>
-      <p className="cn-card-description">
-        支持流式输出与中断。当前项目：{projectId ?? "未选择"}
-      </p>
-
-      <div className="mt-3 max-h-56 overflow-y-auto rounded-md border border-[var(--cn-border)] p-2">
-        {messages.length === 0 ? (
-          <p className="cn-card-description">发送第一条消息开始对话。</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {messages.map((message) => (
-              <li
-                key={message.id}
-                className="rounded-md border border-[var(--cn-border)] bg-white px-2 py-1"
-              >
-                <p className="text-xs text-[var(--cn-text-secondary)]">
-                  {message.role === "user" ? "你" : "AI"}
-                </p>
-                <p className="text-sm text-[var(--cn-text-primary)]">{message.content}</p>
-              </li>
-            ))}
-          </ul>
+    <section className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI Chat</h3>
+        {isStreaming && (
+          <button className="text-[10px] px-2 py-0.5 text-red-600 hover:bg-red-50 transition-colors" onClick={stopStream}>
+            Stop
+          </button>
         )}
       </div>
 
-      {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
+      <div 
+        ref={scrollRef}
+        className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar"
+      >
+        {messages.length === 0 ? (
+          <div className="py-8 text-center space-y-2">
+            <p className="text-sm text-muted-foreground">Ask anything about your project.</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {["Outline this chapter", "Character consistency check", "Suggest some twists"].map(s => (
+                <button 
+                  key={s} 
+                  className="text-[10px] px-2 py-1 bg-muted hover:bg-muted-foreground/10 rounded-full transition-colors"
+                  onClick={() => setInput(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          messages.map((m) => (
+            <div key={m.id} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+              <div className={`max-w-[90%] rounded-2xl px-4 py-2 text-sm ${
+                m.role === 'user' 
+                  ? 'bg-foreground text-background rounded-tr-none' 
+                  : 'bg-muted text-foreground rounded-tl-none border border-border'
+              }`}>
+                {m.content || (isStreaming && m.role === 'assistant' ? <span className="animate-pulse">...</span> : null)}
+              </div>
+            </div>
+          ))
+        )}
+        {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded-md border border-red-100">{error}</p>}
+      </div>
 
-      <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-2">
+      <form onSubmit={handleSubmit} className="relative">
         <textarea
           value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder="输入你的问题..."
-          rows={3}
-          className="rounded-md border border-[var(--cn-border)] p-2 text-sm"
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              if (canSend) handleSubmit(e as any);
+            }
+          }}
+          placeholder="Message AI Assistant..."
+          rows={2}
+          className="w-full pr-12 resize-none bg-muted/30 focus:bg-background transition-colors"
           disabled={!projectId || isStreaming}
         />
-
-        <div className="flex gap-2">
-          <button type="submit" disabled={!canSend}>
-            发送
-          </button>
-          <button type="button" onClick={stopStream} disabled={!isStreaming}>
-            中断
-          </button>
-          <button type="button" onClick={() => void handleRetry()} disabled={!lastRequest || isStreaming}>
-            重试
-          </button>
-        </div>
+        <button 
+          type="submit" 
+          disabled={!canSend}
+          className="absolute right-2 bottom-2 p-1.5 rounded-md primary disabled:opacity-30 transition-all"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m5 12 7-7 7 7M12 19V5"/></svg>
+        </button>
       </form>
-    </article>
+    </section>
   );
 }

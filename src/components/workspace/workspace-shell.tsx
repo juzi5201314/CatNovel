@@ -23,6 +23,18 @@ export function WorkspaceShell() {
   const creatingProject = useWorkspaceStore((state) => state.creatingProject);
   const creatingChapter = useWorkspaceStore((state) => state.creatingChapter);
   const savingChapter = useWorkspaceStore((state) => state.savingChapter);
+  const importingProject = useWorkspaceStore((state) => state.importingProject);
+  const exportingProject = useWorkspaceStore((state) => state.exportingProject);
+  const importResult = useWorkspaceStore((state) => state.importResult);
+  const importErrorReport = useWorkspaceStore((state) => state.importErrorReport);
+  const lastExportJson = useWorkspaceStore((state) => state.lastExportJson);
+  const snapshots = useWorkspaceStore((state) => state.snapshots);
+  const snapshotDiff = useWorkspaceStore((state) => state.snapshotDiff);
+  const snapshotRestoreResult = useWorkspaceStore((state) => state.snapshotRestoreResult);
+  const loadingSnapshots = useWorkspaceStore((state) => state.loadingSnapshots);
+  const creatingSnapshot = useWorkspaceStore((state) => state.creatingSnapshot);
+  const loadingSnapshotDiff = useWorkspaceStore((state) => state.loadingSnapshotDiff);
+  const restoringSnapshotId = useWorkspaceStore((state) => state.restoringSnapshotId);
   const error = useWorkspaceStore((state) => state.error);
 
   const fetchProjects = useWorkspaceStore((state) => state.fetchProjects);
@@ -31,6 +43,14 @@ export function WorkspaceShell() {
   const createChapter = useWorkspaceStore((state) => state.createChapter);
   const selectChapter = useWorkspaceStore((state) => state.selectChapter);
   const saveChapter = useWorkspaceStore((state) => state.saveChapter);
+  const importProjectFromJson = useWorkspaceStore((state) => state.importProjectFromJson);
+  const exportSelectedProject = useWorkspaceStore((state) => state.exportSelectedProject);
+  const fetchSnapshots = useWorkspaceStore((state) => state.fetchSnapshots);
+  const createManualSnapshot = useWorkspaceStore((state) => state.createManualSnapshot);
+  const restoreSnapshot = useWorkspaceStore((state) => state.restoreSnapshot);
+  const loadSnapshotDiff = useWorkspaceStore((state) => state.loadSnapshotDiff);
+  const clearSnapshotDiff = useWorkspaceStore((state) => state.clearSnapshotDiff);
+  const clearImportFeedback = useWorkspaceStore((state) => state.clearImportFeedback);
   const clearError = useWorkspaceStore((state) => state.clearError);
 
   useEffect(() => {
@@ -72,7 +92,7 @@ export function WorkspaceShell() {
   );
 
   return (
-    <main className="cn-workspace">
+    <div className="flex min-h-screen bg-background text-foreground overflow-hidden">
       <LeftSidebar
         projects={projects}
         chapters={chapters}
@@ -82,27 +102,48 @@ export function WorkspaceShell() {
         loadingChapters={loadingChapters}
         creatingProject={creatingProject}
         creatingChapter={creatingChapter}
+        importingProject={importingProject}
+        exportingProject={exportingProject}
+        importResult={importResult}
+        importErrorReport={importErrorReport}
+        lastExportJson={lastExportJson}
         error={error}
         onCreateProject={createProject}
         onSelectProject={selectProject}
         onCreateChapter={createChapter}
+        onImportProjectFromJson={importProjectFromJson}
+        onExportSelectedProject={exportSelectedProject}
         onSelectChapter={selectChapter}
+        onClearImportFeedback={clearImportFeedback}
         onClearError={clearError}
       />
 
-      <section className="cn-column cn-column-editor">
-        <header className="cn-column-header">
-          <h2>Editor</h2>
-          <span>{savingChapter ? "保存中..." : "已连接"}</span>
-        </header>
+      <main className="flex-1 ml-[var(--cn-sidebar-left)] mr-[var(--cn-sidebar-right)] min-w-0 h-screen overflow-hidden flex flex-col">
         <EditorShell chapter={selectedChapter} onSave={handleSave} />
-      </section>
+      </main>
 
       <RightSidebar
         project={selectedProject}
         chapter={selectedChapter}
+        snapshots={snapshots}
+        snapshotDiff={snapshotDiff}
+        snapshotRestoreResult={snapshotRestoreResult}
+        loadingSnapshots={loadingSnapshots}
+        creatingSnapshot={creatingSnapshot}
+        loadingSnapshotDiff={loadingSnapshotDiff}
+        restoringSnapshotId={restoringSnapshotId}
         onAcceptGhost={handleAcceptGhost}
+        onRefreshSnapshots={async () => {
+          if (!selectedProject?.id) {
+            return;
+          }
+          await fetchSnapshots(selectedProject.id);
+        }}
+        onCreateSnapshot={createManualSnapshot}
+        onRestoreSnapshot={restoreSnapshot}
+        onLoadSnapshotDiff={loadSnapshotDiff}
+        onClearSnapshotDiff={clearSnapshotDiff}
       />
-    </main>
+    </div>
   );
 }

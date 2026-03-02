@@ -5,7 +5,10 @@ import {
   validateTimelineEventIdParam,
 } from "@/lib/http/timeline-validators";
 import { ProjectsRepository } from "@/repositories/projects-repository";
-import { TimelineRepository } from "@/repositories/timeline-repository";
+import {
+  TimelineRepository,
+  TimelineStatusTransitionError,
+} from "@/repositories/timeline-repository";
 
 type RouteContext = {
   params: Promise<{ eventId: string }>;
@@ -30,10 +33,18 @@ type TimelineRepositoryPort = {
     evidence?: string | null;
     confidence?: number;
     status?: "auto" | "confirmed" | "rejected" | "pending_review";
+    reviewReason?: string | null;
+    reviewSource?: string | null;
+    reviewedBy?: string | null;
+    reviewNote?: string | null;
+    statusUpdatedBy?: string | null;
     entityIds: string[];
   }): {
     event: unknown;
     entityIds: string[];
+    statusTransition?: unknown;
+    reviewBacklog?: unknown;
+    conflictResult?: unknown;
   };
 };
 
@@ -162,6 +173,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         : validation.data.action === "reject"
           ? "rejected"
           : editPayload.status ?? located.event.status;
+    const reviewer = url.searchParams.get("reviewer")?.trim() || "timeline_api";
+    const isReviewAction = validation.data.action === "confirm" || validation.data.action === "reject";
     const entityIds =
       editPayload.entityId !== undefined
         ? [editPayload.entityId]
@@ -189,6 +202,17 @@ export async function PATCH(request: Request, context: RouteContext) {
         located.event.description,
       confidence: editPayload.confidence ?? located.event.confidence,
       status,
+      reviewReason: status === "pending_review"
+        ? "manual_pending_review"
+        : validation.data.action === "reject"
+          ? "manual_reject"
+          : validation.data.action === "confirm"
+            ? "manual_confirm"
+            : null,
+      reviewSource: isReviewAction ? "manual_review_patch" : "manual_edit_patch",
+      reviewedBy: isReviewAction ? reviewer : null,
+      reviewNote: isReviewAction ? `${validation.data.action} via PATCH timeline event` : null,
+      statusUpdatedBy: isReviewAction ? reviewer : "timeline_api_edit",
       entityIds,
     });
 
@@ -204,8 +228,23 @@ export async function PATCH(request: Request, context: RouteContext) {
     return ok({
       success: true,
       event,
+      statusTransition: updated.statusTransition ?? null,
+      reviewBacklog: updated.reviewBacklog ?? null,
+      conflictResult: updated.conflictResult ?? null,
     });
   } catch (error) {
+    if (error instanceof TimelineStatusTransitionError) {
+      return fail(
+        error.code,
+        `Illegal status transition: ${error.from} -> ${error.to}`,
+        409,
+        {
+          eventId: error.eventId,
+          from: error.from,
+          to: error.to,
+        },
+      );
+    }
     return internalError(error);
   }
 }

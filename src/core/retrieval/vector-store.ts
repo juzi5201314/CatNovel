@@ -14,8 +14,8 @@ export type VectorQueryInput = {
 };
 
 export type ChapterScope = {
-  from: number;
-  to: number;
+  from?: number;
+  to?: number;
 };
 
 export class LanceDbVectorStore {
@@ -62,10 +62,11 @@ export class LanceDbVectorStore {
 
     const limit = input.limit ?? 10;
     const filters = [buildProjectFilter(input.projectId)];
-    if (chapterScope) {
-      filters.push(
-        `chapter_no >= ${chapterScope.from} AND chapter_no <= ${chapterScope.to}`,
-      );
+    if (chapterScope?.from !== undefined) {
+      filters.push(`chapter_no >= ${chapterScope.from}`);
+    }
+    if (chapterScope?.to !== undefined) {
+      filters.push(`chapter_no <= ${chapterScope.to}`);
     }
 
     const rows = (await table
@@ -120,6 +121,14 @@ export class LanceDbVectorStore {
       chunkIds,
     )}`;
     await table.delete(predicate);
+  }
+
+  async deleteByProject(projectId: string): Promise<void> {
+    const table = await this.client.openTableIfExists();
+    if (!table) {
+      return;
+    }
+    await table.delete(buildProjectFilter(projectId));
   }
 
   async deleteByChapter(projectId: string, chapterId: string): Promise<void> {

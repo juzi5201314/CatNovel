@@ -3,7 +3,7 @@ import { ChaptersRepository } from "@/repositories/chapters-repository";
 import { type ChunkVectorRecord } from "./chunk-schema";
 import { chunkChapter, type ChapterChunkInput } from "./chunker";
 import { embedTexts } from "./embedding";
-import { getProjectChunks, replaceProjectChunks } from "./runtime";
+import { LanceDbVectorStore } from "./vector-store";
 
 export type ReindexInput = {
   projectId: string;
@@ -36,8 +36,11 @@ function chapterToChunkInput(chapter: IndexedChapter): ChapterChunkInput {
   };
 }
 
-function withEmbeddings(records: Omit<ChunkVectorRecord, "vector">[]): ChunkVectorRecord[] {
-  const vectors = embedTexts(records.map((item) => item.text));
+async function withEmbeddings(
+  records: Omit<ChunkVectorRecord, "vector">[],
+  projectId: string,
+): Promise<ChunkVectorRecord[]> {
+  const vectors = await embedTexts(records.map((item) => item.text), { projectId });
   return records.map((item, index) => ({
     ...item,
     vector: vectors[index] ?? [],
@@ -47,29 +50,31 @@ function withEmbeddings(records: Omit<ChunkVectorRecord, "vector">[]): ChunkVect
 export class RetrievalIndexer {
   constructor(
     private readonly chapterRepository = new ChaptersRepository(),
+    private readonly vectorStore = new LanceDbVectorStore(),
   ) {}
 
   async reindex(input: ReindexInput): Promise<ReindexOutput> {
     const chapters = this.resolveChapters(input);
-    const projectChunks = getProjectChunks(input.projectId);
-    const nextChunks = [...projectChunks];
     let indexedChunks = 0;
+    const isFullRebuild = !input.chapterIds || input.chapterIds.length === 0;
 
-    for (const chapter of chapters) {
-      for (let index = nextChunks.length - 1; index >= 0; index -= 1) {
-        if (nextChunks[index].chapter_id === chapter.id) {
-          nextChunks.splice(index, 1);
-        }
-      }
-
-      const chunked = chunkChapter(chapterToChunkInput(chapter));
-      const records = withEmbeddings(chunked.all);
-      indexedChunks += records.length;
-
-      nextChunks.push(...records);
+    if (isFullRebuild) {
+      await this.vectorStore.deleteByProject(input.projectId);
     }
 
-    replaceProjectChunks(input.projectId, nextChunks);
+    for (const chapter of chapters) {
+      if (!isFullRebuild) {
+        await this.vectorStore.deleteByChapter(input.projectId, chapter.id);
+      }
+      const chunked = chunkChapter(chapterToChunkInput(chapter));
+      if (chunked.all.length === 0) {
+        continue;
+      }
+
+      const records = await withEmbeddings(chunked.all, input.projectId);
+      indexedChunks += records.length;
+      await this.vectorStore.upsert(records);
+    }
 
     return {
       indexedChapters: chapters.length,

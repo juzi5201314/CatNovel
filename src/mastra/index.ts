@@ -78,6 +78,7 @@ export async function prepareGenerateStream(
 
 export function runChatStream(input: ChatRequestInput, signal: AbortSignal): AsyncGenerator<string> {
   const payload: ChatStreamInput = {
+    projectId: input.projectId,
     messages: input.messages,
     chatPresetId: input.chatPresetId,
     override: input.override,
@@ -90,6 +91,7 @@ export function runGenerateStream(
   signal: AbortSignal,
 ): AsyncGenerator<string> {
   const payload: GenerateStreamInput = {
+    projectId: input.projectId,
     taskType: input.taskType,
     prompt: input.prompt,
     selection: input.selection,
