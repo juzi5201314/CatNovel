@@ -7,9 +7,27 @@ import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3"
 import * as schema from "./schema";
 
 const DEFAULT_DATABASE_PATH = "./.data/catnovel.sqlite";
+const MIGRATIONS_DIRECTORY = path.join(process.cwd(), "src", "db", "migrations");
 
 let sqliteConnection: Database.Database | null = null;
 let appDatabase: AppDatabase | null = null;
+
+function applySqlMigrations(connection: Database.Database): void {
+  if (!fs.existsSync(MIGRATIONS_DIRECTORY)) {
+    return;
+  }
+
+  const migrationFiles = fs
+    .readdirSync(MIGRATIONS_DIRECTORY)
+    .filter((fileName) => fileName.endsWith(".sql"))
+    .sort((left, right) => left.localeCompare(right));
+
+  for (const fileName of migrationFiles) {
+    const filePath = path.join(MIGRATIONS_DIRECTORY, fileName);
+    const sql = fs.readFileSync(filePath, "utf8");
+    connection.exec(sql);
+  }
+}
 
 function normalizeSqlitePath(rawPath: string): string {
   if (rawPath.startsWith("file:")) {
@@ -49,6 +67,7 @@ export function getSqliteConnection(): Database.Database {
     sqliteConnection = new Database(databasePath);
     sqliteConnection.pragma("foreign_keys = ON");
     sqliteConnection.pragma("journal_mode = WAL");
+    applySqlMigrations(sqliteConnection);
   }
 
   return sqliteConnection;

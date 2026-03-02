@@ -30,7 +30,7 @@ export type TimelineEvent = {
   title: string;
   description: string;
   confidence: number;
-  status: "auto" | "confirmed" | "rejected";
+  status: "auto" | "confirmed" | "rejected" | "pending_review";
 };
 
 export type RagAnswer = {

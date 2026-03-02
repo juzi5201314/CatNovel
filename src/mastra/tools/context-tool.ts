@@ -13,7 +13,7 @@ export type TimelineEventHit = {
   title: string;
   description: string;
   confidence: number;
-  status: "auto" | "confirmed" | "rejected";
+  status: "auto" | "confirmed" | "rejected" | "pending_review";
 };
 
 export type ContextUsedPayload = {

@@ -4,6 +4,7 @@ import type { ChapterItem, ProjectItem } from "@/components/workspace/types";
 import { ApprovalCenter } from "@/components/ai-sidebar/approval-center";
 import { ChatPanel } from "@/components/ai-sidebar/chat-panel";
 import { GhostActions } from "@/components/ai-sidebar/ghost-actions";
+import { TimelinePanel } from "@/components/timeline/timeline-panel";
 
 type RightSidebarProps = {
   project: ProjectItem | null;
@@ -40,6 +41,8 @@ export function RightSidebar({
         chapter={chapter}
         onAcceptGhost={onAcceptGhost}
       />
+
+      <TimelinePanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
 
       <ApprovalCenter projectId={project?.id ?? null} />
     </section>

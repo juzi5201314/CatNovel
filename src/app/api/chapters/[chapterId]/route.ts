@@ -1,5 +1,6 @@
 import { internalError, ok, fail, parseJsonBody } from "@/lib/http/api-response";
 import { validatePatchChapterInput } from "@/lib/http/validators";
+import { recomputeChapterTimelineEvents } from "@/core/timeline/extraction-service";
 import { ChaptersRepository } from "@/repositories/chapters-repository";
 
 type RouteContext = {
@@ -33,6 +34,20 @@ export async function PATCH(request: Request, context: RouteContext) {
     const chapter = chaptersRepository.updateAndGet(chapterId, validation.data);
     if (!chapter) {
       return fail("NOT_FOUND", "Chapter not found", 404);
+    }
+
+    const shouldRecomputeTimeline =
+      validation.data.content !== undefined || validation.data.summary !== undefined;
+
+    if (shouldRecomputeTimeline) {
+      void recomputeChapterTimelineEvents({
+        projectId: chapter.projectId,
+        chapterId: chapter.id,
+        chapterNo: chapter.orderNo,
+        chapterTitle: chapter.title,
+        chapterContent: chapter.content ?? "",
+        chapterSummary: chapter.summary ?? null,
+      }).catch(() => {});
     }
 
     return ok(chapter);

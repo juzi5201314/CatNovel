@@ -98,3 +98,11 @@ export function runGenerateStream(
   };
   return streamGenerateTokens(payload, signal);
 }
+
+export {
+  runTimelineExtractionWorkflow,
+  type TimelineWorkflowInput,
+  type TimelineWorkflowOutput,
+  type TimelineEntityCandidate,
+  type TimelineEventCandidate,
+} from "@/mastra/workflows/timeline-workflow";
