@@ -1,52 +1,87 @@
-type PlaceholderCardProps = {
-  title: string;
-  description: string;
+"use client";
+
+import { useCallback, useEffect, useMemo } from "react";
+
+import { RightSidebar } from "@/components/ai-sidebar/right-sidebar";
+import { LeftSidebar } from "@/components/sidebar/left-sidebar";
+import type { ChapterItem } from "@/components/workspace/types";
+import { EditorShell } from "@/components/editor/editor-shell";
+import { useWorkspaceStore } from "@/stores/workspace-store";
+
+type EditorSavePayload = {
+  content: string;
+  summary?: string | null;
 };
 
-function PlaceholderCard({ title, description }: PlaceholderCardProps) {
-  return (
-    <article className="cn-panel cn-panel-soft">
-      <h3 className="cn-card-title">{title}</h3>
-      <p className="cn-card-description">{description}</p>
-    </article>
-  );
-}
-
 export function WorkspaceShell() {
+  const projects = useWorkspaceStore((state) => state.projects);
+  const chapters = useWorkspaceStore((state) => state.chapters);
+  const selectedProjectId = useWorkspaceStore((state) => state.selectedProjectId);
+  const selectedChapterId = useWorkspaceStore((state) => state.selectedChapterId);
+  const loadingProjects = useWorkspaceStore((state) => state.loadingProjects);
+  const loadingChapters = useWorkspaceStore((state) => state.loadingChapters);
+  const creatingProject = useWorkspaceStore((state) => state.creatingProject);
+  const creatingChapter = useWorkspaceStore((state) => state.creatingChapter);
+  const savingChapter = useWorkspaceStore((state) => state.savingChapter);
+  const error = useWorkspaceStore((state) => state.error);
+
+  const fetchProjects = useWorkspaceStore((state) => state.fetchProjects);
+  const createProject = useWorkspaceStore((state) => state.createProject);
+  const selectProject = useWorkspaceStore((state) => state.selectProject);
+  const createChapter = useWorkspaceStore((state) => state.createChapter);
+  const selectChapter = useWorkspaceStore((state) => state.selectChapter);
+  const saveChapter = useWorkspaceStore((state) => state.saveChapter);
+  const clearError = useWorkspaceStore((state) => state.clearError);
+
+  useEffect(() => {
+    void fetchProjects();
+  }, [fetchProjects]);
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) ?? null,
+    [projects, selectedProjectId],
+  );
+
+  const selectedChapter = useMemo<ChapterItem | null>(
+    () => chapters.find((chapter) => chapter.id === selectedChapterId) ?? null,
+    [chapters, selectedChapterId],
+  );
+
+  const handleSave = useCallback(
+    async (payload: EditorSavePayload) => {
+      await saveChapter(payload);
+    },
+    [saveChapter],
+  );
+
   return (
     <main className="cn-workspace">
-      <section className="cn-column cn-column-left">
-        <header className="cn-column-header">
-          <h2>Project</h2>
-          <span>0 项</span>
-        </header>
-        <PlaceholderCard
-          title="项目列表占位"
-          description="W2 会接入项目 CRUD 与章节树。"
-        />
-      </section>
+      <LeftSidebar
+        projects={projects}
+        chapters={chapters}
+        selectedProjectId={selectedProjectId}
+        selectedChapterId={selectedChapterId}
+        loadingProjects={loadingProjects}
+        loadingChapters={loadingChapters}
+        creatingProject={creatingProject}
+        creatingChapter={creatingChapter}
+        error={error}
+        onCreateProject={createProject}
+        onSelectProject={selectProject}
+        onCreateChapter={createChapter}
+        onSelectChapter={selectChapter}
+        onClearError={clearError}
+      />
 
       <section className="cn-column cn-column-editor">
         <header className="cn-column-header">
           <h2>Editor</h2>
-          <span>准备就绪</span>
+          <span>{savingChapter ? "保存中..." : "已连接"}</span>
         </header>
-        <div className="cn-editor-placeholder">
-          <h1>CatNovel Workspace</h1>
-          <p>三栏骨架已就位，后续波次将接入 TipTap 与 AI 侧栏。</p>
-        </div>
+        <EditorShell chapter={selectedChapter} onSave={handleSave} />
       </section>
 
-      <section className="cn-column cn-column-right">
-        <header className="cn-column-header">
-          <h2>Assistant</h2>
-          <span>未连接</span>
-        </header>
-        <PlaceholderCard
-          title="AI 侧栏占位"
-          description="W3 会接入流式消息、Ghost Text 与工具审批通知。"
-        />
-      </section>
+      <RightSidebar project={selectedProject} chapter={selectedChapter} />
     </main>
   );
 }
