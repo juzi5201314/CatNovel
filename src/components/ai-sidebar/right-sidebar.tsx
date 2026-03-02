@@ -1,13 +1,21 @@
 "use client";
 
 import type { ChapterItem, ProjectItem } from "@/components/workspace/types";
+import { ApprovalCenter } from "@/components/ai-sidebar/approval-center";
+import { ChatPanel } from "@/components/ai-sidebar/chat-panel";
+import { GhostActions } from "@/components/ai-sidebar/ghost-actions";
 
 type RightSidebarProps = {
   project: ProjectItem | null;
   chapter: ChapterItem | null;
+  onAcceptGhost: (ghostText: string) => Promise<void>;
 };
 
-export function RightSidebar({ project, chapter }: RightSidebarProps) {
+export function RightSidebar({
+  project,
+  chapter,
+  onAcceptGhost,
+}: RightSidebarProps) {
   return (
     <section className="cn-column cn-column-right">
       <header className="cn-column-header">
@@ -25,12 +33,15 @@ export function RightSidebar({ project, chapter }: RightSidebarProps) {
         </p>
       </article>
 
-      <article className="cn-panel">
-        <h3 className="cn-card-title">AI 侧栏占位</h3>
-        <p className="cn-card-description">
-          W3 将在这里接入消息流、Ghost Text 与工具审批通知。
-        </p>
-      </article>
+      <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
+
+      <GhostActions
+        projectId={project?.id ?? null}
+        chapter={chapter}
+        onAcceptGhost={onAcceptGhost}
+      />
+
+      <ApprovalCenter projectId={project?.id ?? null} />
     </section>
   );
 }

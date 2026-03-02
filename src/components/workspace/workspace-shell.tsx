@@ -54,6 +54,23 @@ export function WorkspaceShell() {
     [saveChapter],
   );
 
+  const handleAcceptGhost = useCallback(
+    async (ghostText: string) => {
+      if (!selectedChapter) {
+        return;
+      }
+
+      const current = selectedChapter.content ?? "";
+      const separator = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
+
+      await saveChapter({
+        content: `${current}${separator}${ghostText}`,
+        summary: selectedChapter.summary ?? null,
+      });
+    },
+    [saveChapter, selectedChapter],
+  );
+
   return (
     <main className="cn-workspace">
       <LeftSidebar
@@ -81,7 +98,11 @@ export function WorkspaceShell() {
         <EditorShell chapter={selectedChapter} onSave={handleSave} />
       </section>
 
-      <RightSidebar project={selectedProject} chapter={selectedChapter} />
+      <RightSidebar
+        project={selectedProject}
+        chapter={selectedChapter}
+        onAcceptGhost={handleAcceptGhost}
+      />
     </main>
   );
 }

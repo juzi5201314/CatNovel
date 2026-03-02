@@ -88,38 +88,38 @@
 
 ## W3 AI 生成与设置中心波次（可并行，依赖 W2 + W1-B + W1-C）
 
-- [ ] **并行块 W3-A：AI 流式接口（前置：W2-A, W1-B）**
-  1. [ ] 实现 `POST /api/ai/chat`（SSE，输出 `token/tool_call/context_used/done`）。
-  2. [ ] 实现 `POST /api/ai/generate`（续写/改写/润色/扩写）。
-  3. [ ] 接入 preset 与 `override.apiFormat`（`chat_completions/responses`）。
-  4. [ ] 实现可中断生成（AbortSignal/任务句柄）。
+- [x] **并行块 W3-A：AI 流式接口（前置：W2-A, W1-B）**
+  1. [x] 实现 `POST /api/ai/chat`（SSE，输出 `token/tool_call/context_used/done`）。
+  2. [x] 实现 `POST /api/ai/generate`（续写/改写/润色/扩写）。
+  3. [x] 接入 preset 与 `override.apiFormat`（`chat_completions/responses`）。
+  4. [x] 实现可中断生成（AbortSignal/任务句柄）。
 
-- [ ] **并行块 W3-B：Ghost Text 与 AI 侧栏 UI（前置：W2-B, W2-C, W3-A）**
-  1. [ ] 实现 AI 侧栏对话面板与消息流渲染。
-  2. [ ] 实现流式中断、重试、错误反馈。
-  3. [ ] 实现 Ghost Text 接受/拒绝/重生成。
-  4. [ ] 打通编辑器回填与插入光标行为。
+- [x] **并行块 W3-B：Ghost Text 与 AI 侧栏 UI（前置：W2-B, W2-C, W3-A）**
+  1. [x] 实现 AI 侧栏对话面板与消息流渲染。
+  2. [x] 实现流式中断、重试、错误反馈。
+  3. [x] 实现 Ghost Text 接受/拒绝/重生成。
+  4. [x] 打通编辑器回填与插入光标行为。
 
-- [ ] **并行块 W3-C：供应商与模型预设 API（前置：W1-B）**
-  1. [ ] 实现 `providers` CRUD（内置项删除限制与字段限制）。
-  2. [ ] 实现 `model-presets` CRUD。
-  3. [ ] 实现 `PATCH /api/settings/llm-defaults`。
-  4. [ ] 实现 `POST /api/settings/providers/:id/rotate-key`。
-  5. [ ] 覆盖协议、用途、预算字段校验测试。
+- [x] **并行块 W3-C：供应商与模型预设 API（前置：W1-B）**
+  1. [x] 实现 `providers` CRUD（内置项删除限制与字段限制）。
+  2. [x] 实现 `model-presets` CRUD。
+  3. [x] 实现 `PATCH /api/settings/llm-defaults`。
+  4. [x] 实现 `POST /api/settings/providers/:id/rotate-key`。
+  5. [x] 覆盖协议、用途、预算字段校验测试。
 
-- [ ] **并行块 W3-D：设置页 UI（前置：W3-C, W2-B）**
-  1. [ ] 实现 Provider 列表、编辑、启停与新增。
-  2. [ ] 实现 Model Preset 列表、编辑、删除与新增。
-  3. [ ] 实现项目级默认 Chat/Embedding 预设选择。
-  4. [ ] 展示密钥状态并支持 rotate key 操作。
-  5. [ ] 验证 API 格式切换后可成功调用对应供应商。
+- [x] **并行块 W3-D：设置页 UI（前置：W3-C, W2-B）**
+  1. [x] 实现 Provider 列表、编辑、启停与新增。
+  2. [x] 实现 Model Preset 列表、编辑、删除与新增。
+  3. [x] 实现项目级默认 Chat/Embedding 预设选择。
+  4. [x] 展示密钥状态并支持 rotate key 操作。
+  5. [x] 验证 API 格式切换后可成功调用对应供应商。
 
-- [ ] **并行块 W3-E：Tool 执行与审批流 API+UI（前置：W1-C, W2-B）**
-  1. [ ] 实现 `POST /api/tools/execute`（读直执行、写/高风险转审批）。
-  2. [ ] 实现审批接口（列表/详情/approve/reject/stream）。
-  3. [ ] 实现审批中心 UI 与实时通知订阅。
-  4. [ ] 审批通过后执行工具并写入执行日志。
-  5. [ ] 完成风险级别回归测试矩阵（`read/write/high_risk`）。
+- [x] **并行块 W3-E：Tool 执行与审批流 API+UI（前置：W1-C, W2-B）**
+  1. [x] 实现 `POST /api/tools/execute`（读直执行、写/高风险转审批）。
+  2. [x] 实现审批接口（列表/详情/approve/reject/stream）。
+  3. [x] 实现审批中心 UI 与实时通知订阅。
+  4. [x] 审批通过后执行工具并写入执行日志。
+  5. [x] 完成风险级别回归测试矩阵（`read/write/high_risk`）。
 
 ---
 
