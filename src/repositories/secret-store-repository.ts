@@ -11,17 +11,26 @@ export type SecretRecord = {
   keyVersion: number;
 };
 
-export class SecretStoreRepository extends BaseRepository {
-  private readonly crypto: SecretCrypto;
+export type SecretMetaRecord = SecretRecord;
 
-  constructor(database?: AppDatabase, crypto = new SecretCrypto()) {
+export class SecretStoreRepository extends BaseRepository {
+  private crypto?: SecretCrypto;
+
+  constructor(database?: AppDatabase, crypto?: SecretCrypto) {
     super(database);
     this.crypto = crypto;
   }
 
+  private getCrypto(): SecretCrypto {
+    if (!this.crypto) {
+      this.crypto = new SecretCrypto();
+    }
+    return this.crypto;
+  }
+
   createSecret(plainText: string, keyVersion = 1): SecretRecord {
     const id = crypto.randomUUID();
-    const encrypted = this.crypto.encrypt(plainText, keyVersion);
+    const encrypted = this.getCrypto().encrypt(plainText, keyVersion);
 
     this.db
       .insert(secretStore)
@@ -37,6 +46,15 @@ export class SecretStoreRepository extends BaseRepository {
     return { id, keyVersion: encrypted.keyVersion };
   }
 
+  getSecretMeta(id: string): SecretMetaRecord | null {
+    const row = this.db
+      .select({ id: secretStore.id, keyVersion: secretStore.keyVersion })
+      .from(secretStore)
+      .where(eq(secretStore.id, id))
+      .get();
+    return row ?? null;
+  }
+
   readPlaintext(id: string): string | null {
     const row = this.db
       .select()
@@ -48,7 +66,7 @@ export class SecretStoreRepository extends BaseRepository {
       return null;
     }
 
-    return this.crypto.decrypt({
+    return this.getCrypto().decrypt({
       ciphertext: row.ciphertext,
       nonce: row.nonce,
       tag: row.tag,
@@ -56,7 +74,7 @@ export class SecretStoreRepository extends BaseRepository {
   }
 
   rotateSecret(id: string, plainText: string, newKeyVersion: number): boolean {
-    const encrypted = this.crypto.encrypt(plainText, newKeyVersion);
+    const encrypted = this.getCrypto().encrypt(plainText, newKeyVersion);
     const result = this.db
       .update(secretStore)
       .set({

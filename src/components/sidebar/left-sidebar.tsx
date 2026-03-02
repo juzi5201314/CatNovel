@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
 
 import type { ChapterItem, ProjectItem, ProjectMode } from "@/components/workspace/types";
 
@@ -102,6 +103,9 @@ export function LeftSidebar({
 
       <article className="cn-panel">
         <h3 className="cn-card-title">项目列表</h3>
+        <p className="cn-card-description">
+          <Link href="/settings">打开设置页</Link>
+        </p>
         {loadingProjects ? <p className="cn-card-description">加载中...</p> : null}
         <ul>
           {projects.map((project) => (
