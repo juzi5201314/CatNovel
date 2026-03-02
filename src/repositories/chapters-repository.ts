@@ -91,6 +91,21 @@ export class ChaptersRepository extends BaseRepository {
     return created;
   }
 
+  createMany(inputs: CreateChapterInput[]): ChapterRecord[] {
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    return this.transaction((tx) => {
+      const repository = new ChaptersRepository(tx);
+      const created: ChapterRecord[] = [];
+      for (const input of inputs) {
+        created.push(repository.create(input));
+      }
+      return created;
+    });
+  }
+
   update(chapterId: string, patch: ChapterPatch): boolean {
     if (Object.keys(patch).length === 0) {
       return false;

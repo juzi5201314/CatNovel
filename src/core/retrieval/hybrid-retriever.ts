@@ -4,6 +4,10 @@ import type { EvidenceHit, RagAnswer, RetrievalIntent, RetrievalQueryInput } fro
 import { assembleRagAnswer } from "./context-assembler";
 import { DEFAULT_TOP_K, DEFAULT_VECTOR_CANDIDATES } from "./default-params";
 import { embedText } from "./embedding";
+import {
+  readGraphRagRuntimeConfig,
+  runGraphRagRuntimeQuery,
+} from "./graph-rag-runtime";
 import { reRankCandidates, type RankedCandidate } from "./re-ranker";
 import { getProjectChunks } from "./runtime";
 
@@ -45,8 +49,66 @@ export class HybridRetriever {
   ) {}
 
   async query(input: RetrievalQueryInput): Promise<RagAnswer> {
-    const topK = input.topK ?? DEFAULT_TOP_K;
     const intent = classifyIntent(input.query);
+    return this.queryWithIntent(input, intent);
+  }
+
+  async queryRelation(input: RetrievalQueryInput): Promise<RagAnswer> {
+    return this.queryWithIntent(input, "relation");
+  }
+
+  private async queryWithIntent(
+    input: RetrievalQueryInput,
+    intent: RetrievalIntent,
+  ): Promise<RagAnswer> {
+    const topK = input.topK ?? DEFAULT_TOP_K;
+    const fallbackHits = this.retrieveFallbackHits(input, topK);
+    const graphConfig = readGraphRagRuntimeConfig();
+    const canUseGraphRag =
+      graphConfig.enabled &&
+      input.strategy === "auto" &&
+      (!graphConfig.relationOnly || intent === "relation");
+
+    if (canUseGraphRag) {
+      const graphResult = await runGraphRagRuntimeQuery({
+        projectId: input.projectId,
+        query: input.query,
+        topK,
+        chapterScope: input.chapterScope,
+        config: graphConfig,
+      });
+
+      if (graphResult.accepted) {
+        return assembleRagAnswer({
+          query: input.query,
+          intent,
+          hits: graphResult.hits,
+          events: [],
+          usedGraphRag: true,
+        });
+      }
+
+      if (!graphConfig.fallbackToVector && graphResult.executed) {
+        return assembleRagAnswer({
+          query: input.query,
+          intent,
+          hits: graphResult.hits,
+          events: [],
+          usedGraphRag: true,
+        });
+      }
+    }
+
+    return assembleRagAnswer({
+      query: input.query,
+      intent,
+      hits: fallbackHits,
+      events: [],
+      usedGraphRag: false,
+    });
+  }
+
+  private retrieveFallbackHits(input: RetrievalQueryInput, topK: number): EvidenceHit[] {
     const queryVector = embedText(input.query);
     const candidates: RankedCandidate[] = [];
 
@@ -157,12 +219,6 @@ export class HybridRetriever {
       source: candidate.source,
     }));
 
-    return assembleRagAnswer({
-      query: input.query,
-      intent,
-      hits,
-      events: [],
-      usedGraphRag: false,
-    });
+    return hits;
   }
 }

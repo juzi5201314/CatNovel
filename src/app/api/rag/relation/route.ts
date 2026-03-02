@@ -1,15 +1,12 @@
 import { internalError, fail, ok, parseJsonBody } from "@/lib/http/api-response";
-import {
-  type RetrievalQueryInput,
-  type ChapterScope,
-} from "@/core/retrieval/contracts";
+import type { ChapterScope, RetrievalQueryInput } from "@/core/retrieval/contracts";
 import { HybridRetriever } from "@/core/retrieval/hybrid-retriever";
 
-type QueryRequest = RetrievalQueryInput;
+type RelationQueryRequest = RetrievalQueryInput;
 
 const retriever = new HybridRetriever();
 
-function isIntentStrategy(value: unknown): value is QueryRequest["strategy"] {
+function isIntentStrategy(value: unknown): value is RelationQueryRequest["strategy"] {
   return value === "auto" || value === "vector_first" || value === "alias_first";
 }
 
@@ -42,7 +39,7 @@ function parseChapterScope(value: unknown): ChapterScope | undefined {
   return scope;
 }
 
-function validateQueryRequest(payload: unknown): QueryRequest | null {
+function validateRelationRequest(payload: unknown): RelationQueryRequest | null {
   if (!payload || typeof payload !== "object") {
     return null;
   }
@@ -67,7 +64,7 @@ function validateQueryRequest(payload: unknown): QueryRequest | null {
     topK = record.topK as number;
   }
 
-  let strategy: QueryRequest["strategy"] = "auto";
+  let strategy: RelationQueryRequest["strategy"] = "auto";
   if (record.strategy !== undefined) {
     if (!isIntentStrategy(record.strategy)) {
       return null;
@@ -91,7 +88,7 @@ export async function POST(request: Request) {
       return bodyResult.response;
     }
 
-    const input = validateQueryRequest(bodyResult.data);
+    const input = validateRelationRequest(bodyResult.data);
     if (!input) {
       return fail(
         "INVALID_INPUT",
@@ -100,7 +97,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await retriever.query(input);
+    const result = await retriever.queryRelation(input);
     return ok({
       answer: result.answer,
       usedGraphRag: result.usedGraphRag,

@@ -4,6 +4,7 @@ import type { AppDatabase } from "@/db/client";
 import { projects, type ProjectMode } from "@/db/schema";
 
 import { BaseRepository } from "./base-repository";
+import { ChaptersRepository, type ChapterRecord } from "./chapters-repository";
 
 export type ProjectRecord = {
   id: string;
@@ -17,6 +18,19 @@ export type CreateProjectInput = {
   id: string;
   name: string;
   mode: ProjectMode;
+};
+
+export type ImportProjectChapterInput = {
+  id?: string;
+  orderNo: number;
+  title: string;
+  content: string;
+  summary?: string | null;
+};
+
+export type ImportProjectBundleInput = {
+  project: CreateProjectInput;
+  chapters: ImportProjectChapterInput[];
 };
 
 export class ProjectsRepository extends BaseRepository {
@@ -49,5 +63,29 @@ export class ProjectsRepository extends BaseRepository {
       .where(eq(projects.id, id))
       .run();
     return result.changes > 0;
+  }
+
+  importProjectBundle(input: ImportProjectBundleInput): {
+    project: ProjectRecord;
+    chapters: ChapterRecord[];
+  } {
+    return this.transaction((tx) => {
+      const projectsRepository = new ProjectsRepository(tx);
+      const chaptersRepository = new ChaptersRepository(tx);
+
+      const project = projectsRepository.create(input.project);
+      const chapters = input.chapters.map((chapter) =>
+        chaptersRepository.create({
+          id: chapter.id ?? crypto.randomUUID(),
+          projectId: project.id,
+          orderNo: chapter.orderNo,
+          title: chapter.title,
+          content: chapter.content,
+          summary: chapter.summary ?? null,
+        }),
+      );
+
+      return { project, chapters };
+    });
   }
 }

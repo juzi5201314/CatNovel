@@ -6,7 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint .",
+    "lint:owned": "eslint scripts --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "syntax:check": "node scripts/syntax-check.mjs",
+    "format:check": "node scripts/format-check.mjs",
+    "check:static": "pnpm run lint:owned && pnpm run syntax:check && pnpm run format:check",
+    "smoke:core": "node scripts/w7-core-smoke.mjs",
+    "perf:rag": "node scripts/w7-rag-perf.mjs",
+    "verify:static:60s": "timeout 60s pnpm run check:static",
+    "verify:smoke:60s": "timeout 60s pnpm run smoke:core",
+    "verify:perf:60s": "timeout 60s pnpm run perf:rag",
+    "verify:all": "pnpm run verify:static:60s && pnpm run verify:smoke:60s && pnpm run verify:perf:60s"
   },
   "dependencies": {
     "@lancedb/lancedb": "^0.26.2",

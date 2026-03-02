@@ -1,6 +1,7 @@
 import { internalError, ok, fail, parseJsonBody } from "@/lib/http/api-response";
 import { validatePatchChapterInput } from "@/lib/http/validators";
 import { recomputeChapterTimelineEvents } from "@/core/timeline/extraction-service";
+import { ProjectSnapshotsService } from "@/core/snapshots/snapshot-service";
 import { ChaptersRepository } from "@/repositories/chapters-repository";
 
 type RouteContext = {
@@ -8,6 +9,7 @@ type RouteContext = {
 };
 
 const chaptersRepository = new ChaptersRepository();
+const snapshotsService = new ProjectSnapshotsService();
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
@@ -31,7 +33,8 @@ export async function PATCH(request: Request, context: RouteContext) {
       return fail(validation.code, validation.message, 400, validation.details);
     }
 
-    const chapter = chaptersRepository.updateAndGet(chapterId, validation.data);
+    const saveResult = snapshotsService.saveChapterWithAutoSnapshot(chapterId, validation.data);
+    const chapter = saveResult.chapter;
     if (!chapter) {
       return fail("NOT_FOUND", "Chapter not found", 404);
     }
