@@ -9,6 +9,14 @@ export type ProjectRecord = {
   id: string;
   name: string;
   mode: ProjectMode;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type CreateProjectInput = {
+  id: string;
+  name: string;
+  mode: ProjectMode;
 };
 
 export class ProjectsRepository extends BaseRepository {
@@ -25,9 +33,13 @@ export class ProjectsRepository extends BaseRepository {
     return row ?? null;
   }
 
-  create(input: ProjectRecord): ProjectRecord {
+  create(input: CreateProjectInput): ProjectRecord {
     this.db.insert(projects).values(input).run();
-    return input;
+    const created = this.findById(input.id);
+    if (!created) {
+      throw new Error("failed to create project");
+    }
+    return created;
   }
 
   updateName(id: string, name: string): boolean {

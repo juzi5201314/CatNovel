@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/client";
 import { chapters } from "@/db/schema";
@@ -6,6 +6,17 @@ import { chapters } from "@/db/schema";
 import { BaseRepository } from "./base-repository";
 
 export type ChapterRecord = {
+  id: string;
+  projectId: string;
+  orderNo: number;
+  title: string;
+  content?: string;
+  summary?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type CreateChapterInput = {
   id: string;
   projectId: string;
   orderNo: number;
@@ -41,7 +52,27 @@ export class ChaptersRepository extends BaseRepository {
     return row ?? null;
   }
 
-  create(input: ChapterRecord): ChapterRecord {
+  findByChapterId(chapterId: string): ChapterRecord | null {
+    const row = this.db
+      .select()
+      .from(chapters)
+      .where(eq(chapters.id, chapterId))
+      .get();
+    return row ?? null;
+  }
+
+  getNextOrderNo(projectId: string): number {
+    const latest = this.db
+      .select({ orderNo: chapters.orderNo })
+      .from(chapters)
+      .where(eq(chapters.projectId, projectId))
+      .orderBy(desc(chapters.orderNo))
+      .limit(1)
+      .get();
+    return (latest?.orderNo ?? 0) + 1;
+  }
+
+  create(input: CreateChapterInput): ChapterRecord {
     this.db
       .insert(chapters)
       .values({
@@ -53,11 +84,11 @@ export class ChaptersRepository extends BaseRepository {
         summary: input.summary ?? null,
       })
       .run();
-    return {
-      ...input,
-      content: input.content ?? "",
-      summary: input.summary ?? null,
-    };
+    const created = this.findByChapterId(input.id);
+    if (!created) {
+      throw new Error("failed to create chapter");
+    }
+    return created;
   }
 
   update(chapterId: string, patch: ChapterPatch): boolean {
@@ -71,5 +102,13 @@ export class ChaptersRepository extends BaseRepository {
       .where(eq(chapters.id, chapterId))
       .run();
     return result.changes > 0;
+  }
+
+  updateAndGet(chapterId: string, patch: ChapterPatch): ChapterRecord | null {
+    const updated = this.update(chapterId, patch);
+    if (!updated) {
+      return this.findByChapterId(chapterId);
+    }
+    return this.findByChapterId(chapterId);
   }
 }
