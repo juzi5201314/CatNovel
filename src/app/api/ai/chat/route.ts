@@ -257,7 +257,7 @@ function toChatSystemPrompt(projectId: string): string {
     resolveProjectSystemPrompt(projectId),
     "你是 CatNovel 的写作助理。可以使用内置工具查询章节、时间线、设定、快照与审批信息。",
     "凡是涉及项目事实数据的问题，优先调用工具再回答，不要编造。",
-    "当工具返回 requires_approval 时，明确告知用户去右侧审批中心处理后再继续。",
+    "当工具返回 requires_approval 时，提示用户在当前聊天中的审批卡片完成同意/拒绝/微调。",
     "当用户要求“列出可用工具”时，必须调用 system.listTools。",
     "当用户询问“有多少章/几章”时，必须调用 chapter.list 后根据 count 回答。",
     "当用户询问设定集内容时，必须调用 lore.listNodes。",
@@ -409,7 +409,7 @@ async function streamForcedToolResponse(input: {
   const text =
     toolResult.status === "executed"
       ? renderForcedToolFallback(input.forcedToolName, toolResult.result) ?? "工具调用已完成。"
-      : `该工具调用需要审批，请在审批中心处理后再继续。approvalId=${toolResult.approvalId}`;
+      : `该工具调用需要审批，请在当前聊天中的审批卡片处理后再继续。approvalId=${toolResult.approvalId}`;
 
   const stream = createUIMessageStream({
     execute: ({ writer }) => {

@@ -9,6 +9,7 @@ export type ExecuteManagedToolRequest = {
   args?: unknown;
   idempotencyKey?: string;
   approvalId?: string;
+  caller?: "llm" | "user";
 };
 
 export type ExecuteManagedToolResult =
@@ -65,7 +66,11 @@ function ensureToolEnabled(toolName: string): void {
   });
 }
 
-function requiresApproval(toolName: string): boolean {
+function requiresApproval(toolName: string, caller: "llm" | "user"): boolean {
+  if (caller === "user") {
+    return false;
+  }
+
   if (SELF_APPROVAL_TOOLS.has(toolName)) {
     return false;
   }
@@ -206,9 +211,10 @@ function createApprovalRequest(input: ExecuteManagedToolRequest): ExecuteManaged
 export async function executeManagedTool(
   input: ExecuteManagedToolRequest,
 ): Promise<ExecuteManagedToolResult> {
+  const caller = input.caller ?? "llm";
   ensureToolEnabled(input.toolName);
 
-  if (!requiresApproval(input.toolName)) {
+  if (!requiresApproval(input.toolName, caller)) {
     return executeDirectly(input);
   }
 

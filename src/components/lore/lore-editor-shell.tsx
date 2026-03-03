@@ -19,24 +19,10 @@ type LoreNode = {
 };
 
 type ToolExecutionData =
-  | {
-      status: "executed";
-      result: unknown;
-    }
-  | {
-      status: "requires_approval";
-      approvalId: string;
-      summary: string;
-    };
-
-type PendingExecution = {
-  id: string;
-  approvalId: string;
-  toolName: "lore.upsertNode" | "lore.deleteNode";
-  args: unknown;
-  label: string;
-  status: "pending" | "running";
-};
+  {
+    status: "executed";
+    result: unknown;
+  };
 
 type ApiSuccess<T> = {
   success: true;
@@ -172,25 +158,10 @@ function parseToolExecutionData(input: unknown): ToolExecutionData {
   }
 
   if (input.status === "requires_approval") {
-    const approvalId = asString(input.approvalId);
-    if (!approvalId) {
-      throw new Error("审批响应缺少 approvalId");
-    }
-    return {
-      status: "requires_approval",
-      approvalId,
-      summary: asString(input.summary) ?? "请求需要审批",
-    };
+    throw new Error("前端用户操作不应进入审批队列");
   }
 
   throw new Error("未知工具执行状态");
-}
-
-function parseApprovalStatus(input: unknown): string | null {
-  if (!isRecord(input)) {
-    return null;
-  }
-  return asString(input.status);
 }
 
 function toErrorMessage(reason: unknown, fallback: string): string {
@@ -231,8 +202,6 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
   const [draftType, setDraftType] = useState<LoreNodeType>("character");
   const [draftAliases, setDraftAliases] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
-
-  const [pendingExecutions, setPendingExecutions] = useState<PendingExecution[]>([]);
 
   const [loadingNodes, setLoadingNodes] = useState(false);
   const [savingNode, setSavingNode] = useState(false);
@@ -277,7 +246,6 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
       return;
     }
     lastProjectIdRef.current = projectId;
-    setPendingExecutions([]);
     setError(null);
     setNotice(null);
     setSelectedNodeId(null);
@@ -290,36 +258,19 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
       projectId: string;
       toolName: "lore.listNodes" | "lore.upsertNode" | "lore.deleteNode";
       args?: unknown;
-      approvalId?: string;
     }): Promise<ToolExecutionData> => {
       const response = await fetch("/api/tools/execute", {
         method: "POST",
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify(input),
+        body: JSON.stringify({
+          ...input,
+          caller: "user",
+        }),
       });
       const data = await parseApiData<unknown>(response);
       return parseToolExecutionData(data);
-    },
-    [],
-  );
-
-  const queuePendingExecution = useCallback(
-    (item: Omit<PendingExecution, "id" | "status">) => {
-      setPendingExecutions((current) => {
-        if (current.some((pending) => pending.approvalId === item.approvalId)) {
-          return current;
-        }
-        return [
-          ...current,
-          {
-            ...item,
-            id: crypto.randomUUID(),
-            status: "pending",
-          },
-        ];
-      });
     },
     [],
   );
@@ -355,11 +306,6 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
       });
 
       if (requestId !== loadRequestSeqRef.current) {
-        return;
-      }
-
-      if (execution.status !== "executed") {
-        setError("设定节点读取请求进入审批，暂时无法展示列表。");
         return;
       }
 
@@ -400,7 +346,6 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
       setNodes([]);
       setSelectedNodeId(null);
       setIsCreating(false);
-      setPendingExecutions([]);
       setLoadingNodes(false);
       setSavingNode(false);
       setDeletingNode(false);
@@ -466,17 +411,6 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
         args,
       });
 
-      if (execution.status === "requires_approval") {
-        queuePendingExecution({
-          approvalId: execution.approvalId,
-          toolName: "lore.upsertNode",
-          args,
-          label: `保存节点「${name}」`,
-        });
-        setNotice("保存请求已提交审批。请在右侧 Tasks 面板通过后，点击“执行已批准请求”。");
-        return;
-      }
-
       const nodeId = extractNodeIdFromUpsertResult(execution.result);
       if (nodeId) {
         setSelectedNodeId(nodeId);
@@ -495,6 +429,9 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
     if (!projectId || !selectedNode) {
       return;
     }
+    if (!window.confirm(`确认删除节点「${selectedNode.name}」吗？此操作不可撤销。`)) {
+      return;
+    }
 
     setDeletingNode(true);
     setError(null);
@@ -505,22 +442,11 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
     };
 
     try {
-      const execution = await executeTool({
+      await executeTool({
         projectId,
         toolName: "lore.deleteNode",
         args,
       });
-
-      if (execution.status === "requires_approval") {
-        queuePendingExecution({
-          approvalId: execution.approvalId,
-          toolName: "lore.deleteNode",
-          args,
-          label: `删除节点「${selectedNode.name}」`,
-        });
-        setNotice("删除请求已提交审批。请在右侧 Tasks 面板通过后，点击“执行已批准请求”。");
-        return;
-      }
 
       setIsCreating(true);
       setSelectedNodeId(null);
@@ -531,99 +457,6 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
       setError(toErrorMessage(reason, "设定节点删除失败"));
     } finally {
       setDeletingNode(false);
-    }
-  }
-
-  async function handleExecutePending(pendingId: string) {
-    const pending = pendingExecutions.find((item) => item.id === pendingId);
-    if (!projectId || !pending) {
-      return;
-    }
-
-    setPendingExecutions((current) =>
-      current.map((item) =>
-        item.id === pendingId ? { ...item, status: "running" } : item,
-      ),
-    );
-    setError(null);
-    setNotice(null);
-
-    try {
-      const detailResponse = await fetch(`/api/tool-approvals/${pending.approvalId}`, {
-        method: "GET",
-      });
-      const detail = await parseApiData<unknown>(detailResponse);
-      const approvalStatus = parseApprovalStatus(detail);
-
-      if (!approvalStatus) {
-        throw new Error("审批状态读取失败");
-      }
-
-      if (approvalStatus === "pending") {
-        setNotice(`审批 ${pending.approvalId} 仍在等待通过。`);
-        return;
-      }
-
-      if (approvalStatus === "rejected" || approvalStatus === "expired") {
-        setPendingExecutions((current) =>
-          current.filter((item) => item.id !== pendingId),
-        );
-        setError(`审批 ${pending.approvalId} 状态为 ${approvalStatus}，请求已移出队列。`);
-        return;
-      }
-
-      if (approvalStatus === "executed") {
-        setPendingExecutions((current) =>
-          current.filter((item) => item.id !== pendingId),
-        );
-        setNotice(`${pending.label}已执行完成。`);
-        await loadNodes();
-        return;
-      }
-
-      if (approvalStatus !== "approved") {
-        setError(`未知审批状态：${approvalStatus}`);
-        return;
-      }
-
-      const execution = await executeTool({
-        projectId,
-        toolName: pending.toolName,
-        args: pending.args,
-        approvalId: pending.approvalId,
-      });
-
-      if (execution.status !== "executed") {
-        setError("审批已通过，但执行尚未完成。");
-        return;
-      }
-
-      setPendingExecutions((current) =>
-        current.filter((item) => item.id !== pendingId),
-      );
-
-      if (pending.toolName === "lore.upsertNode") {
-        const nodeId = extractNodeIdFromUpsertResult(execution.result);
-        if (nodeId) {
-          setSelectedNodeId(nodeId);
-        }
-        setIsCreating(false);
-      } else {
-        setIsCreating(true);
-        setSelectedNodeId(null);
-        resetDraft();
-      }
-
-      setNotice(`${pending.label}已执行。`);
-      await loadNodes();
-    } catch (reason) {
-      setError(toErrorMessage(reason, "执行审批请求失败"));
-    } finally {
-      setPendingExecutions((current) =>
-        current.map((item) =>
-          item.id === pendingId ? { ...item, status: "pending" } : item,
-        ),
-      );
     }
   }
 
@@ -694,45 +527,6 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
             {notice ? (
               <section className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
                 <p className="text-sm text-emerald-700">{notice}</p>
-              </section>
-            ) : null}
-
-            {pendingExecutions.length > 0 ? (
-              <section className="cn-panel">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">待执行审批请求</h2>
-                  <span className="text-xs text-muted-foreground">{pendingExecutions.length} 条</span>
-                </div>
-                <ul className="mt-3 space-y-2">
-                  {pendingExecutions.map((item) => (
-                    <li key={item.id} className="rounded-md border border-border p-3">
-                      <p className="text-sm font-semibold">{item.label}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        approvalId: <span className="font-mono">{item.approvalId}</span>
-                      </p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleExecutePending(item.id)}
-                          disabled={item.status === "running"}
-                        >
-                          {item.status === "running" ? "处理中..." : "执行已批准请求"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPendingExecutions((current) =>
-                              current.filter((pending) => pending.id !== item.id),
-                            )
-                          }
-                          disabled={item.status === "running"}
-                        >
-                          移除
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
               </section>
             ) : null}
 

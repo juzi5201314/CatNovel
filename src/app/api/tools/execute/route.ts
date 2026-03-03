@@ -10,6 +10,7 @@ type ExecuteToolRequest = {
   args?: unknown;
   idempotencyKey?: string;
   approvalId?: string;
+  caller?: "llm" | "user";
 };
 
 function validateExecuteRequest(payload: unknown): ExecuteToolRequest | null {
@@ -24,6 +25,9 @@ function validateExecuteRequest(payload: unknown): ExecuteToolRequest | null {
   if (typeof record.toolName !== "string" || record.toolName.trim().length === 0) {
     return null;
   }
+  if (record.caller !== undefined && record.caller !== "llm" && record.caller !== "user") {
+    return null;
+  }
 
   return {
     projectId: record.projectId,
@@ -32,6 +36,7 @@ function validateExecuteRequest(payload: unknown): ExecuteToolRequest | null {
     idempotencyKey:
       typeof record.idempotencyKey === "string" ? record.idempotencyKey : undefined,
     approvalId: typeof record.approvalId === "string" ? record.approvalId : undefined,
+    caller: record.caller === "llm" || record.caller === "user" ? record.caller : undefined,
   };
 }
 

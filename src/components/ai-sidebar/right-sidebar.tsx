@@ -8,7 +8,6 @@ import type {
   ProjectSnapshotSummary,
   SnapshotRestoreResult,
 } from "@/components/workspace/types";
-import { ApprovalCenter } from "@/components/ai-sidebar/approval-center";
 import { ChatPanel } from "@/components/ai-sidebar/chat-panel";
 import { GhostActions } from "@/components/ai-sidebar/ghost-actions";
 import { SnapshotPanel } from "@/components/ai-sidebar/snapshot-panel";
@@ -32,7 +31,7 @@ type RightSidebarProps = {
   onClearSnapshotDiff: () => void;
 };
 
-type AITab = "chat" | "ghost" | "history" | "tasks";
+type AITab = "chat" | "ghost" | "history";
 
 export function RightSidebar({
   project,
@@ -98,12 +97,6 @@ export function RightSidebar({
           >
             History
           </button>
-          <button 
-            className={`flex-1 py-3 text-xs font-medium border-b-2 transition-all ${activeTab === 'tasks' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActiveTab('tasks')}
-          >
-            Tasks
-          </button>
         </div>
 
         {/* Content Area */}
@@ -140,12 +133,6 @@ export function RightSidebar({
                 onLoadDiff={onLoadSnapshotDiff}
                 onClearDiff={onClearSnapshotDiff}
               />
-            </div>
-          )}
-
-          {activeTab === "tasks" && (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              <ApprovalCenter projectId={project?.id ?? null} />
             </div>
           )}
         </div>
