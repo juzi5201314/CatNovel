@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { AppDatabase } from "@/db/client";
 import {
   llmModelPresets,
-  type PresetApiFormat,
+  type PresetChatApiFormat,
   type PresetPurpose,
   type ThinkingBudgetType,
   type ThinkingEffort,
@@ -15,8 +15,9 @@ export type ModelPresetRecord = {
   id: string;
   providerId: string;
   purpose: PresetPurpose;
-  apiFormat: PresetApiFormat;
+  chatApiFormat?: PresetChatApiFormat | null;
   modelId: string;
+  customUserAgent?: string | null;
   temperature?: number;
   maxTokens?: number;
   thinkingBudgetType?: ThinkingBudgetType;
@@ -62,8 +63,9 @@ export class LlmModelPresetsRepository extends BaseRepository {
         id: record.id,
         providerId: record.providerId,
         purpose: record.purpose,
-        apiFormat: record.apiFormat,
+        chatApiFormat: record.chatApiFormat ?? null,
         modelId: record.modelId,
+        customUserAgent: record.customUserAgent ?? null,
         temperature: record.temperature,
         maxTokens: record.maxTokens,
         thinkingBudgetType: record.thinkingBudgetType,
@@ -76,8 +78,9 @@ export class LlmModelPresetsRepository extends BaseRepository {
         set: {
           providerId: record.providerId,
           purpose: record.purpose,
-          apiFormat: record.apiFormat,
+          chatApiFormat: record.chatApiFormat ?? null,
           modelId: record.modelId,
+          customUserAgent: record.customUserAgent ?? null,
           temperature: record.temperature,
           maxTokens: record.maxTokens,
           thinkingBudgetType: record.thinkingBudgetType,

@@ -1,4 +1,29 @@
+import { and, asc, eq } from "drizzle-orm";
+
+import { RetrievalIndexer } from "@/core/retrieval/indexer";
+import {
+  createQueuedJob,
+  markJobDone,
+  markJobFailed,
+  markJobRunning,
+  type RagReindexReason,
+} from "@/core/retrieval/runtime";
+import { ProjectSnapshotsService } from "@/core/snapshots/snapshot-service";
+import { recomputeChapterTimelineEvents } from "@/core/timeline/extraction-service";
+import { listToolCatalog } from "@/core/tools/tool-catalog";
+import { getDatabase, runInTransaction } from "@/db/client";
+import {
+  chapters,
+  entities,
+  eventEntities,
+  events,
+  projectSnapshots,
+  type TimelineEntityType,
+} from "@/db/schema";
+import { ChaptersRepository } from "@/repositories/chapters-repository";
+import { ProjectsRepository } from "@/repositories/projects-repository";
 import { TimelineRepository } from "@/repositories/timeline-repository";
+import { ToolApprovalsRepository } from "@/repositories/tool-approvals-repository";
 
 export type ToolExecutionInput = {
   projectId: string;
@@ -9,6 +34,7 @@ export type ToolExecutionInput = {
 type ToolHandler = (input: ToolExecutionInput) => Promise<unknown>;
 
 type TimelineRepositoryStatus = "auto" | "confirmed" | "rejected" | "pending_review";
+type TimelineResolveDecision = "confirm" | "reject" | "queue" | "auto";
 
 type TimelineEntityWithAliases = {
   entity: unknown;
@@ -32,6 +58,11 @@ type TimelineUpsertInput = {
   confidence?: number;
   status?: TimelineRepositoryStatus;
   entityIds: string[];
+  reviewReason?: string | null;
+  reviewSource?: string | null;
+  reviewedBy?: string | null;
+  reviewNote?: string | null;
+  statusUpdatedBy?: string | null;
 };
 
 type TimelineEditInput = Partial<Omit<TimelineUpsertInput, "projectId" | "id">> & {
@@ -43,18 +74,18 @@ type TimelineEditInput = Partial<Omit<TimelineUpsertInput, "projectId" | "id">> 
   entityId?: string;
 };
 
-type TimelineRepositoryPort = {
-  listEntitiesByProject(projectId: string): TimelineEntityWithAliases[];
-  getTimelineByEntity(projectId: string, entityId: string): TimelineEventWithEntities[];
-  upsertEventWithSnapshot(input: TimelineUpsertInput): {
-    event: unknown;
-    entityIds: string[];
-    snapshotId: string;
-    conflictResult: unknown;
-  };
+type ChapterScope = {
+  from?: number;
+  to?: number;
 };
 
-const timelineRepository = new TimelineRepository() as unknown as TimelineRepositoryPort;
+const db = getDatabase();
+const projectsRepository = new ProjectsRepository();
+const chaptersRepository = new ChaptersRepository();
+const timelineRepository = new TimelineRepository();
+const snapshotsService = new ProjectSnapshotsService();
+const approvalsRepository = new ToolApprovalsRepository();
+const retrievalIndexer = new RetrievalIndexer();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
@@ -68,8 +99,26 @@ function asOptionalNonEmptyString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asNullableString(value: unknown): string | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return undefined;
+}
+
 function asOptionalInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+}
+
+function asOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function asOptionalNumber(value: unknown): number | undefined {
@@ -97,6 +146,75 @@ function asTimelineStatus(value: unknown): TimelineRepositoryStatus | undefined 
   return undefined;
 }
 
+function asTimelineResolveDecision(value: unknown): TimelineResolveDecision | undefined {
+  if (value === "confirm" || value === "reject" || value === "queue" || value === "auto") {
+    return value;
+  }
+  return undefined;
+}
+
+function asTimelineEntityType(value: unknown): TimelineEntityType | undefined {
+  if (
+    value === "character" ||
+    value === "location" ||
+    value === "item" ||
+    value === "organization" ||
+    value === "concept" ||
+    value === "other"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function clampLimit(input: number | undefined, fallback: number, max: number): number {
+  if (!Number.isInteger(input)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(1, input as number));
+}
+
+function parseChapterScope(value: unknown): ChapterScope | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const from = asOptionalInteger(record.from);
+  const to = asOptionalInteger(record.to);
+  if (from !== undefined && to !== undefined && from > to) {
+    return undefined;
+  }
+
+  const scope: ChapterScope = {};
+  if (from !== undefined) {
+    scope.from = from;
+  }
+  if (to !== undefined) {
+    scope.to = to;
+  }
+  if (scope.from === undefined && scope.to === undefined) {
+    return undefined;
+  }
+  return scope;
+}
+
+function chapterInScope(
+  orderNo: number,
+  scope: ChapterScope | undefined,
+): boolean {
+  if (!scope) {
+    return true;
+  }
+  if (scope.from !== undefined && orderNo < scope.from) {
+    return false;
+  }
+  if (scope.to !== undefined && orderNo > scope.to) {
+    return false;
+  }
+  return true;
+}
+
 function extractEntityId(row: TimelineEntityWithAliases): string | undefined {
   const entity = asRecord(row.entity);
   if (!entity) {
@@ -115,6 +233,76 @@ function extractEventId(value: unknown): string | undefined {
     return asOptionalNonEmptyString(eventRecord.id) ?? asOptionalNonEmptyString(eventRecord.eventId);
   }
   return asOptionalNonEmptyString(row.id) ?? asOptionalNonEmptyString(row.eventId);
+}
+
+function buildSnippet(source: string, query: string, radius = 72): string {
+  if (!source) {
+    return "";
+  }
+
+  const normalizedSource = source.toLowerCase();
+  const normalizedQuery = query.toLowerCase();
+  const index = normalizedSource.indexOf(normalizedQuery);
+  if (index < 0) {
+    return source.slice(0, Math.min(source.length, 220));
+  }
+
+  const from = Math.max(0, index - radius);
+  const to = Math.min(source.length, index + query.length + radius);
+  return source.slice(from, to);
+}
+
+function mapChapterRow(
+  row: {
+    id: string;
+    projectId: string;
+    orderNo: number;
+    title: string;
+    content?: string;
+    summary?: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  options?: {
+    includeContent?: boolean;
+    includeSummary?: boolean;
+  },
+) {
+  const includeContent = options?.includeContent ?? false;
+  const includeSummary = options?.includeSummary ?? true;
+
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    orderNo: row.orderNo,
+    title: row.title,
+    summary: includeSummary ? row.summary ?? null : undefined,
+    content: includeContent ? row.content ?? "" : undefined,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function summarizeApprovalPayload(rawPayload: string): string {
+  try {
+    const parsed = JSON.parse(rawPayload) as Record<string, unknown>;
+    const toolName = asOptionalNonEmptyString(parsed.toolName);
+    if (toolName) {
+      return `Request to execute ${toolName}`;
+    }
+  } catch {
+    return "Tool approval request";
+  }
+  return "Tool approval request";
+}
+
+function readApprovalPayload(rawPayload: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(rawPayload) as unknown;
+    return asRecord(parsed);
+  } catch {
+    return null;
+  }
 }
 
 function listProjectTimelineEvents(projectId: string, entityId?: string): TimelineEventWithEntities[] {
@@ -141,21 +329,590 @@ function listProjectTimelineEvents(projectId: string, entityId?: string): Timeli
   return [...deduped.values()];
 }
 
+function maybeResolveProjectId(baseProjectId: string, record: Record<string, unknown>): string {
+  return asOptionalNonEmptyString(record.projectId) ?? baseProjectId;
+}
+
+function resolveChapterSearchHits(input: {
+  projectId: string;
+  query: string;
+  topK: number;
+  chapterScope?: ChapterScope;
+}) {
+  const chaptersList = chaptersRepository.listByProject(input.projectId);
+  const query = input.query.trim();
+  const normalizedQuery = query.toLowerCase();
+
+  const hits = chaptersList
+    .filter((chapter) => chapterInScope(chapter.orderNo, input.chapterScope))
+    .map((chapter) => {
+      const title = chapter.title ?? "";
+      const content = chapter.content ?? "";
+      const summary = chapter.summary ?? "";
+      const normalizedTitle = title.toLowerCase();
+      const normalizedContent = content.toLowerCase();
+      const normalizedSummary = summary.toLowerCase();
+
+      const titleMatched = normalizedTitle.includes(normalizedQuery);
+      const summaryMatched = normalizedSummary.includes(normalizedQuery);
+      const contentMatched = normalizedContent.includes(normalizedQuery);
+      if (!titleMatched && !summaryMatched && !contentMatched) {
+        return null;
+      }
+
+      const score =
+        (titleMatched ? 1.0 : 0) +
+        (summaryMatched ? 0.65 : 0) +
+        (contentMatched ? 0.45 : 0);
+
+      const snippetSource = summaryMatched ? summary : contentMatched ? content : title;
+      return {
+        chapterId: chapter.id,
+        chapterNo: chapter.orderNo,
+        title: chapter.title,
+        score,
+        snippet: buildSnippet(snippetSource, query),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return left.chapterNo - right.chapterNo;
+    })
+    .slice(0, input.topK);
+
+  return hits;
+}
+
+async function safeRecomputeChapterTimeline(chapter: {
+  projectId: string;
+  id: string;
+  orderNo: number;
+  title: string;
+  content?: string;
+  summary?: string | null;
+}) {
+  try {
+    const timelineRecompute = await recomputeChapterTimelineEvents({
+      projectId: chapter.projectId,
+      chapterId: chapter.id,
+      chapterNo: chapter.orderNo,
+      chapterTitle: chapter.title,
+      chapterContent: chapter.content ?? "",
+      chapterSummary: chapter.summary ?? null,
+    });
+
+    return {
+      timelineRecompute: {
+        lowConfidenceEvents: timelineRecompute.lowConfidenceEvents,
+        diffReport: timelineRecompute.diffReport,
+        conflictReport: timelineRecompute.conflictReport,
+      },
+      timelineRecomputeError: null,
+    };
+  } catch (error) {
+    return {
+      timelineRecompute: null,
+      timelineRecomputeError:
+        error instanceof Error ? error.message : "timeline recompute failed",
+    };
+  }
+}
+
+async function enqueueReindex(input: {
+  projectId: string;
+  chapterIds?: string[];
+  reason: RagReindexReason;
+}) {
+  const job = createQueuedJob({
+    projectId: input.projectId,
+    reason: input.reason,
+    chapterCount: input.chapterIds?.length ?? 0,
+  });
+
+  void (async () => {
+    markJobRunning(job.jobId);
+    try {
+      const summary = await retrievalIndexer.reindex({
+        projectId: input.projectId,
+        chapterIds: input.chapterIds,
+      });
+      markJobDone(job.jobId, summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "reindex failed";
+      markJobFailed(job.jobId, message);
+    }
+  })();
+
+  return job;
+}
+
 const handlers: Record<string, ToolHandler> = {
-  "rag.search": async ({ args }) => ({
-    hits: [],
-    query: (args as { query?: string })?.query ?? "",
-  }),
-  "rag.getEvidence": async () => ({ evidence: [] }),
+  "system.listTools": async () => {
+    const toolNames = Object.keys(handlers).sort((left, right) => left.localeCompare(right));
+    const catalogByName = new Map(
+      listToolCatalog().map((item) => [item.toolName, item] as const),
+    );
+    return {
+      tools: toolNames.map((toolName) => {
+        const catalogItem = catalogByName.get(toolName);
+        return {
+          toolName,
+          riskLevel: catalogItem?.riskLevel ?? "high_risk",
+          description: catalogItem?.description ?? "No description",
+        };
+      }),
+      count: toolNames.length,
+    };
+  },
+  "chapter.list": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const resolvedProjectId = maybeResolveProjectId(projectId, record);
+    const includeSummary = asOptionalBoolean(record.includeSummary) ?? true;
+    const includeContent = asOptionalBoolean(record.includeContent) ?? false;
+
+    const rows = chaptersRepository.listByProject(resolvedProjectId);
+    return {
+      chapters: rows.map((row) =>
+        mapChapterRow(row, { includeSummary, includeContent }),
+      ),
+      count: rows.length,
+    };
+  },
+  "chapter.get": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const chapterId = asOptionalNonEmptyString(record?.chapterId);
+    if (!chapterId) {
+      throw new Error("chapterId is required");
+    }
+
+    const chapter =
+      chaptersRepository.findById(projectId, chapterId) ??
+      chaptersRepository.findByChapterId(chapterId);
+    if (!chapter || chapter.projectId !== projectId) {
+      return { chapter: null };
+    }
+
+    return {
+      chapter: mapChapterRow(chapter, { includeSummary: true, includeContent: false }),
+    };
+  },
+  "chapter.getContent": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const chapterId = asOptionalNonEmptyString(record?.chapterId);
+    if (!chapterId) {
+      throw new Error("chapterId is required");
+    }
+
+    const chapter =
+      chaptersRepository.findById(projectId, chapterId) ??
+      chaptersRepository.findByChapterId(chapterId);
+    if (!chapter || chapter.projectId !== projectId) {
+      return { chapter: null };
+    }
+
+    return {
+      chapter: mapChapterRow(chapter, { includeSummary: true, includeContent: true }),
+    };
+  },
+  "chapter.search": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const query = asOptionalNonEmptyString(record?.query);
+    if (!query) {
+      throw new Error("query is required");
+    }
+
+    const topK = clampLimit(asOptionalInteger(record?.topK), 8, 50);
+    const chapterScope = parseChapterScope(record?.chapterScope);
+    const hits = resolveChapterSearchHits({
+      projectId,
+      query,
+      topK,
+      chapterScope,
+    });
+
+    return {
+      query,
+      hits,
+    };
+  },
+  "chapter.range": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const includeContent = asOptionalBoolean(record.includeContent) ?? true;
+    const includeSummary = asOptionalBoolean(record.includeSummary) ?? true;
+    const chapterNos = asStringArray(record.chapterNos)
+      .map((item) => Number.parseInt(item, 10))
+      .filter((item) => Number.isInteger(item));
+    const from = asOptionalInteger(record.from);
+    const to = asOptionalInteger(record.to);
+
+    const rows = chaptersRepository
+      .listByProject(projectId)
+      .filter((row) => {
+        if (chapterNos.length > 0) {
+          return chapterNos.includes(row.orderNo);
+        }
+        if (from !== undefined && row.orderNo < from) {
+          return false;
+        }
+        if (to !== undefined && row.orderNo > to) {
+          return false;
+        }
+        return true;
+      });
+
+    return {
+      chapters: rows.map((row) => mapChapterRow(row, { includeContent, includeSummary })),
+      count: rows.length,
+    };
+  },
+  "chapter.create": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const title = asOptionalNonEmptyString(record?.title);
+    if (!title) {
+      throw new Error("title is required");
+    }
+
+    if (!projectsRepository.findById(projectId)) {
+      throw new Error("project not found");
+    }
+
+    const orderNo =
+      asOptionalInteger(record?.orderNo) ??
+      asOptionalInteger(record?.order) ??
+      chaptersRepository.getNextOrderNo(projectId);
+
+    const chapter = chaptersRepository.create({
+      id: asOptionalNonEmptyString(record?.id) ?? crypto.randomUUID(),
+      projectId,
+      orderNo,
+      title,
+      content: asOptionalString(record?.content) ?? "",
+      summary: asNullableString(record?.summary) ?? null,
+    });
+
+    return {
+      created: true,
+      chapter: mapChapterRow(chapter, { includeSummary: true, includeContent: true }),
+    };
+  },
+  "chapter.updateMeta": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const chapterId = asOptionalNonEmptyString(record?.chapterId);
+    if (!chapterId) {
+      throw new Error("chapterId is required");
+    }
+
+    const nextTitle = asOptionalNonEmptyString(record?.title);
+    const nextSummary = asNullableString(record?.summary);
+    const nextOrderNo = asOptionalInteger(record?.orderNo) ?? asOptionalInteger(record?.order);
+
+    if (nextTitle === undefined && nextSummary === undefined && nextOrderNo === undefined) {
+      throw new Error("at least one of title/summary/orderNo is required");
+    }
+
+    const updated = runInTransaction((tx) => {
+      const existing = tx
+        .select()
+        .from(chapters)
+        .where(and(eq(chapters.projectId, projectId), eq(chapters.id, chapterId)))
+        .get();
+      if (!existing) {
+        return null;
+      }
+
+      tx.update(chapters)
+        .set({
+          title: nextTitle ?? existing.title,
+          summary: nextSummary === undefined ? existing.summary : nextSummary,
+          orderNo: nextOrderNo ?? existing.orderNo,
+          updatedAt: new Date(),
+        })
+        .where(eq(chapters.id, chapterId))
+        .run();
+
+      return (
+        tx
+          .select()
+          .from(chapters)
+          .where(eq(chapters.id, chapterId))
+          .get() ?? null
+      );
+    });
+
+    if (!updated) {
+      return {
+        updated: false,
+        chapter: null,
+      };
+    }
+
+    const timelineResult =
+      nextSummary !== undefined
+        ? await safeRecomputeChapterTimeline(updated)
+        : { timelineRecompute: null, timelineRecomputeError: null };
+
+    return {
+      updated: true,
+      chapter: mapChapterRow(updated, { includeSummary: true, includeContent: true }),
+      ...timelineResult,
+    };
+  },
+  "chapter.updateContent": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const chapterId = asOptionalNonEmptyString(record?.chapterId);
+    if (!chapterId) {
+      throw new Error("chapterId is required");
+    }
+
+    const existing = chaptersRepository.findById(projectId, chapterId);
+    if (!existing) {
+      return {
+        updated: false,
+        chapter: null,
+      };
+    }
+
+    const content = asOptionalString(record?.content);
+    if (content === undefined) {
+      throw new Error("content is required");
+    }
+
+    const mode = asOptionalNonEmptyString(record?.mode) ?? "replace";
+    const resolvedContent =
+      mode === "append"
+        ? `${existing.content ?? ""}${content}`
+        : mode === "prepend"
+          ? `${content}${existing.content ?? ""}`
+          : content;
+    const summary = asNullableString(record?.summary);
+
+    const saveResult = snapshotsService.saveChapterWithAutoSnapshot(chapterId, {
+      content: resolvedContent,
+      summary: summary === undefined ? undefined : summary,
+    });
+
+    if (!saveResult.chapter || saveResult.chapter.projectId !== projectId) {
+      return {
+        updated: false,
+        chapter: null,
+      };
+    }
+
+    const timelineResult = await safeRecomputeChapterTimeline(saveResult.chapter);
+    return {
+      updated: true,
+      chapter: mapChapterRow(saveResult.chapter, { includeSummary: true, includeContent: true }),
+      autoSnapshot: saveResult.autoSnapshot,
+      ...timelineResult,
+    };
+  },
+  "chapter.reorder": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const orderedChapterIds = asStringArray(record.orderedChapterIds);
+    const itemRecords = Array.isArray(record.items)
+      ? record.items.map((item) => asRecord(item)).filter((item): item is Record<string, unknown> => item !== null)
+      : [];
+
+    const updatedRows = runInTransaction((tx) => {
+      const existingRows = tx
+        .select()
+        .from(chapters)
+        .where(eq(chapters.projectId, projectId))
+        .orderBy(asc(chapters.orderNo))
+        .all();
+      if (existingRows.length === 0) {
+        return [];
+      }
+
+      if (orderedChapterIds.length > 0) {
+        const existingIds = new Set(existingRows.map((row) => row.id));
+        const inputIds = new Set(orderedChapterIds);
+        if (inputIds.size !== existingIds.size || orderedChapterIds.length !== existingRows.length) {
+          throw new Error("orderedChapterIds must contain all project chapter ids exactly once");
+        }
+        for (const chapterId of orderedChapterIds) {
+          if (!existingIds.has(chapterId)) {
+            throw new Error(`chapter id not found in project: ${chapterId}`);
+          }
+        }
+
+        for (let index = 0; index < orderedChapterIds.length; index += 1) {
+          tx.update(chapters)
+            .set({ orderNo: index + 1, updatedAt: new Date() })
+            .where(and(eq(chapters.projectId, projectId), eq(chapters.id, orderedChapterIds[index] as string)))
+            .run();
+        }
+      } else if (itemRecords.length > 0) {
+        const orderSet = new Set<number>();
+        for (const itemRecord of itemRecords) {
+          const chapterId = asOptionalNonEmptyString(itemRecord.chapterId);
+          const orderNo = asOptionalInteger(itemRecord.orderNo);
+          if (!chapterId || orderNo === undefined || orderNo < 1) {
+            throw new Error("items must contain chapterId and positive orderNo");
+          }
+          if (orderSet.has(orderNo)) {
+            throw new Error("items.orderNo must be unique");
+          }
+          orderSet.add(orderNo);
+          tx.update(chapters)
+            .set({ orderNo, updatedAt: new Date() })
+            .where(and(eq(chapters.projectId, projectId), eq(chapters.id, chapterId)))
+            .run();
+        }
+      } else {
+        throw new Error("orderedChapterIds or items is required");
+      }
+
+      return tx
+        .select()
+        .from(chapters)
+        .where(eq(chapters.projectId, projectId))
+        .orderBy(asc(chapters.orderNo))
+        .all();
+    });
+
+    return {
+      reordered: true,
+      chapters: updatedRows.map((row) =>
+        mapChapterRow(row, { includeSummary: true, includeContent: false }),
+      ),
+    };
+  },
+  "chapter.delete": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const chapterId = asOptionalNonEmptyString(record?.chapterId);
+    if (!chapterId) {
+      throw new Error("chapterId is required");
+    }
+
+    const result = runInTransaction((tx) => {
+      const existing = tx
+        .select()
+        .from(chapters)
+        .where(and(eq(chapters.projectId, projectId), eq(chapters.id, chapterId)))
+        .get();
+      if (!existing) {
+        return {
+          deleted: false,
+          deletedTimelineEventCount: 0,
+          chapter: null,
+        };
+      }
+
+      const timelineEventCount = tx
+        .select({ id: events.id })
+        .from(events)
+        .where(and(eq(events.projectId, projectId), eq(events.chapterId, chapterId)))
+        .all().length;
+
+      tx.delete(chapters)
+        .where(and(eq(chapters.projectId, projectId), eq(chapters.id, chapterId)))
+        .run();
+
+      return {
+        deleted: true,
+        deletedTimelineEventCount: timelineEventCount,
+        chapter: existing,
+      };
+    });
+
+    return result;
+  },
+  "project.getOverview": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const resolvedProjectId = maybeResolveProjectId(projectId, record);
+    const project = projectsRepository.findById(resolvedProjectId);
+    if (!project) {
+      return { project: null };
+    }
+
+    const chapterRows = chaptersRepository.listByProject(resolvedProjectId);
+    const eventRows = db
+      .select({
+        id: events.id,
+        status: events.status,
+        confidence: events.confidence,
+      })
+      .from(events)
+      .where(eq(events.projectId, resolvedProjectId))
+      .all();
+
+    const statusBreakdown: Record<TimelineRepositoryStatus, number> = {
+      auto: 0,
+      confirmed: 0,
+      rejected: 0,
+      pending_review: 0,
+    };
+    for (const row of eventRows) {
+      statusBreakdown[row.status as TimelineRepositoryStatus] += 1;
+    }
+
+    const snapshotCount = db
+      .select({ id: projectSnapshots.id })
+      .from(projectSnapshots)
+      .where(eq(projectSnapshots.projectId, resolvedProjectId))
+      .all().length;
+
+    const pendingApprovalCount = approvalsRepository.listByProject(resolvedProjectId, "pending").length;
+    const pendingReviewCount = timelineRepository.countReviewBacklog(resolvedProjectId);
+    const totalCharacters = chapterRows.reduce(
+      (sum, chapter) => sum + (chapter.content?.length ?? 0),
+      0,
+    );
+    const latestChapterUpdatedAt =
+      chapterRows.length > 0
+        ? chapterRows.reduce((latest, chapter) =>
+            latest.getTime() > chapter.updatedAt.getTime() ? latest : chapter.updatedAt,
+          chapterRows[0]!.updatedAt)
+        : null;
+
+    return {
+      project: {
+        id: project.id,
+        name: project.name,
+        mode: project.mode,
+        systemPrompt: project.systemPrompt,
+        createdAt: project.createdAt.toISOString(),
+        updatedAt: project.updatedAt.toISOString(),
+      },
+      chapters: {
+        count: chapterRows.length,
+        totalCharacters,
+        latestChapterNo: chapterRows.at(-1)?.orderNo ?? null,
+        latestUpdatedAt: latestChapterUpdatedAt?.toISOString() ?? null,
+      },
+      timeline: {
+        eventCount: eventRows.length,
+        pendingReviewCount,
+        statusBreakdown,
+      },
+      snapshots: {
+        count: snapshotCount,
+      },
+      approvals: {
+        pendingCount: pendingApprovalCount,
+      },
+    };
+  },
   "timeline.getEntity": async ({ projectId, args }) => {
     const record = asRecord(args);
     const entityId = asOptionalNonEmptyString(record?.entityId);
-    if (!entityId) {
-      throw new Error("entityId is required");
+    const nameOrAlias = asOptionalNonEmptyString(record?.nameOrAlias);
+
+    let resolvedEntityId = entityId;
+    if (!resolvedEntityId && nameOrAlias) {
+      resolvedEntityId =
+        timelineRepository.findEntityByNameOrAlias(projectId, nameOrAlias)?.id ?? undefined;
+    }
+    if (!resolvedEntityId) {
+      throw new Error("entityId or nameOrAlias is required");
     }
 
-    const entities = timelineRepository.listEntitiesByProject(projectId);
-    const entityRow = entities.find((row) => extractEntityId(row) === entityId);
+    const entitiesRows = timelineRepository.listEntitiesByProject(projectId);
+    const entityRow = entitiesRows.find((row) => extractEntityId(row) === resolvedEntityId);
     if (!entityRow) {
       return {
         entity: null,
@@ -167,16 +924,18 @@ const handlers: Record<string, ToolHandler> = {
     return {
       entity: entityRow.entity,
       aliases: entityRow.aliases,
-      timeline: timelineRepository.getTimelineByEntity(projectId, entityId),
+      timeline: timelineRepository.getTimelineByEntity(projectId, resolvedEntityId),
     };
   },
   "timeline.listEvents": async ({ projectId, args }) => {
     const record = asRecord(args) ?? {};
-    const resolvedProjectId = asOptionalNonEmptyString(record.projectId) ?? projectId;
+    const resolvedProjectId = maybeResolveProjectId(projectId, record);
     const entityId = asOptionalNonEmptyString(record.entityId);
     const chapterId = asOptionalNonEmptyString(record.chapterId);
     const status = asOptionalNonEmptyString(record.status);
-    const events = listProjectTimelineEvents(resolvedProjectId, entityId).filter((item) => {
+    const limit = clampLimit(asOptionalInteger(record.limit), 50, 300);
+
+    const eventsList = listProjectTimelineEvents(resolvedProjectId, entityId).filter((item) => {
       const eventRecord = asRecord(item.event);
       if (!eventRecord) {
         return false;
@@ -191,7 +950,8 @@ const handlers: Record<string, ToolHandler> = {
     });
 
     return {
-      events,
+      events: eventsList.slice(0, limit),
+      count: eventsList.length,
     };
   },
   "timeline.upsertEvent": async ({ projectId, args }) => {
@@ -211,9 +971,7 @@ const handlers: Record<string, ToolHandler> = {
     const confidence = asOptionalNumber(record.confidence);
 
     if (!chapterId || !title || chapterOrder === undefined || entityIds.length === 0) {
-      throw new Error(
-        "timeline.upsertEvent requires chapterId/chapterOrder/title/entityIds",
-      );
+      throw new Error("timeline.upsertEvent requires chapterId/chapterOrder/title/entityIds");
     }
 
     const result = timelineRepository.upsertEventWithSnapshot({
@@ -230,7 +988,7 @@ const handlers: Record<string, ToolHandler> = {
       confidence,
       status: asTimelineStatus(record.status),
       entityIds,
-    });
+    } as TimelineUpsertInput);
 
     return {
       upserted: true,
@@ -238,6 +996,7 @@ const handlers: Record<string, ToolHandler> = {
       entityIds: result.entityIds,
       snapshotId: result.snapshotId,
       conflictResult: result.conflictResult,
+      reviewBacklog: result.reviewBacklog,
     };
   },
   "timeline.editEvent": async ({ projectId, args }) => {
@@ -342,7 +1101,7 @@ const handlers: Record<string, ToolHandler> = {
         asTimelineStatus((patchRecord as Record<string, unknown>).status) ??
         asTimelineStatus(eventRecord.status),
       entityIds,
-    });
+    } as TimelineUpsertInput);
 
     return {
       edited: true,
@@ -350,20 +1109,482 @@ const handlers: Record<string, ToolHandler> = {
       entityIds: result.entityIds,
       snapshotId: result.snapshotId,
       conflictResult: result.conflictResult,
+      reviewBacklog: result.reviewBacklog,
     };
   },
-  "lore.upsertNode": async ({ args }) => ({
-    upserted: true,
-    node: args ?? null,
-  }),
-  "lore.deleteNode": async ({ args }) => ({
-    deleted: true,
-    node: args ?? null,
-  }),
-  "rag.reindex": async ({ args }) => ({
-    queued: true,
-    request: args ?? null,
-  }),
+  "timeline.resolveConflict": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const eventId = asOptionalNonEmptyString(record?.eventId);
+    if (!eventId) {
+      throw new Error("eventId is required");
+    }
+
+    const decision = asTimelineResolveDecision(record?.decision);
+    const statusFromArg = asTimelineStatus(record?.status);
+    const nextStatus =
+      statusFromArg ??
+      (decision === "confirm"
+        ? "confirmed"
+        : decision === "reject"
+          ? "rejected"
+          : decision === "queue"
+            ? "pending_review"
+            : decision === "auto"
+              ? "auto"
+              : undefined);
+    if (!nextStatus) {
+      throw new Error("decision or status is required");
+    }
+
+    const existingEvent = db
+      .select()
+      .from(events)
+      .where(and(eq(events.projectId, projectId), eq(events.id, eventId)))
+      .get();
+    if (!existingEvent) {
+      return {
+        resolved: false,
+        event: null,
+      };
+    }
+
+    const entityRows = db
+      .select({ entityId: eventEntities.entityId })
+      .from(eventEntities)
+      .where(eq(eventEntities.eventId, eventId))
+      .all();
+    const entityIds = entityRows.map((row) => row.entityId);
+    if (entityIds.length === 0) {
+      throw new Error("timeline.resolveConflict cannot resolve entityIds");
+    }
+
+    const result = timelineRepository.upsertEventWithSnapshot({
+      id: existingEvent.id,
+      projectId,
+      chapterId: existingEvent.chapterId,
+      chapterOrder: existingEvent.chapterOrder,
+      sequenceNo: existingEvent.sequenceNo,
+      title: existingEvent.title,
+      summary: existingEvent.summary,
+      evidence: existingEvent.evidence,
+      confidence: existingEvent.confidence,
+      status: nextStatus,
+      entityIds,
+      reviewReason: asOptionalString(record?.reason) ?? null,
+      reviewSource: "manual_conflict_resolution",
+      reviewedBy: asOptionalString(record?.reviewedBy) ?? "chat_tool",
+      reviewNote: asOptionalString(record?.note) ?? null,
+      statusUpdatedBy: asOptionalString(record?.reviewedBy) ?? "chat_tool",
+    } as TimelineUpsertInput);
+
+    return {
+      resolved: true,
+      event: result.event,
+      entityIds: result.entityIds,
+      snapshotId: result.snapshotId,
+      conflictResult: result.conflictResult,
+      reviewBacklog: result.reviewBacklog,
+    };
+  },
+  "lore.listNodes": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const typeFilter = asTimelineEntityType(record.type);
+    const query = asOptionalNonEmptyString(record.query)?.toLowerCase();
+    const limit = clampLimit(asOptionalInteger(record.limit), 100, 500);
+
+    const rows = timelineRepository
+      .listEntitiesByProject(projectId)
+      .filter((row) => {
+        const entity = asRecord(row.entity);
+        if (!entity) {
+          return false;
+        }
+
+        const entityType = asTimelineEntityType(entity.type);
+        if (typeFilter && entityType !== typeFilter) {
+          return false;
+        }
+
+        if (!query) {
+          return true;
+        }
+
+        const name = asOptionalNonEmptyString(entity.name)?.toLowerCase() ?? "";
+        if (name.includes(query)) {
+          return true;
+        }
+
+        const aliases = Array.isArray(row.aliases) ? row.aliases : [];
+        return aliases.some((alias) => {
+          const aliasRecord = asRecord(alias);
+          const aliasText = asOptionalNonEmptyString(aliasRecord?.alias)?.toLowerCase() ?? "";
+          return aliasText.includes(query);
+        });
+      })
+      .slice(0, limit)
+      .map((row) => {
+        const entity = asRecord(row.entity) ?? {};
+        const aliases = Array.isArray(row.aliases)
+          ? row.aliases
+              .map((alias) => asRecord(alias))
+              .filter((alias): alias is Record<string, unknown> => alias !== null)
+              .map((alias) => ({
+                id: asOptionalNonEmptyString(alias.id) ?? "",
+                alias: asOptionalNonEmptyString(alias.alias) ?? "",
+                isPrimary: asOptionalBoolean(alias.isPrimary) ?? false,
+              }))
+          : [];
+
+        return {
+          id: asOptionalNonEmptyString(entity.id) ?? "",
+          name: asOptionalNonEmptyString(entity.name) ?? "",
+          type: asTimelineEntityType(entity.type) ?? "other",
+          description: asNullableString(entity.description) ?? null,
+          aliases,
+        };
+      });
+
+    return {
+      nodes: rows,
+      count: rows.length,
+    };
+  },
+  "lore.getNode": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const nodeId = asOptionalNonEmptyString(record?.nodeId) ?? asOptionalNonEmptyString(record?.entityId);
+    const nameOrAlias = asOptionalNonEmptyString(record?.nameOrAlias);
+
+    let resolvedEntityId = nodeId;
+    if (!resolvedEntityId && nameOrAlias) {
+      resolvedEntityId =
+        timelineRepository.findEntityByNameOrAlias(projectId, nameOrAlias)?.id ?? undefined;
+    }
+    if (!resolvedEntityId) {
+      throw new Error("nodeId/entityId or nameOrAlias is required");
+    }
+
+    const row = timelineRepository
+      .listEntitiesByProject(projectId)
+      .find((item) => extractEntityId(item) === resolvedEntityId);
+
+    if (!row) {
+      return {
+        node: null,
+      };
+    }
+
+    const entity = asRecord(row.entity) ?? {};
+    const aliases = Array.isArray(row.aliases)
+      ? row.aliases
+          .map((alias) => asRecord(alias))
+          .filter((alias): alias is Record<string, unknown> => alias !== null)
+          .map((alias) => ({
+            id: asOptionalNonEmptyString(alias.id) ?? "",
+            alias: asOptionalNonEmptyString(alias.alias) ?? "",
+            normalizedAlias: asOptionalNonEmptyString(alias.normalizedAlias) ?? "",
+            isPrimary: asOptionalBoolean(alias.isPrimary) ?? false,
+          }))
+      : [];
+
+    return {
+      node: {
+        id: asOptionalNonEmptyString(entity.id) ?? "",
+        name: asOptionalNonEmptyString(entity.name) ?? "",
+        normalizedName: asOptionalNonEmptyString(entity.normalizedName) ?? "",
+        type: asTimelineEntityType(entity.type) ?? "other",
+        description: asNullableString(entity.description) ?? null,
+        aliases,
+      },
+    };
+  },
+  "lore.upsertNode": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    if (!record) {
+      throw new Error("lore.upsertNode args must be an object");
+    }
+
+    const name = asOptionalNonEmptyString(record.name);
+    if (!name) {
+      throw new Error("name is required");
+    }
+
+    const type = asTimelineEntityType(record.type);
+    if (record.type !== undefined && !type) {
+      throw new Error("type is invalid");
+    }
+
+    const aliases = asStringArray(record.aliases);
+    const description = asNullableString(record.description);
+    const nodeId = asOptionalNonEmptyString(record.nodeId) ?? asOptionalNonEmptyString(record.entityId);
+
+    const result = timelineRepository.normalizeEntityAndAliases({
+      entityId: nodeId,
+      projectId,
+      name,
+      type: type ?? "other",
+      description: description ?? null,
+      aliases,
+    });
+
+    return {
+      upserted: true,
+      node: result.entity,
+      aliases: result.aliases,
+      conflictResult: result.conflictResult,
+    };
+  },
+  "lore.deleteNode": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const nodeId = asOptionalNonEmptyString(record?.nodeId) ?? asOptionalNonEmptyString(record?.entityId);
+    const nameOrAlias = asOptionalNonEmptyString(record?.nameOrAlias);
+
+    let resolvedNodeId = nodeId;
+    if (!resolvedNodeId && nameOrAlias) {
+      resolvedNodeId =
+        timelineRepository.findEntityByNameOrAlias(projectId, nameOrAlias)?.id ?? undefined;
+    }
+    if (!resolvedNodeId) {
+      throw new Error("nodeId/entityId or nameOrAlias is required");
+    }
+
+    const result = runInTransaction((tx) =>
+      tx.delete(entities)
+        .where(and(eq(entities.projectId, projectId), eq(entities.id, resolvedNodeId as string)))
+        .run(),
+    );
+
+    return {
+      deleted: result.changes > 0,
+      nodeId: resolvedNodeId,
+    };
+  },
+  "rag.search": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const query = asOptionalNonEmptyString(record?.query);
+    if (!query) {
+      throw new Error("query is required");
+    }
+
+    const topK = clampLimit(asOptionalInteger(record?.topK), 8, 50);
+    const chapterScope = parseChapterScope(record?.chapterScope);
+    const hits = resolveChapterSearchHits({
+      projectId,
+      query,
+      topK,
+      chapterScope,
+    }).map((item) => ({
+      chapterNo: item.chapterNo,
+      chapterId: item.chapterId,
+      chunkId: `${item.chapterId}:search`,
+      score: item.score,
+      snippet: item.snippet,
+    }));
+
+    return {
+      query,
+      hits,
+    };
+  },
+  "rag.getEvidence": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const chunkIds = asStringArray(record.chunkIds);
+    const chapterIds = asStringArray(record.chapterIds);
+    const chapterId = asOptionalNonEmptyString(record.chapterId);
+    const maxChars = clampLimit(asOptionalInteger(record.maxChars), 1200, 12000);
+
+    if (chapterId) {
+      chapterIds.push(chapterId);
+    }
+    for (const chunkId of chunkIds) {
+      const parsedChapterId = asOptionalNonEmptyString(chunkId.split(":")[0]);
+      if (parsedChapterId) {
+        chapterIds.push(parsedChapterId);
+      }
+    }
+
+    const dedupedChapterIds = [...new Set(chapterIds)];
+    const evidence = dedupedChapterIds
+      .map((id) => chaptersRepository.findByChapterId(id))
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .filter((row) => row.projectId === projectId)
+      .map((row) => ({
+        chapterId: row.id,
+        chapterNo: row.orderNo,
+        title: row.title,
+        summary: row.summary ?? null,
+        snippet: (row.content ?? "").slice(0, maxChars),
+        updatedAt: row.updatedAt.toISOString(),
+      }));
+
+    return {
+      evidence,
+      count: evidence.length,
+    };
+  },
+  "rag.reindex": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const chapterIds = asStringArray(record.chapterIds);
+    const reason = (asOptionalNonEmptyString(record.reason) ?? "full_rebuild") as RagReindexReason;
+    if (reason !== "chapter_updated" && reason !== "full_rebuild") {
+      throw new Error("reason must be chapter_updated or full_rebuild");
+    }
+
+    const job = await enqueueReindex({
+      projectId,
+      chapterIds: chapterIds.length > 0 ? chapterIds : undefined,
+      reason,
+    });
+
+    return {
+      queued: true,
+      jobId: job.jobId,
+      status: job.status,
+      reason,
+      chapterCount: job.chapterCount,
+    };
+  },
+  "snapshot.list": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const limit = clampLimit(asOptionalInteger(record.limit), 20, 100);
+    const rows = snapshotsService.listSnapshots(projectId, limit);
+    return {
+      snapshots: rows.map((row) => ({
+        id: row.id,
+        projectId: row.projectId,
+        sourceChapterId: row.sourceChapterId,
+        sourceSnapshotId: row.sourceSnapshotId,
+        triggerType: row.triggerType,
+        triggerReason: row.triggerReason,
+        chapterCount: row.chapterCount,
+        timelineEventCount: row.timelineEventCount,
+        timelineSummary: row.timelineSummary,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      })),
+      count: rows.length,
+    };
+  },
+  "snapshot.create": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const reason = asOptionalNonEmptyString(record?.reason);
+    const result = snapshotsService.createManualSnapshot(projectId, reason);
+    return {
+      created: true,
+      snapshot: {
+        id: result.snapshot.id,
+        projectId: result.snapshot.projectId,
+        triggerType: result.snapshot.triggerType,
+        triggerReason: result.snapshot.triggerReason,
+        chapterCount: result.snapshot.chapterCount,
+        timelineEventCount: result.snapshot.timelineEventCount,
+        timelineSummary: result.snapshot.timelineSummary,
+        createdAt: result.snapshot.createdAt.toISOString(),
+        updatedAt: result.snapshot.updatedAt.toISOString(),
+      },
+    };
+  },
+  "snapshot.restore": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const snapshotId = asOptionalNonEmptyString(record?.snapshotId);
+    if (!snapshotId) {
+      throw new Error("snapshotId is required");
+    }
+
+    const reason = asOptionalNonEmptyString(record?.reason);
+    const result = snapshotsService.restoreSnapshot(projectId, snapshotId, reason);
+    return {
+      restored: true,
+      result,
+    };
+  },
+  "approval.listPending": async ({ projectId, args }) => {
+    const record = asRecord(args) ?? {};
+    const limit = clampLimit(asOptionalInteger(record.limit), 50, 500);
+    const rows = approvalsRepository.listByProject(projectId, "pending").slice(0, limit);
+
+    return {
+      approvals: rows.map((row) => ({
+        id: row.id,
+        projectId: row.projectId,
+        toolName: row.toolName,
+        riskLevel: row.riskLevel,
+        status: row.status,
+        summary: summarizeApprovalPayload(row.requestPayload),
+        requestPayload: readApprovalPayload(row.requestPayload),
+        requestedAt: row.requestedAt.toISOString(),
+        expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+      })),
+      count: rows.length,
+    };
+  },
+  "approval.approve": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const approvalId = asOptionalNonEmptyString(record?.approvalId);
+    if (!approvalId) {
+      throw new Error("approvalId is required");
+    }
+
+    const approval = approvalsRepository.getById(approvalId);
+    if (!approval || approval.projectId !== projectId) {
+      return {
+        approved: false,
+        reason: "approval not found",
+      };
+    }
+    if (approval.status !== "pending") {
+      return {
+        approved: false,
+        reason: `approval status must be pending, current=${approval.status}`,
+      };
+    }
+
+    const changed = approvalsRepository.transition({
+      approvalId,
+      toStatus: "approved",
+      reason: asOptionalString(record?.comment) ?? "Approved from chat tool",
+    });
+
+    return {
+      approved: changed,
+      approvalId,
+      requiresExecution: true,
+      nextAction: changed
+        ? "Call /api/tools/execute with approvalId to execute approved tool."
+        : "Approval transition failed.",
+    };
+  },
+  "approval.reject": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const approvalId = asOptionalNonEmptyString(record?.approvalId);
+    if (!approvalId) {
+      throw new Error("approvalId is required");
+    }
+
+    const approval = approvalsRepository.getById(approvalId);
+    if (!approval || approval.projectId !== projectId) {
+      return {
+        rejected: false,
+        reason: "approval not found",
+      };
+    }
+    if (approval.status !== "pending") {
+      return {
+        rejected: false,
+        reason: `approval status must be pending, current=${approval.status}`,
+      };
+    }
+
+    const changed = approvalsRepository.transition({
+      approvalId,
+      toStatus: "rejected",
+      reason: asOptionalString(record?.reason) ?? "Rejected from chat tool",
+    });
+
+    return {
+      rejected: changed,
+      approvalId,
+    };
+  },
   "settings.providers.rotateKey": async () => ({
     rotated: true,
   }),

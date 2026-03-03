@@ -1,39 +1,58 @@
-import { fail } from "@/lib/http/api-response";
-import { createSseResponse } from "@/lib/ai/sse";
-import { parseThinkingBudget, toStreamErrorPayload } from "@/core/llm";
 import {
-  isValidApiFormat,
-  prepareGenerateStream,
-  runGenerateStream,
-  type GenerateRequestInput,
-} from "@/mastra";
-import type { GenerateTaskType } from "@/mastra/workflows/generate-workflow";
+  convertToModelMessages,
+  stepCountIs,
+  streamText,
+  type UIMessage,
+} from "ai";
+
+import {
+  buildManagedTools,
+  isValidChatApiFormat,
+  resolveAiRuntime,
+} from "@/core/ai-runtime";
+import { parseThinkingBudget, resolveProjectSystemPrompt } from "@/core/llm";
+import { fail, internalError, parseJsonBody } from "@/lib/http/api-response";
+
+type GenerateTaskType = "continue" | "rewrite" | "polish" | "expand";
+
+type GenerateRequestInput = {
+  projectId: string;
+  chapterId?: string;
+  taskType: GenerateTaskType;
+  prompt: string;
+  selection?: string;
+  chatPresetId?: string;
+  override?: {
+    apiFormat?: "chat_completions" | "responses";
+    baseURL?: string;
+    modelId?: string;
+    thinkingBudget?: unknown;
+  };
+};
 
 type ValidationOk = { ok: true; data: GenerateRequestInput };
 type ValidationFailed = { ok: false; response: Response };
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 function isTaskType(value: unknown): value is GenerateTaskType {
-  return (
-    value === "continue" ||
-    value === "rewrite" ||
-    value === "polish" ||
-    value === "expand"
-  );
+  return value === "continue" || value === "rewrite" || value === "polish" || value === "expand";
 }
 
 function validateGenerateBody(payload: unknown): ValidationOk | ValidationFailed {
-  if (!payload || typeof payload !== "object") {
+  const record = asRecord(payload);
+  if (!record) {
     return { ok: false, response: fail("INVALID_INPUT", "Body must be an object", 400) };
   }
 
-  const record = payload as Record<string, unknown>;
   const projectId = record.projectId;
-  const chapterId = record.chapterId;
   const taskType = record.taskType;
   const prompt = record.prompt;
-  const selection = record.selection;
-  const chatPresetId = record.chatPresetId;
-  const override = record.override;
 
   if (typeof projectId !== "string" || projectId.trim().length === 0) {
     return { ok: false, response: fail("INVALID_INPUT", "projectId is required", 400) };
@@ -54,14 +73,15 @@ function validateGenerateBody(payload: unknown): ValidationOk | ValidationFailed
     return { ok: false, response: fail("INVALID_INPUT", "prompt is required", 400) };
   }
 
-  if (override && typeof override !== "object") {
+  const override = record.override;
+  if (override !== undefined && !asRecord(override)) {
     return { ok: false, response: fail("INVALID_INPUT", "override must be an object", 400) };
   }
 
-  const overrideRecord = (override ?? {}) as Record<string, unknown>;
+  const overrideRecord = asRecord(override) ?? {};
   if (
     overrideRecord.apiFormat !== undefined &&
-    !isValidApiFormat(overrideRecord.apiFormat)
+    !isValidChatApiFormat(overrideRecord.apiFormat)
   ) {
     return {
       ok: false,
@@ -73,28 +93,24 @@ function validateGenerateBody(payload: unknown): ValidationOk | ValidationFailed
     };
   }
 
-  if ("baseURL" in overrideRecord) {
-    if (
-      typeof overrideRecord.baseURL !== "string" ||
-      overrideRecord.baseURL.trim().length === 0
-    ) {
-      return {
-        ok: false,
-        response: fail("INVALID_INPUT", "override.baseURL must be non-empty string", 400),
-      };
-    }
+  if (
+    overrideRecord.baseURL !== undefined &&
+    (typeof overrideRecord.baseURL !== "string" || overrideRecord.baseURL.trim().length === 0)
+  ) {
+    return {
+      ok: false,
+      response: fail("INVALID_INPUT", "override.baseURL must be non-empty string", 400),
+    };
   }
 
-  if ("modelId" in overrideRecord) {
-    if (
-      typeof overrideRecord.modelId !== "string" ||
-      overrideRecord.modelId.trim().length === 0
-    ) {
-      return {
-        ok: false,
-        response: fail("INVALID_INPUT", "override.modelId must be non-empty string", 400),
-      };
-    }
+  if (
+    overrideRecord.modelId !== undefined &&
+    (typeof overrideRecord.modelId !== "string" || overrideRecord.modelId.trim().length === 0)
+  ) {
+    return {
+      ok: false,
+      response: fail("INVALID_INPUT", "override.modelId must be non-empty string", 400),
+    };
   }
 
   const thinkingBudgetResult = parseThinkingBudget(overrideRecord.thinkingBudget);
@@ -108,14 +124,14 @@ function validateGenerateBody(payload: unknown): ValidationOk | ValidationFailed
   return {
     ok: true,
     data: {
-      projectId,
-      chapterId: typeof chapterId === "string" ? chapterId : undefined,
+      projectId: projectId.trim(),
+      chapterId: typeof record.chapterId === "string" ? record.chapterId : undefined,
       taskType,
       prompt: prompt.trim(),
-      selection: typeof selection === "string" ? selection : undefined,
-      chatPresetId: typeof chatPresetId === "string" ? chatPresetId : undefined,
+      selection: typeof record.selection === "string" ? record.selection : undefined,
+      chatPresetId: typeof record.chatPresetId === "string" ? record.chatPresetId : undefined,
       override: {
-        apiFormat: isValidApiFormat(overrideRecord.apiFormat)
+        apiFormat: isValidChatApiFormat(overrideRecord.apiFormat)
           ? overrideRecord.apiFormat
           : undefined,
         baseURL: typeof overrideRecord.baseURL === "string" ? overrideRecord.baseURL : undefined,
@@ -126,45 +142,106 @@ function validateGenerateBody(payload: unknown): ValidationOk | ValidationFailed
   };
 }
 
+function taskInstruction(taskType: GenerateTaskType): string {
+  switch (taskType) {
+    case "continue":
+      return "基于上下文继续写作，推进剧情并保持节奏连贯。";
+    case "rewrite":
+      return "在不改变核心信息的前提下重写文本，优化叙述结构与表达。";
+    case "polish":
+      return "润色语言细节，提升可读性与情绪感染力。";
+    case "expand":
+      return "在原意基础上扩写内容，补足细节与感官描写。";
+    default:
+      return "按要求完成写作任务。";
+  }
+}
+
+function buildGeneratePrompt(input: GenerateRequestInput): string {
+  const selection = input.selection?.trim();
+  return [
+    `任务类型：${input.taskType}`,
+    `任务说明：${taskInstruction(input.taskType)}`,
+    selection ? `选中文本：\n${selection}` : "选中文本：无（基于章节上下文执行）",
+    `补充要求：${input.prompt.trim()}`,
+    "输出要求：直接输出最终文本，不要解释思路。",
+  ].join("\n\n");
+}
+
+function toGenerateSystemPrompt(projectId: string): string {
+  return [
+    resolveProjectSystemPrompt(projectId),
+    "你是小说写作执行助手。",
+    "输出必须是可直接使用的正文文本，避免多余解释。",
+    "当需要核对章节事实时可以调用内置工具。",
+  ].join("\n\n");
+}
+
+function toModelInputMessages(messages: UIMessage[]): Array<Omit<UIMessage, "id">> {
+  return messages.map((message) => ({
+    role: message.role,
+    parts: message.parts,
+    metadata: message.metadata,
+  }));
+}
+
 export async function POST(request: Request): Promise<Response> {
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return fail("INVALID_JSON", "Body must be valid JSON", 400);
-  }
-
-  const validated = validateGenerateBody(body);
-  if (!validated.ok) {
-    return validated.response;
-  }
-
-  return createSseResponse(request.signal, async (writer, signal) => {
-    try {
-      const prepared = await prepareGenerateStream(validated.data);
-      writer.emit("tool_call", prepared.toolCall);
-      writer.emit("context_used", prepared.contextUsed);
-
-      let index = 0;
-      for await (const token of runGenerateStream(validated.data, signal)) {
-        if (signal.aborted) {
-          return;
-        }
-
-        writer.emit("token", {
-          index,
-          text: token,
-        });
-        index += 1;
-      }
-
-      writer.emit("done", { finishReason: "stop" });
-    } catch (error) {
-      if (signal.aborted) {
-        return;
-      }
-      writer.emit("error", toStreamErrorPayload(error));
-      writer.emit("done", { finishReason: "error" });
+    const bodyResult = await parseJsonBody(request);
+    if (!bodyResult.ok) {
+      return bodyResult.response;
     }
-  });
+
+    const validated = validateGenerateBody(bodyResult.data);
+    if (!validated.ok) {
+      return validated.response;
+    }
+
+    const runtime = resolveAiRuntime({
+      projectId: validated.data.projectId,
+      chatPresetId: validated.data.chatPresetId,
+      override: validated.data.override,
+    });
+
+    const toolsBundle = buildManagedTools({
+      projectId: validated.data.projectId,
+      chapterId: validated.data.chapterId,
+    });
+
+    const userPrompt = buildGeneratePrompt(validated.data);
+    const originalMessages: UIMessage[] = [
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: userPrompt,
+          },
+        ],
+      },
+    ];
+
+    const modelMessages = await convertToModelMessages(toModelInputMessages(originalMessages));
+
+    const result = streamText({
+      model: runtime.model,
+      system: toGenerateSystemPrompt(validated.data.projectId),
+      messages: modelMessages,
+      tools: toolsBundle.tools,
+      toolChoice: "auto",
+      temperature: runtime.callSettings.temperature,
+      maxOutputTokens: runtime.callSettings.maxOutputTokens,
+      providerOptions: runtime.callSettings.providerOptions,
+      stopWhen: stepCountIs(6),
+      maxRetries: 0,
+      abortSignal: request.signal,
+    });
+
+    return result.toUIMessageStreamResponse({
+      originalMessages,
+    });
+  } catch (error) {
+    return internalError(error);
+  }
 }

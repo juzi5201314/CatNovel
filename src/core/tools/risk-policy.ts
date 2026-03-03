@@ -15,15 +15,44 @@ export type RiskRegressionCase = {
 };
 
 const fallbackPolicies: Record<string, Omit<ResolvedToolPolicy, "toolName">> = {
+  "system.listTools": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "chapter.list": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "chapter.get": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "chapter.getContent": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "chapter.search": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "chapter.range": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "project.getOverview": { riskLevel: "read", requiresConfirmation: false, enabled: true },
   "rag.search": { riskLevel: "read", requiresConfirmation: false, enabled: true },
   "rag.getEvidence": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "snapshot.list": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "approval.listPending": { riskLevel: "read", requiresConfirmation: false, enabled: true },
   "timeline.getEntity": { riskLevel: "read", requiresConfirmation: false, enabled: true },
   "timeline.listEvents": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "lore.listNodes": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "lore.getNode": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "chapter.create": { riskLevel: "write", requiresConfirmation: true, enabled: true },
+  "chapter.updateMeta": { riskLevel: "write", requiresConfirmation: true, enabled: true },
+  "chapter.updateContent": { riskLevel: "write", requiresConfirmation: true, enabled: true },
+  "chapter.reorder": { riskLevel: "write", requiresConfirmation: true, enabled: true },
   "timeline.upsertEvent": { riskLevel: "write", requiresConfirmation: true, enabled: true },
   "timeline.editEvent": { riskLevel: "write", requiresConfirmation: true, enabled: true },
+  "timeline.resolveConflict": { riskLevel: "write", requiresConfirmation: true, enabled: true },
   "lore.upsertNode": { riskLevel: "write", requiresConfirmation: true, enabled: true },
   "lore.deleteNode": { riskLevel: "write", requiresConfirmation: true, enabled: true },
   "rag.reindex": { riskLevel: "write", requiresConfirmation: true, enabled: true },
+  "snapshot.create": { riskLevel: "write", requiresConfirmation: true, enabled: true },
+  "approval.approve": { riskLevel: "write", requiresConfirmation: true, enabled: true },
+  "approval.reject": { riskLevel: "write", requiresConfirmation: true, enabled: true },
+  "chapter.delete": {
+    riskLevel: "high_risk",
+    requiresConfirmation: true,
+    enabled: true,
+  },
+  "snapshot.restore": {
+    riskLevel: "high_risk",
+    requiresConfirmation: true,
+    enabled: true,
+  },
   "settings.providers.rotateKey": {
     riskLevel: "high_risk",
     requiresConfirmation: true,
@@ -73,12 +102,37 @@ export function resolveToolPolicy(toolName: string): ResolvedToolPolicy {
 export function getRiskRegressionMatrix(): RiskRegressionCase[] {
   return [
     {
-      toolName: "rag.search",
+      toolName: "system.listTools",
       riskLevel: "read",
       expectedStatus: "executed",
     },
     {
-      toolName: "timeline.upsertEvent",
+      toolName: "chapter.list",
+      riskLevel: "read",
+      expectedStatus: "executed",
+    },
+    {
+      toolName: "chapter.updateContent",
+      riskLevel: "write",
+      expectedStatus: "requires_approval",
+    },
+    {
+      toolName: "chapter.delete",
+      riskLevel: "high_risk",
+      expectedStatus: "requires_approval",
+    },
+    {
+      toolName: "snapshot.restore",
+      riskLevel: "high_risk",
+      expectedStatus: "requires_approval",
+    },
+    {
+      toolName: "approval.listPending",
+      riskLevel: "read",
+      expectedStatus: "executed",
+    },
+    {
+      toolName: "approval.approve",
       riskLevel: "write",
       expectedStatus: "requires_approval",
     },

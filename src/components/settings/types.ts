@@ -38,14 +38,15 @@ export type ThinkingBudget =
   | { type: "tokens"; tokens: number };
 
 export type PresetPurpose = "chat" | "embedding";
-export type PresetApiFormat = "chat_completions" | "responses" | "embeddings";
+export type PresetChatApiFormat = "chat_completions" | "responses";
 
 export type ModelPreset = {
   id: string;
   providerId: string;
   purpose: PresetPurpose;
-  apiFormat: PresetApiFormat;
+  chatApiFormat?: PresetChatApiFormat | null;
   modelId: string;
+  customUserAgent?: string | null;
   temperature?: number | null;
   maxTokens?: number | null;
   thinkingBudget?: ThinkingBudget;

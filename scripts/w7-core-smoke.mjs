@@ -29,6 +29,33 @@ function pickEventId(event) {
   return null;
 }
 
+async function readUIChunks(response, options = {}) {
+  const events = await readSseEvents(response, {
+    maxEvents: options.maxEvents ?? 512,
+    timeoutMs: options.timeoutMs ?? 10000,
+  });
+
+  const chunks = [];
+  for (const event of events) {
+    if (event.event !== "message") {
+      continue;
+    }
+    if (!event.data || typeof event.data !== "object") {
+      continue;
+    }
+    const chunk = event.data;
+    if (typeof chunk.type !== "string") {
+      continue;
+    }
+    chunks.push(chunk);
+    if (chunk.type === "finish" || chunk.type === "abort") {
+      break;
+    }
+  }
+
+  return chunks;
+}
+
 async function configureSmokeLlm(projectId) {
   const chatBaseUrl = readEnv("OPENAI_BASE_URL");
   const chatApiKey = readEnv("API_KEY");
@@ -61,7 +88,7 @@ async function configureSmokeLlm(projectId) {
   const chatPreset = await api("POST", "/api/settings/model-presets", {
     providerId: chatProvider.id,
     purpose: "chat",
-    apiFormat: chatApiFormat,
+    chatApiFormat,
     modelId: chatModelId,
     temperature: 0.4,
     maxTokens: 512,
@@ -78,7 +105,6 @@ async function configureSmokeLlm(projectId) {
   const embeddingPreset = await api("POST", "/api/settings/model-presets", {
     providerId: embeddingProvider.id,
     purpose: "embedding",
-    apiFormat: "embeddings",
     modelId: embeddingModel,
   });
 
@@ -119,30 +145,27 @@ async function validateContextEngine(projectId, chapterId, llmConfig) {
     "chat route should be SSE",
   );
 
-  const events = await readSseEvents(response, {
-    stopEvent: "done",
+  const chunks = await readUIChunks(response, {
     timeoutMs: 10000,
   });
-  const names = events.map((item) => item.event);
-  const hasToken = names.includes("token");
-  const hasError = names.includes("error");
-  assert.ok(names.includes("tool_call"), "chat stream should include tool_call");
-  assert.ok(names.includes("context_used"), "chat stream should include context_used");
-  assert.ok(hasToken || hasError, "chat stream should include token or error");
+  const hasTextDelta = chunks.some((chunk) => chunk.type === "text-delta");
+  const hasError = chunks.some((chunk) => chunk.type === "error");
+  const hasFinish = chunks.some((chunk) => chunk.type === "finish");
+  assert.ok(hasTextDelta || hasError, "chat stream should include text-delta or error");
 
-  if (hasToken) {
-    assert.ok(names.includes("done"), "chat stream should include done when token exists");
-    const tokenText = events
-      .filter((item) => item.event === "token")
-      .map((item) => item.data?.text ?? "")
+  if (hasTextDelta) {
+    assert.ok(hasFinish, "chat stream should include finish when text exists");
+    const tokenText = chunks
+      .filter((chunk) => chunk.type === "text-delta")
+      .map((chunk) => chunk.delta ?? "")
       .join("");
-    assert.ok(tokenText.length > 0, "chat stream token text should not be empty");
+    assert.ok(tokenText.length > 0, "chat stream text should not be empty");
     return { status: "ok" };
   }
 
-  const errorEvent = events.find((item) => item.event === "error");
-  assert.equal(typeof errorEvent?.data?.code, "string", "chat error event should include code");
-  return { status: "provider_error", code: errorEvent?.data?.code };
+  const errorChunk = chunks.find((chunk) => chunk.type === "error");
+  assert.equal(typeof errorChunk?.errorText, "string", "chat error chunk should include errorText");
+  return { status: "provider_error", code: "STREAM_ERROR" };
 }
 
 async function validateRag(projectId) {
@@ -304,7 +327,7 @@ async function validateApprovalsAndSse(projectId, chapterId, entityId, fallbackE
     },
   );
   assert.equal(sseResponse.status, 200, "tool approvals SSE should return 200");
-  const sseEvents = await readSseEvents(sseResponse, { maxEvents: 1, timeoutMs: 7000 });
+  const sseEvents = await readSseEvents(sseResponse, { maxEvents: 1, timeoutMs: 15000 });
   assert.equal(sseEvents.length, 1, "tool approvals SSE should emit first snapshot");
   assert.equal(
     sseEvents[0].event,

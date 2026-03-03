@@ -6,18 +6,18 @@ import { projects } from "@/db/schema/projects";
 export const PROVIDER_PROTOCOLS = ["openai_compatible", "openai_responses"] as const;
 export const PROVIDER_CATEGORIES = ["chat", "embedding", "both"] as const;
 export const MODEL_PRESET_PURPOSES = ["chat", "embedding"] as const;
-export const MODEL_API_FORMATS = ["chat_completions", "responses", "embeddings"] as const;
+export const CHAT_API_FORMATS = ["chat_completions", "responses"] as const;
 export const THINKING_BUDGET_TYPES = ["effort", "tokens"] as const;
 export const THINKING_EFFORT_LEVELS = ["low", "medium", "high"] as const;
 
 export type ProviderProtocol = (typeof PROVIDER_PROTOCOLS)[number];
 export type ProviderCategory = (typeof PROVIDER_CATEGORIES)[number];
 export type ModelPresetPurpose = (typeof MODEL_PRESET_PURPOSES)[number];
-export type ModelApiFormat = (typeof MODEL_API_FORMATS)[number];
+export type ChatApiFormat = (typeof CHAT_API_FORMATS)[number];
 export type ThinkingBudgetType = (typeof THINKING_BUDGET_TYPES)[number];
 export type ThinkingEffortLevel = (typeof THINKING_EFFORT_LEVELS)[number];
 export type PresetPurpose = ModelPresetPurpose;
-export type PresetApiFormat = ModelApiFormat;
+export type PresetChatApiFormat = ChatApiFormat;
 export type ThinkingEffort = ThinkingEffortLevel;
 
 export const llmProviders = sqliteTable(
@@ -53,8 +53,9 @@ export const llmModelPresets = sqliteTable(
       .notNull()
       .references(() => llmProviders.id, { onDelete: "cascade" }),
     purpose: text("purpose", { enum: MODEL_PRESET_PURPOSES }).$type<ModelPresetPurpose>().notNull(),
-    apiFormat: text("api_format", { enum: MODEL_API_FORMATS }).$type<ModelApiFormat>().notNull(),
+    chatApiFormat: text("chat_api_format", { enum: CHAT_API_FORMATS }).$type<ChatApiFormat>(),
     modelId: text("model_id").notNull(),
+    customUserAgent: text("custom_user_agent"),
     temperature: real("temperature"),
     maxTokens: integer("max_tokens"),
     thinkingBudgetType: text("thinking_budget_type", { enum: THINKING_BUDGET_TYPES }).$type<ThinkingBudgetType>(),
@@ -69,6 +70,13 @@ export const llmModelPresets = sqliteTable(
       .default(sql`(unixepoch() * 1000)`),
   },
   (table) => ({
+    purposeChatFormatCheck: check(
+      "llm_model_presets_purpose_chat_format_check",
+      sql`(
+        (${table.purpose} = 'chat' AND ${table.chatApiFormat} IS NOT NULL) OR
+        (${table.purpose} = 'embedding' AND ${table.chatApiFormat} IS NULL)
+      )`,
+    ),
     providerPurposeIdx: index("llm_model_presets_provider_purpose_idx").on(table.providerId, table.purpose),
   }),
 );

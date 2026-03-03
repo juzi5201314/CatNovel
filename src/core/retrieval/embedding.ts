@@ -1,3 +1,6 @@
+import { embedMany } from "ai";
+
+import { buildEmbeddingModel } from "@/core/ai-runtime/model-factory";
 import { LlmDefaultSelectionRepository } from "@/repositories/llm-default-selection-repository";
 import { LlmModelPresetsRepository } from "@/repositories/llm-model-presets-repository";
 import { LlmProvidersRepository } from "@/repositories/llm-providers-repository";
@@ -5,11 +8,8 @@ import { isSecretAuthenticationError } from "@/lib/crypto/secret-errors";
 import { SecretStoreRepository } from "@/repositories/secret-store-repository";
 
 const DEFAULT_EMBEDDING_PRESET_ID = "preset_embedding_default";
-const EMBEDDING_ENDPOINT_PATH = "/embeddings";
-const EMBEDDING_BATCH_SIZE = 16;
-const EMBEDDING_TIMEOUT_MS = 60_000;
-const EMBEDDING_MAX_ATTEMPTS = 3;
-const EMBEDDING_RETRY_BASE_MS = 300;
+const BUILTIN_OPENAI_BASE_PLACEHOLDER = "https://api.openai-compatible.local/v1";
+const BUILTIN_DEEPSEEK_BASE_DEFAULT = "https://api.deepseek.com";
 
 const defaultSelectionRepository = new LlmDefaultSelectionRepository();
 const modelPresetsRepository = new LlmModelPresetsRepository();
@@ -31,71 +31,48 @@ export type EmbeddingOptions = {
 };
 
 type EmbeddingRuntimeConfig = {
-  modelId: string;
-  endpoint: string;
-  apiKey?: string;
+  model: ReturnType<typeof buildEmbeddingModel>;
 };
 
-type EmbeddingApiRow = {
-  index: number;
-  embedding: number[];
-};
-
-function sanitizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "");
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
-function readErrorMessage(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return null;
-  }
-  const record = payload as Record<string, unknown>;
-  if (typeof record.error === "string" && record.error.trim().length > 0) {
-    return record.error.trim();
-  }
-  if (!record.error || typeof record.error !== "object" || Array.isArray(record.error)) {
-    return null;
-  }
-  const nested = record.error as Record<string, unknown>;
-  if (typeof nested.message === "string" && nested.message.trim().length > 0) {
-    return nested.message.trim();
+function toEnvSegment(value: string): string {
+  return value
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+}
+
+function readFirstEnv(keys: string[]): string | null {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (isNonEmptyString(value)) {
+      return value.trim();
+    }
   }
   return null;
 }
 
-function ensureEmbeddingRows(payload: unknown): EmbeddingApiRow[] {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("embedding response must be an object");
+function normalizeBaseURL(rawBaseURL: string): string {
+  const trimmed = rawBaseURL.trim();
+  if (trimmed.length === 0) {
+    throw new Error("embedding provider baseURL is empty");
   }
 
-  const data = (payload as { data?: unknown }).data;
-  if (!Array.isArray(data)) {
-    throw new Error("embedding response missing data array");
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error("embedding provider baseURL is invalid");
   }
 
-  return data
-    .map((item, fallbackIndex) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        throw new Error("embedding item must be an object");
-      }
-      const row = item as Record<string, unknown>;
-      if (!Array.isArray(row.embedding)) {
-        throw new Error("embedding item missing embedding vector");
-      }
-      const vector = row.embedding.map((value) => {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric)) {
-          throw new Error("embedding vector contains non-numeric value");
-        }
-        return numeric;
-      });
-      const index = Number.isInteger(row.index) ? (row.index as number) : fallbackIndex;
-      return {
-        index,
-        embedding: vector,
-      };
-    })
-    .sort((left, right) => left.index - right.index);
+  if (!url.protocol.startsWith("http")) {
+    throw new Error("embedding provider baseURL must use http/https");
+  }
+
+  return trimmed.replace(/\/+$/, "");
 }
 
 function resolveEmbeddingPresetId(options: EmbeddingOptions): string {
@@ -113,6 +90,82 @@ function resolveEmbeddingPresetId(options: EmbeddingOptions): string {
   return DEFAULT_EMBEDDING_PRESET_ID;
 }
 
+function resolveProviderApiKey(provider: NonNullable<ReturnType<LlmProvidersRepository["findById"]>>): string {
+  if (provider.apiKeyRef) {
+    let plainText: string | null = null;
+    try {
+      plainText = secretStoreRepository.readPlaintext(provider.apiKeyRef);
+    } catch (error) {
+      if (isSecretAuthenticationError(error)) {
+        throw new Error(
+          `embedding provider api key decrypt failed, please re-save provider api key: ${provider.id}`,
+        );
+      }
+      throw new Error(`embedding provider api key read failed: ${provider.id}`);
+    }
+
+    if (isNonEmptyString(plainText)) {
+      return plainText.trim();
+    }
+    throw new Error(`embedding provider api key missing: ${provider.id}`);
+  }
+
+  const providerKeyCandidates = [
+    `LLM_PROVIDER_${toEnvSegment(provider.id)}_API_KEY`,
+    provider.builtinCode
+      ? `LLM_BUILTIN_${toEnvSegment(provider.builtinCode)}_API_KEY`
+      : null,
+  ].filter((item): item is string => Boolean(item));
+
+  const builtinKeyCandidates: string[] = [];
+  if (provider.builtinCode === "builtin_openai_compatible") {
+    builtinKeyCandidates.push("OPENAI_API_KEY");
+  } else if (provider.builtinCode === "builtin_deepseek_compatible") {
+    builtinKeyCandidates.push("DEEPSEEK_API_KEY");
+  }
+
+  const apiKey = readFirstEnv([...providerKeyCandidates, ...builtinKeyCandidates, "API_KEY"]);
+  if (apiKey) {
+    return apiKey;
+  }
+
+  throw new Error(`embedding provider api key missing: ${provider.id}`);
+}
+
+function resolveBaseURL(
+  provider: NonNullable<ReturnType<LlmProvidersRepository["findById"]>>,
+  overrideBaseURL?: string,
+): string {
+  if (isNonEmptyString(overrideBaseURL)) {
+    return normalizeBaseURL(overrideBaseURL);
+  }
+
+  const providerBaseURL = readFirstEnv([`LLM_PROVIDER_${toEnvSegment(provider.id)}_BASE_URL`]);
+  if (providerBaseURL) {
+    return normalizeBaseURL(providerBaseURL);
+  }
+
+  if (provider.builtinCode === "builtin_openai_compatible") {
+    if (provider.baseUrl === BUILTIN_OPENAI_BASE_PLACEHOLDER) {
+      const openaiBaseURL = readFirstEnv(["OPENAI_BASE_URL"]);
+      if (openaiBaseURL) {
+        return normalizeBaseURL(openaiBaseURL);
+      }
+    }
+  }
+
+  if (provider.builtinCode === "builtin_deepseek_compatible") {
+    if (provider.baseUrl === BUILTIN_DEEPSEEK_BASE_DEFAULT) {
+      const deepseekBaseURL = readFirstEnv(["DEEPSEEK_BASE_URL"]);
+      if (deepseekBaseURL) {
+        return normalizeBaseURL(deepseekBaseURL);
+      }
+    }
+  }
+
+  return normalizeBaseURL(provider.baseUrl);
+}
+
 function resolveRuntimeConfig(options: EmbeddingOptions): EmbeddingRuntimeConfig {
   const presetId = resolveEmbeddingPresetId(options);
   const preset = modelPresetsRepository.findById(presetId);
@@ -122,8 +175,8 @@ function resolveRuntimeConfig(options: EmbeddingOptions): EmbeddingRuntimeConfig
   if (preset.purpose !== "embedding") {
     throw new Error(`preset is not embedding purpose: ${presetId}`);
   }
-  if (preset.apiFormat !== "embeddings") {
-    throw new Error(`embedding preset must use embeddings api format: ${presetId}`);
+  if (preset.chatApiFormat !== null && preset.chatApiFormat !== undefined) {
+    throw new Error(`embedding preset must not set chatApiFormat: ${presetId}`);
   }
 
   const provider = providersRepository.findById(preset.providerId);
@@ -142,134 +195,23 @@ function resolveRuntimeConfig(options: EmbeddingOptions): EmbeddingRuntimeConfig
     throw new Error(`embedding model id is empty: ${presetId}`);
   }
 
-  const baseURL = options.override?.baseURL?.trim() || provider.baseUrl.trim();
-  if (!baseURL) {
-    throw new Error(`embedding provider baseUrl is empty: ${provider.id}`);
-  }
-
-  let apiKeyFromProvider: string | null = null;
-  if (provider.apiKeyRef) {
-    try {
-      apiKeyFromProvider = secretStoreRepository.readPlaintext(provider.apiKeyRef);
-    } catch (error) {
-      if (isSecretAuthenticationError(error)) {
-        throw new Error(
-          `embedding provider api key decrypt failed, please re-save provider api key: ${provider.id}`,
-        );
-      }
-      throw new Error(`embedding provider api key read failed: ${provider.id}`);
-    }
-    if (!apiKeyFromProvider) {
-      throw new Error(`embedding provider api key missing: ${provider.id}`);
-    }
-  }
-
-  const endpoint = `${sanitizeBaseUrl(baseURL)}${EMBEDDING_ENDPOINT_PATH}`;
-  const apiKey =
-    apiKeyFromProvider ??
-    process.env.CATNOVEL_EMBEDDING_API_KEY ??
-    process.env.OPENAI_API_KEY;
+  const baseURL = resolveBaseURL(provider, options.override?.baseURL);
+  const apiKey = resolveProviderApiKey(provider);
+  const customUserAgent =
+    typeof preset.customUserAgent === "string" && preset.customUserAgent.trim().length > 0
+      ? preset.customUserAgent.trim()
+      : undefined;
 
   return {
-    modelId,
-    endpoint,
-    apiKey,
+    model: buildEmbeddingModel({
+      providerId: provider.id,
+      modelId,
+      baseURL,
+      apiKey,
+      customUserAgent,
+      providerProtocol: provider.protocol,
+    }),
   };
-}
-
-async function requestEmbeddingBatch(
-  runtime: EmbeddingRuntimeConfig,
-  texts: string[],
-): Promise<number[][]> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, EMBEDDING_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(runtime.endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(runtime.apiKey ? { authorization: `Bearer ${runtime.apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model: runtime.modelId,
-        input: texts,
-      }),
-      signal: controller.signal,
-    });
-
-    let payload: unknown = null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-
-    if (!response.ok) {
-      const message =
-        readErrorMessage(payload) ??
-        `embedding provider request failed with status ${response.status}`;
-      throw new Error(`embedding provider request failed with status ${response.status}: ${message}`);
-    }
-
-    const rows = ensureEmbeddingRows(payload);
-    if (rows.length !== texts.length) {
-      throw new Error(
-        `embedding batch size mismatch: expected ${texts.length}, got ${rows.length}`,
-      );
-    }
-
-    return rows.map((row) => row.embedding);
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function shouldRetryEmbedding(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  if (error.name === "AbortError") {
-    return true;
-  }
-
-  const message = error.message.toLowerCase();
-  if (message.includes("fetch failed") || message.includes("operation was aborted")) {
-    return true;
-  }
-
-  return /status\s+(429|5\d\d)/.test(message);
-}
-
-async function requestEmbeddingBatchWithRetry(
-  runtime: EmbeddingRuntimeConfig,
-  texts: string[],
-): Promise<number[][]> {
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= EMBEDDING_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      return await requestEmbeddingBatch(runtime, texts);
-    } catch (error) {
-      lastError = error;
-      if (attempt >= EMBEDDING_MAX_ATTEMPTS || !shouldRetryEmbedding(error)) {
-        break;
-      }
-      const backoffMs = EMBEDDING_RETRY_BASE_MS * attempt;
-      await sleep(backoffMs);
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error("embedding request failed");
 }
 
 function updateDimensions(vectors: number[][]): void {
@@ -296,16 +238,14 @@ export async function embedTexts(
   }
 
   const runtime = resolveRuntimeConfig(options);
-  const vectors: number[][] = [];
+  const result = await embedMany({
+    model: runtime.model,
+    values: texts,
+    maxRetries: 2,
+  });
 
-  for (let index = 0; index < texts.length; index += EMBEDDING_BATCH_SIZE) {
-    const batch = texts.slice(index, index + EMBEDDING_BATCH_SIZE);
-    const batchVectors = await requestEmbeddingBatchWithRetry(runtime, batch);
-    vectors.push(...batchVectors);
-  }
-
-  updateDimensions(vectors);
-  return vectors;
+  updateDimensions(result.embeddings);
+  return result.embeddings;
 }
 
 export function embeddingDimensions(): number {

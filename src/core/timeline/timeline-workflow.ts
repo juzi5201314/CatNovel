@@ -1,4 +1,7 @@
-import { streamTextFromProvider, type ChatMessage } from "@/core/llm";
+import { generateText } from "ai";
+
+import { resolveAiRuntime } from "@/core/ai-runtime";
+import { type ChatMessage } from "@/core/llm";
 import { LlmDefaultSelectionRepository } from "@/repositories/llm-default-selection-repository";
 
 export type TimelineWorkflowInput = {
@@ -392,6 +395,10 @@ async function invokeTimelineLlm(input: TimelineWorkflowInput): Promise<LlmStruc
   const chatPresetId = resolveTimelineChatPresetId(input.projectId);
   const timeoutMs = resolveLlmTimeoutMs();
   const messages = buildTimelineMessages(input);
+  const runtime = resolveAiRuntime({
+    projectId: input.projectId,
+    chatPresetId,
+  });
 
   const controller = new AbortController();
   let timedOut = false;
@@ -401,25 +408,31 @@ async function invokeTimelineLlm(input: TimelineWorkflowInput): Promise<LlmStruc
   }, timeoutMs);
 
   try {
-    const chunks: string[] = [];
-    for await (const token of streamTextFromProvider({
-      requestTag: "generate",
-      projectId: input.projectId,
-      chatPresetId,
-      messages,
-      signal: controller.signal,
-    })) {
-      chunks.push(token);
-    }
+    const systemPrompt = messages.find((item) => item.role === "system")?.content ?? "";
+    const userPrompt = messages.find((item) => item.role === "user")?.content ?? "";
 
-    const rawBody = chunks.join("").trim();
+    const output = await generateText({
+      model: runtime.model,
+      system: systemPrompt,
+      prompt: userPrompt,
+      temperature: runtime.callSettings.temperature,
+      maxOutputTokens: runtime.callSettings.maxOutputTokens,
+      providerOptions: runtime.callSettings.providerOptions,
+      maxRetries: 0,
+      abortSignal: controller.signal,
+    });
+
+    const rawBody = output.text.trim();
     if (!rawBody) {
       throw new Error("timeline llm payload is empty");
     }
 
     const parsed = parseLlmStructuredPayload(rawBody);
     if (!parsed.llmModel) {
-      parsed.llmModel = chatPresetId;
+      parsed.llmModel = runtime.resolved.modelId;
+    }
+    if (!parsed.llmRequestId && typeof output.response?.id === "string") {
+      parsed.llmRequestId = output.response.id;
     }
     return parsed;
   } catch (error) {

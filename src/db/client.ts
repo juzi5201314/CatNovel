@@ -8,6 +8,7 @@ import * as schema from "./schema";
 
 const DEFAULT_DATABASE_PATH = "./.data/catnovel.sqlite";
 const MIGRATIONS_DIRECTORY = path.join(process.cwd(), "src", "db", "migrations");
+const MIGRATION_META_TABLE = "__catnovel_schema_migrations";
 
 let sqliteConnection: Database.Database | null = null;
 let appDatabase: AppDatabase | null = null;
@@ -17,15 +18,48 @@ function applySqlMigrations(connection: Database.Database): void {
     return;
   }
 
+  connection.exec(`
+    CREATE TABLE IF NOT EXISTS ${MIGRATION_META_TABLE} (
+      file_name TEXT PRIMARY KEY NOT NULL,
+      applied_at INTEGER NOT NULL
+    );
+  `);
+
   const migrationFiles = fs
     .readdirSync(MIGRATIONS_DIRECTORY)
     .filter((fileName) => fileName.endsWith(".sql"))
     .sort((left, right) => left.localeCompare(right));
 
+  const hasAppliedStatement = connection.prepare(
+    `SELECT 1 FROM ${MIGRATION_META_TABLE} WHERE file_name = ? LIMIT 1`,
+  );
+  const markAppliedStatement = connection.prepare(
+    `INSERT INTO ${MIGRATION_META_TABLE} (file_name, applied_at) VALUES (?, ?)`,
+  );
+
   for (const fileName of migrationFiles) {
+    if (hasAppliedStatement.get(fileName)) {
+      continue;
+    }
+
     const filePath = path.join(MIGRATIONS_DIRECTORY, fileName);
     const sql = fs.readFileSync(filePath, "utf8");
-    connection.exec(sql);
+
+    try {
+      connection.exec(sql);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isDuplicateColumnError = /duplicate column name/i.test(message);
+      if (!isDuplicateColumnError) {
+        throw error;
+      }
+      console.warn("[db] migration duplicate column detected, mark as applied", {
+        fileName,
+        message,
+      });
+    }
+
+    markAppliedStatement.run(fileName, Date.now());
   }
 }
 

@@ -10,12 +10,18 @@ type GhostActionsProps = {
   onAcceptGhost: (ghostText: string) => Promise<void>;
 };
 
-type SseEventHandler = (event: string, payload: unknown) => void;
+type UIMessageChunk = {
+  type: string;
+  delta?: string;
+  errorText?: string;
+};
 
-async function consumeSse(
+type ChunkHandler = (chunk: UIMessageChunk) => void;
+
+async function consumeUIMessageStream(
   response: Response,
   signal: AbortSignal,
-  onEvent: SseEventHandler,
+  onChunk: ChunkHandler,
 ): Promise<void> {
   if (!response.ok || !response.body) {
     throw new Error(`generate request failed: ${response.status}`);
@@ -25,42 +31,45 @@ async function consumeSse(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (!signal.aborted) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    let boundary = buffer.indexOf("\n\n");
-
-    while (boundary >= 0) {
-      const raw = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-
-      let event = "message";
-      const dataLines: string[] = [];
-
-      for (const line of raw.split("\n")) {
-        if (line.startsWith("event:")) {
-          event = line.slice(6).trim();
-        }
-        if (line.startsWith("data:")) {
-          dataLines.push(line.slice(5).trim());
-        }
+  try {
+    while (!signal.aborted) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
       }
 
-      const rawData = dataLines.join("\n");
-      if (rawData.length > 0) {
-        try {
-          onEvent(event, JSON.parse(rawData) as unknown);
-        } catch {
-          // 忽略单条解析失败事件。
-        }
-      }
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf("\n\n");
 
-      boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+
+        const dataLines: string[] = [];
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).trimStart());
+          }
+        }
+
+        const rawData = dataLines.join("\n").trim();
+        if (rawData.length > 0) {
+          try {
+            const chunk = JSON.parse(rawData) as UIMessageChunk;
+            onChunk(chunk);
+            if (chunk.type === "finish" || chunk.type === "abort") {
+              return;
+            }
+          } catch {
+            // ignore invalid frame
+          }
+        }
+
+        boundary = buffer.indexOf("\n\n");
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -101,23 +110,14 @@ export function GhostActions({
         }),
       });
 
-      await consumeSse(response, controller.signal, (event, payload) => {
-        if (event === "token") {
-          const text =
-            payload && typeof payload === "object" && "text" in payload
-              ? String((payload as { text: unknown }).text ?? "")
-              : "";
-          if (text) {
-            setGhostText((prev) => prev + text);
-          }
+      await consumeUIMessageStream(response, controller.signal, (chunk) => {
+        if (chunk.type === "text-delta" && typeof chunk.delta === "string" && chunk.delta.length > 0) {
+          setGhostText((prev) => prev + chunk.delta);
+          return;
         }
 
-        if (event === "error") {
-          const message =
-            payload && typeof payload === "object" && "message" in payload
-              ? String((payload as { message: unknown }).message ?? "生成失败")
-              : "生成失败";
-          setError(message);
+        if (chunk.type === "error") {
+          setError(chunk.errorText ?? "生成失败");
         }
       });
     } catch (generateError) {

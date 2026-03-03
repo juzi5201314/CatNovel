@@ -113,7 +113,9 @@ export function DefaultSelectionPanel({ presets }: DefaultSelectionPanelProps) {
                 >
                   <option value="">None (Always ask)</option>
                   {chatPresets.map((p) => (
-                    <option key={p.id} value={p.id}>{p.modelId} ({p.apiFormat})</option>
+                    <option key={p.id} value={p.id}>
+                      {p.modelId} ({p.chatApiFormat ?? "chat_completions"})
+                    </option>
                   ))}
                 </select>
               </div>
@@ -127,7 +129,7 @@ export function DefaultSelectionPanel({ presets }: DefaultSelectionPanelProps) {
                 >
                   <option value="">None</option>
                   {embeddingPresets.map((p) => (
-                    <option key={p.id} value={p.id}>{p.modelId} ({p.apiFormat})</option>
+                    <option key={p.id} value={p.id}>{p.modelId} (embedding)</option>
                   ))}
                 </select>
               </div>

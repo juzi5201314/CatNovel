@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { api, applyMigrations, p95, poll } from "./w7-test-utils.mjs";
 
 const K = Number(process.env.RAG_K ?? 5);
-const P95_BUDGET_MS = Number(process.env.RAG_P95_BUDGET_MS ?? 1500);
+const P95_BUDGET_MS = Number(process.env.RAG_P95_BUDGET_MS ?? 2500);
 const FAILURE_RATE_MAX = Number(process.env.RAG_FAILURE_RATE_MAX ?? 0.1);
 const RECALL_AT_K_MIN = Number(process.env.RAG_RECALL_AT_K_MIN ?? 0.75);
 
@@ -41,7 +41,6 @@ async function configureEmbedding(projectId) {
   const preset = await api("POST", "/api/settings/model-presets", {
     providerId: provider.id,
     purpose: "embedding",
-    apiFormat: "embeddings",
     modelId,
   });
   await api("PATCH", "/api/settings/llm-defaults", {

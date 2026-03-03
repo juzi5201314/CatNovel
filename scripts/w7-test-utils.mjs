@@ -9,6 +9,7 @@ export const baseUrl = process.env.CATNOVEL_BASE_URL ?? "http://127.0.0.1:3000";
 
 const dbPath = path.join(process.cwd(), ".data", "catnovel.sqlite");
 const migrationDirectory = path.join(process.cwd(), "src", "db", "migrations");
+const migrationMetaTable = "__catnovel_schema_migrations";
 
 function listMigrationFiles() {
   if (!fs.existsSync(migrationDirectory)) {
@@ -36,9 +37,27 @@ export function applyMigrations() {
   const migrationFiles = listMigrationFiles();
 
   try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ${migrationMetaTable} (
+        file_name TEXT PRIMARY KEY NOT NULL,
+        applied_at INTEGER NOT NULL
+      );
+    `);
+    const hasAppliedStatement = db.prepare(
+      `SELECT 1 FROM ${migrationMetaTable} WHERE file_name = ? LIMIT 1`,
+    );
+    const markAppliedStatement = db.prepare(
+      `INSERT OR REPLACE INTO ${migrationMetaTable} (file_name, applied_at) VALUES (?, ?)`,
+    );
+
     for (const migrationFile of migrationFiles) {
+      const fileName = path.basename(migrationFile);
+      if (hasAppliedStatement.get(fileName)) {
+        continue;
+      }
       const sql = fs.readFileSync(migrationFile, "utf8");
       db.exec(sql);
+      markAppliedStatement.run(fileName, Date.now());
     }
   } finally {
     db.close();

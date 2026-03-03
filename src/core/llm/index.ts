@@ -8,7 +8,6 @@ export {
   toStreamErrorPayload,
   type LlmErrorCode,
 } from "./errors";
-export { streamTextFromProvider } from "./provider-stream";
 export {
   parseThinkingBudget,
   type ParseThinkingBudgetResult,
@@ -20,6 +19,5 @@ export type {
   ChatRole,
   ResolveLlmConfigInput,
   ResolvedLlmConfig,
-  StreamTextRequest,
   ThinkingBudget,
 } from "./types";

@@ -2,7 +2,7 @@ import {
   runTimelineExtractionWorkflow,
   type TimelineEntityCandidate,
   type TimelineEventCandidate,
-} from "@/mastra/workflows/timeline-workflow";
+} from "@/core/timeline/timeline-workflow";
 import { ChaptersRepository } from "@/repositories/chapters-repository";
 import {
   TimelineRepository,

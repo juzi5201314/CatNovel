@@ -1,11 +1,11 @@
 import {
-  MODEL_API_FORMATS,
+  CHAT_API_FORMATS,
   MODEL_PRESET_PURPOSES,
   PROVIDER_CATEGORIES,
   PROVIDER_PROTOCOLS,
   THINKING_BUDGET_TYPES,
   THINKING_EFFORT_LEVELS,
-  type ModelApiFormat,
+  type ChatApiFormat,
   type ModelPresetPurpose,
   type ProviderCategory,
   type ProviderProtocol,
@@ -45,8 +45,9 @@ export type PatchProviderInput = Partial<CreateProviderInput>;
 export type CreateModelPresetInput = {
   providerId: string;
   purpose: ModelPresetPurpose;
-  apiFormat: ModelApiFormat;
+  chatApiFormat?: ChatApiFormat | null;
   modelId: string;
+  customUserAgent?: string | null;
   temperature?: number;
   maxTokens?: number;
   thinkingBudget?: ThinkingBudgetInput;
@@ -64,6 +65,8 @@ export type PatchLlmDefaultsInput = {
 export type RotateKeyInput = {
   apiKey: string;
 };
+
+const MAX_CUSTOM_USER_AGENT_LENGTH = 512;
 
 function asObject(payload: unknown): Record<string, unknown> | null {
   if (!payload || typeof payload !== "object") {
@@ -88,8 +91,8 @@ function isPurpose(value: unknown): value is ModelPresetPurpose {
   return typeof value === "string" && MODEL_PRESET_PURPOSES.includes(value as ModelPresetPurpose);
 }
 
-function isApiFormat(value: unknown): value is ModelApiFormat {
-  return typeof value === "string" && MODEL_API_FORMATS.includes(value as ModelApiFormat);
+function isChatApiFormat(value: unknown): value is ChatApiFormat {
+  return typeof value === "string" && CHAT_API_FORMATS.includes(value as ChatApiFormat);
 }
 
 function validateThinkingBudget(value: unknown): ValidationResult<ThinkingBudgetInput | undefined> {
@@ -294,21 +297,21 @@ export function validatePatchProviderInput(payload: unknown): ValidationResult<P
 
 function validateFormatByPurpose(
   purpose: ModelPresetPurpose,
-  apiFormat: ModelApiFormat,
+  chatApiFormat: ChatApiFormat | null | undefined,
 ): ValidationFailure | null {
-  if (purpose === "embedding" && apiFormat !== "embeddings") {
+  if (purpose === "embedding" && chatApiFormat !== undefined && chatApiFormat !== null) {
     return {
       ok: false,
       code: "INVALID_INPUT",
-      message: "embedding preset must use embeddings apiFormat",
+      message: "embedding preset must not set chatApiFormat",
     };
   }
 
-  if (purpose === "chat" && apiFormat === "embeddings") {
+  if (purpose === "chat" && !chatApiFormat) {
     return {
       ok: false,
       code: "INVALID_INPUT",
-      message: "chat preset must use chat_completions/responses apiFormat",
+      message: "chat preset requires chatApiFormat (chat_completions/responses)",
     };
   }
 
@@ -331,21 +334,45 @@ export function validateCreateModelPresetInput(
     return { ok: false, code: "INVALID_INPUT", message: "purpose must be chat/embedding" };
   }
 
-  if (!isApiFormat(record.apiFormat)) {
+  if (record.chatApiFormat !== undefined && !isChatApiFormat(record.chatApiFormat)) {
     return {
       ok: false,
       code: "INVALID_INPUT",
-      message: "apiFormat must be chat_completions/responses/embeddings",
+      message: "chatApiFormat must be chat_completions/responses",
     };
   }
 
-  const formatError = validateFormatByPurpose(record.purpose, record.apiFormat);
+  const formatError = validateFormatByPurpose(
+    record.purpose,
+    isChatApiFormat(record.chatApiFormat) ? record.chatApiFormat : undefined,
+  );
   if (formatError) {
     return formatError;
   }
 
   if (!isNonEmptyString(record.modelId)) {
     return { ok: false, code: "INVALID_INPUT", message: "modelId is required" };
+  }
+
+  if (
+    record.customUserAgent !== undefined &&
+    !isNonEmptyString(record.customUserAgent)
+  ) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: "customUserAgent must be non-empty string",
+    };
+  }
+  if (
+    isNonEmptyString(record.customUserAgent) &&
+    record.customUserAgent.trim().length > MAX_CUSTOM_USER_AGENT_LENGTH
+  ) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: `customUserAgent length must be <= ${MAX_CUSTOM_USER_AGENT_LENGTH}`,
+    };
   }
 
   if (record.temperature !== undefined && typeof record.temperature !== "number") {
@@ -369,8 +396,12 @@ export function validateCreateModelPresetInput(
     data: {
       providerId: record.providerId.trim(),
       purpose: record.purpose,
-      apiFormat: record.apiFormat,
+      chatApiFormat: isChatApiFormat(record.chatApiFormat) ? record.chatApiFormat : undefined,
       modelId: record.modelId.trim(),
+      customUserAgent:
+        typeof record.customUserAgent === "string"
+          ? record.customUserAgent.trim()
+          : undefined,
       temperature: record.temperature as number | undefined,
       maxTokens: record.maxTokens as number | undefined,
       thinkingBudget: thinkingBudgetResult.data,
@@ -403,15 +434,18 @@ export function validatePatchModelPresetInput(
     output.purpose = record.purpose;
   }
 
-  if ("apiFormat" in record) {
-    if (!isApiFormat(record.apiFormat)) {
+  if ("chatApiFormat" in record) {
+    if (record.chatApiFormat === null) {
+      output.chatApiFormat = null;
+    } else if (isChatApiFormat(record.chatApiFormat)) {
+      output.chatApiFormat = record.chatApiFormat;
+    } else {
       return {
         ok: false,
         code: "INVALID_INPUT",
-        message: "apiFormat must be chat_completions/responses/embeddings",
+        message: "chatApiFormat must be chat_completions/responses/null",
       };
     }
-    output.apiFormat = record.apiFormat;
   }
 
   if ("modelId" in record) {
@@ -419,6 +453,27 @@ export function validatePatchModelPresetInput(
       return { ok: false, code: "INVALID_INPUT", message: "modelId must be non-empty string" };
     }
     output.modelId = record.modelId.trim();
+  }
+
+  if ("customUserAgent" in record) {
+    if (record.customUserAgent === null) {
+      output.customUserAgent = null;
+    } else if (isNonEmptyString(record.customUserAgent)) {
+      if (record.customUserAgent.trim().length > MAX_CUSTOM_USER_AGENT_LENGTH) {
+        return {
+          ok: false,
+          code: "INVALID_INPUT",
+          message: `customUserAgent length must be <= ${MAX_CUSTOM_USER_AGENT_LENGTH}`,
+        };
+      }
+      output.customUserAgent = record.customUserAgent.trim();
+    } else {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        message: "customUserAgent must be non-empty string or null",
+      };
+    }
   }
 
   if ("temperature" in record) {
@@ -458,9 +513,9 @@ export function validatePatchModelPresetInput(
   }
 
   const mergedPurpose = output.purpose;
-  const mergedApiFormat = output.apiFormat;
-  if (mergedPurpose && mergedApiFormat) {
-    const formatError = validateFormatByPurpose(mergedPurpose, mergedApiFormat);
+  const mergedChatApiFormat = output.chatApiFormat;
+  if (mergedPurpose && mergedChatApiFormat !== undefined) {
+    const formatError = validateFormatByPurpose(mergedPurpose, mergedChatApiFormat);
     if (formatError) {
       return formatError;
     }

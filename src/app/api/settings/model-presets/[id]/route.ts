@@ -25,8 +25,9 @@ function mapPreset(record: NonNullable<ReturnType<LlmModelPresetsRepository["fin
     id: record.id,
     providerId: record.providerId,
     purpose: record.purpose,
-    apiFormat: record.apiFormat,
+    chatApiFormat: record.chatApiFormat,
     modelId: record.modelId,
+    customUserAgent: record.customUserAgent,
     temperature: record.temperature,
     maxTokens: record.maxTokens,
     thinkingBudget: mapThinkingBudget(record),
@@ -34,11 +35,14 @@ function mapPreset(record: NonNullable<ReturnType<LlmModelPresetsRepository["fin
   };
 }
 
-function validatePurposeAndFormat(purpose: string, apiFormat: string) {
-  if (purpose === "embedding" && apiFormat !== "embeddings") {
+function validatePurposeAndFormat(
+  purpose: string,
+  chatApiFormat: "chat_completions" | "responses" | null | undefined,
+) {
+  if (purpose === "embedding" && chatApiFormat !== undefined && chatApiFormat !== null) {
     return false;
   }
-  if (purpose === "chat" && apiFormat === "embeddings") {
+  if (purpose === "chat" && !chatApiFormat) {
     return false;
   }
   return true;
@@ -82,17 +86,24 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const purpose = validation.data.purpose ?? existing.purpose;
-    const apiFormat = validation.data.apiFormat ?? existing.apiFormat;
-    if (!validatePurposeAndFormat(purpose, apiFormat)) {
-      return fail("INVALID_INPUT", "purpose and apiFormat are incompatible", 400);
+    const chatApiFormat =
+      validation.data.chatApiFormat !== undefined
+        ? validation.data.chatApiFormat
+        : existing.chatApiFormat;
+    if (!validatePurposeAndFormat(purpose, chatApiFormat)) {
+      return fail("INVALID_INPUT", "purpose and chatApiFormat are incompatible", 400);
     }
 
     modelPresetsRepository.upsert({
       id: existing.id,
       providerId,
       purpose,
-      apiFormat,
+      chatApiFormat,
       modelId: validation.data.modelId ?? existing.modelId,
+      customUserAgent:
+        validation.data.customUserAgent !== undefined
+          ? validation.data.customUserAgent
+          : existing.customUserAgent ?? null,
       temperature: validation.data.temperature ?? existing.temperature ?? undefined,
       maxTokens: validation.data.maxTokens ?? existing.maxTokens ?? undefined,
       thinkingBudgetType:

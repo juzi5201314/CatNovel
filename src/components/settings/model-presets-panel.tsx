@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import {
   type ModelPreset,
-  type PresetApiFormat,
+  type PresetChatApiFormat,
   type PresetPurpose,
   type ProviderConfig,
   type ThinkingBudget,
@@ -14,8 +14,9 @@ import {
 type PresetForm = {
   providerId: string;
   purpose: PresetPurpose;
-  apiFormat: PresetApiFormat;
+  chatApiFormat: PresetChatApiFormat;
   modelId: string;
+  customUserAgent: string;
   temperature: string;
   maxTokens: string;
   thinkingType: "none" | "effort" | "tokens";
@@ -45,8 +46,9 @@ function buildForm(providerId: string): PresetForm {
   return {
     providerId,
     purpose: "chat",
-    apiFormat: "chat_completions",
+    chatApiFormat: "chat_completions",
     modelId: "",
+    customUserAgent: "",
     temperature: "",
     maxTokens: "",
     thinkingType: "none",
@@ -59,12 +61,9 @@ function toPresetPurpose(value: string): PresetPurpose {
   return value === "embedding" ? "embedding" : "chat";
 }
 
-function toPresetApiFormat(value: string): PresetApiFormat {
+function toPresetChatApiFormat(value: string): PresetChatApiFormat {
   if (value === "responses") {
     return "responses";
-  }
-  if (value === "embeddings") {
-    return "embeddings";
   }
   return "chat_completions";
 }
@@ -120,15 +119,12 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
     void loadPresets();
   }, [loadPresets]);
 
-  function alignApiFormat(form: PresetForm): PresetForm {
-    if (form.purpose === "embedding") {
-      return { ...form, apiFormat: "embeddings" };
-    }
-    if (form.apiFormat === "embeddings") {
-      return { ...form, apiFormat: "chat_completions" };
-    }
-    return form;
+function alignChatApiFormat(form: PresetForm): PresetForm {
+  if (form.purpose === "embedding") {
+    return { ...form, chatApiFormat: "chat_completions" };
   }
+  return form;
+}
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -141,8 +137,12 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
       const payload = {
         providerId: createForm.providerId,
         purpose: createForm.purpose,
-        apiFormat: createForm.apiFormat,
+        chatApiFormat:
+          createForm.purpose === "chat" ? createForm.chatApiFormat : undefined,
         modelId: createForm.modelId.trim(),
+        customUserAgent: createForm.customUserAgent.trim()
+          ? createForm.customUserAgent.trim()
+          : undefined,
         temperature: createForm.temperature.trim() ? Number(createForm.temperature) : undefined,
         maxTokens: createForm.maxTokens.trim() ? Number(createForm.maxTokens) : undefined,
         thinkingBudget: toThinkingBudget(createForm),
@@ -164,8 +164,9 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
     setEditForm({
       providerId: preset.providerId,
       purpose: preset.purpose,
-      apiFormat: preset.apiFormat,
+      chatApiFormat: preset.chatApiFormat ?? "chat_completions",
       modelId: preset.modelId,
+      customUserAgent: preset.customUserAgent ?? "",
       temperature: typeof preset.temperature === "number" ? String(preset.temperature) : "",
       maxTokens: typeof preset.maxTokens === "number" ? String(preset.maxTokens) : "",
       thinkingType: preset.thinkingBudget?.type ?? "none",
@@ -180,8 +181,11 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
       const payload = {
         providerId: editForm.providerId,
         purpose: editForm.purpose,
-        apiFormat: editForm.apiFormat,
+        chatApiFormat: editForm.purpose === "chat" ? editForm.chatApiFormat : null,
         modelId: editForm.modelId.trim(),
+        customUserAgent: editForm.customUserAgent.trim()
+          ? editForm.customUserAgent.trim()
+          : null,
         temperature: editForm.temperature.trim() ? Number(editForm.temperature) : undefined,
         maxTokens: editForm.maxTokens.trim() ? Number(editForm.maxTokens) : undefined,
         thinkingBudget: toThinkingBudget(editForm),
@@ -255,6 +259,15 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                   placeholder="e.g. gpt-4o, deepseek-chat"
                 />
               </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Custom UA (Optional)</label>
+                <input
+                  className="w-full"
+                  value={createForm.customUserAgent}
+                  onChange={(e) => setCreateForm(f => ({ ...f, customUserAgent: e.target.value }))}
+                  placeholder="e.g. CatNovel/1.0 (YourTeam)"
+                />
+              </div>
               <div className="space-y-2">
                 <label className="text-xs font-medium uppercase text-muted-foreground">Purpose</label>
                 <select
@@ -262,7 +275,7 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                   value={createForm.purpose}
                   onChange={(e) =>
                     setCreateForm((f) =>
-                      alignApiFormat({ ...f, purpose: toPresetPurpose(e.target.value) }),
+                      alignChatApiFormat({ ...f, purpose: toPresetPurpose(e.target.value) }),
                     )
                   }
                 >
@@ -274,15 +287,17 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                 <label className="text-xs font-medium uppercase text-muted-foreground">API Format</label>
                 <select
                   className="w-full"
-                  value={createForm.apiFormat}
+                  value={createForm.chatApiFormat}
                   onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, apiFormat: toPresetApiFormat(e.target.value) }))
+                    setCreateForm((f) => ({
+                      ...f,
+                      chatApiFormat: toPresetChatApiFormat(e.target.value),
+                    }))
                   }
                   disabled={createForm.purpose === "embedding"}
                 >
                   <option value="chat_completions">Chat Completions</option>
                   <option value="responses">Responses</option>
-                  <option value="embeddings">Embeddings</option>
                 </select>
               </div>
             </div>
@@ -378,7 +393,9 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                 <tr key={preset.id} className="hover:bg-muted/50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="font-medium">{preset.modelId}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{preset.apiFormat}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {preset.purpose === "chat" ? preset.chatApiFormat : "embedding"}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-col gap-0.5">
@@ -396,6 +413,14 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                       )}
                       {preset.thinkingBudget && (
                         <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">THINKING</span>
+                      )}
+                      {preset.customUserAgent && (
+                        <span
+                          className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium"
+                          title={preset.customUserAgent}
+                        >
+                          UA
+                        </span>
                       )}
                     </div>
                   </td>
@@ -440,6 +465,17 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                   className="w-full"
                   value={editForm.modelId}
                   onChange={(e) => setEditForm(f => f ? ({ ...f, modelId: e.target.value }) : f)}
+                />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <label className="text-xs font-medium uppercase text-muted-foreground">Custom UA (Optional)</label>
+                <input
+                  className="w-full"
+                  value={editForm.customUserAgent}
+                  onChange={(e) =>
+                    setEditForm(f => f ? ({ ...f, customUserAgent: e.target.value }) : f)
+                  }
+                  placeholder="Leave empty to clear"
                 />
               </div>
               <div className="space-y-2">

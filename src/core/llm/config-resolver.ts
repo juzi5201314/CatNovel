@@ -284,8 +284,15 @@ function resolveApiFormat(
   preset: ChatPresetRecord,
   overrideApiFormat?: ChatApiFormat,
 ): ChatApiFormat {
-  const presetApiFormat: ChatApiFormat =
-    preset.apiFormat === "responses" ? "responses" : "chat_completions";
+  const presetApiFormat = preset.chatApiFormat;
+  if (!presetApiFormat) {
+    throw new LlmRuntimeError({
+      code: "LLM_CONFIG_ERROR",
+      message: "chat preset 缺少 chatApiFormat",
+      retryable: false,
+      details: { presetId: preset.id },
+    });
+  }
 
   const apiFormat = overrideApiFormat ?? presetApiFormat;
   if (apiFormat !== "chat_completions" && apiFormat !== "responses") {
@@ -341,6 +348,13 @@ function normalizeMaxTokens(value: unknown): number | undefined {
   return value as number;
 }
 
+function normalizeCustomUserAgent(value: unknown): string | undefined {
+  if (!isNonEmptyString(value)) {
+    return undefined;
+  }
+  return value.trim();
+}
+
 export function resolveChatRuntimeConfig(input: ResolveLlmConfigInput): ResolvedLlmConfig {
   const resolvedPreset = resolvePreset(input.projectId, input.chatPresetId);
   const provider = resolveProvider(resolvedPreset.preset);
@@ -361,6 +375,7 @@ export function resolveChatRuntimeConfig(input: ResolveLlmConfigInput): Resolved
     providerProtocol: provider.protocol,
     baseURL,
     apiKey,
+    customUserAgent: normalizeCustomUserAgent(resolvedPreset.preset.customUserAgent),
     apiFormat,
     modelId,
     temperature: normalizeTemperature(resolvedPreset.preset.temperature),
@@ -376,6 +391,7 @@ export function resolveChatRuntimeConfig(input: ResolveLlmConfigInput): Resolved
     providerId: resolvedConfig.providerId,
     apiFormat: resolvedConfig.apiFormat,
     modelId: resolvedConfig.modelId,
+    hasCustomUserAgent: Boolean(resolvedConfig.customUserAgent),
     hasThinkingBudget: Boolean(resolvedConfig.thinkingBudget),
   });
 

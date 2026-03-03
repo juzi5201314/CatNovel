@@ -20,6 +20,33 @@ function summarizeErrorMessage(message) {
   return `${normalized.slice(0, 320)}...`;
 }
 
+async function readUIChunks(response, options = {}) {
+  const events = await readSseEvents(response, {
+    maxEvents: options.maxEvents ?? 1024,
+    timeoutMs: options.timeoutMs ?? 30000,
+  });
+
+  const chunks = [];
+  for (const event of events) {
+    if (event.event !== "message") {
+      continue;
+    }
+    if (!event.data || typeof event.data !== "object") {
+      continue;
+    }
+    const chunk = event.data;
+    if (typeof chunk.type !== "string") {
+      continue;
+    }
+    chunks.push(chunk);
+    if (chunk.type === "finish" || chunk.type === "abort") {
+      break;
+    }
+  }
+
+  return chunks;
+}
+
 async function createProjectWithChapters() {
   const project = await api("POST", "/api/projects", {
     name: `W8 Real Provider Smoke ${Date.now()}`,
@@ -65,7 +92,7 @@ async function createLlmConfig(projectId) {
   const chatPreset = await api("POST", "/api/settings/model-presets", {
     providerId: chatProvider.id,
     purpose: "chat",
-    apiFormat: chatApiFormat,
+    chatApiFormat,
     modelId: requireEnv("MODEL_ID"),
     temperature: 0.4,
     maxTokens: 512,
@@ -87,7 +114,6 @@ async function createLlmConfig(projectId) {
   const embeddingPreset = await api("POST", "/api/settings/model-presets", {
     providerId: embeddingProvider.id,
     purpose: "embedding",
-    apiFormat: "embeddings",
     modelId: (process.env.EMBEDDING_MODEL ?? "text-embedding-3-small").trim(),
     maxTokens: 2048,
   });
@@ -130,45 +156,44 @@ async function verifyAi(projectId, chapterId, chatPresetId, chatApiFormat) {
   assert.equal(response.status, 200, "chat should return 200");
   assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
 
-  const events = await readSseEvents(response, {
-    stopEvent: "done",
-    maxEvents: 512,
+  const chunks = await readUIChunks(response, {
+    maxEvents: 1024,
     timeoutMs: 30000,
   });
 
-  const names = events.map((item) => item.event);
-  const hasToken = names.includes("token");
-  const hasDone = names.includes("done");
-  const hasError = names.includes("error");
+  const hasTextDelta = chunks.some((chunk) => chunk.type === "text-delta");
+  const hasFinish = chunks.some((chunk) => chunk.type === "finish");
+  const hasError = chunks.some((chunk) => chunk.type === "error");
 
-  if (hasToken && hasDone) {
-    const tokenText = events
-      .filter((item) => item.event === "token")
-      .map((item) => item.data?.text ?? "")
+  if (hasTextDelta && hasFinish) {
+    const tokenText = chunks
+      .filter((chunk) => chunk.type === "text-delta")
+      .map((chunk) => chunk.delta ?? "")
       .join("");
-    assert.ok(tokenText.trim().length > 0, "chat token text should not be empty");
+    assert.ok(tokenText.trim().length > 0, "chat text should not be empty");
     return { status: "ok" };
   }
 
   if (hasError) {
-    const errorEvent = events.find((item) => item.event === "error");
-    const errorCode = errorEvent?.data?.code;
+    const errorChunk = chunks.find((chunk) => chunk.type === "error");
     assert.ok(
-      typeof errorCode === "string",
-      "chat error event should include code",
+      typeof errorChunk?.errorText === "string",
+      "chat error chunk should include errorText",
     );
-    return { status: "provider_error", code: errorCode };
+    return { status: "provider_error", code: "STREAM_ERROR" };
   }
 
-  const tokenText = events
-    .filter((item) => item.event === "token")
-    .map((item) => item.data?.text ?? "")
+  const tokenText = chunks
+    .filter((chunk) => chunk.type === "text-delta")
+    .map((chunk) => chunk.delta ?? "")
     .join("");
-  if (hasToken && !hasError) {
-    return { status: "ok" };
+  if (hasTextDelta && !hasFinish && !hasError) {
+    throw new Error(
+      `chat stream stalled without finish: tokenTextLength=${tokenText.length}`,
+    );
   }
   throw new Error(
-    `chat stream ended unexpectedly: events=${JSON.stringify(names)}, tokenTextLength=${tokenText.length}`,
+    `chat stream ended unexpectedly: tokenTextLength=${tokenText.length}`,
   );
 }
 

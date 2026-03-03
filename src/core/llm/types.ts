@@ -40,6 +40,7 @@ export type ResolvedLlmConfig = {
   providerProtocol: ProviderProtocol;
   baseURL: string;
   apiKey: string;
+  customUserAgent?: string;
   apiFormat: ChatApiFormat;
   modelId: string;
   temperature?: number;
