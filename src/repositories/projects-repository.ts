@@ -65,6 +65,11 @@ export class ProjectsRepository extends BaseRepository {
     return result.changes > 0;
   }
 
+  deleteById(id: string): boolean {
+    const result = this.db.delete(projects).where(eq(projects.id, id)).run();
+    return result.changes > 0;
+  }
+
   importProjectBundle(input: ImportProjectBundleInput): {
     project: ProjectRecord;
     chapters: ChapterRecord[];

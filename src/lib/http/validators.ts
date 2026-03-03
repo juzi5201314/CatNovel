@@ -19,6 +19,10 @@ export type CreateProjectInput = {
   mode: ProjectMode;
 };
 
+export type PatchProjectInput = {
+  name: string;
+};
+
 export type CreateChapterInput = {
   title: string;
   order?: number;
@@ -72,6 +76,34 @@ export function validateCreateProjectInput(payload: unknown): ValidationResult<C
     data: {
       name: name.trim(),
       mode: mode as ProjectMode,
+    },
+  };
+}
+
+export function validatePatchProjectInput(payload: unknown): ValidationResult<PatchProjectInput> {
+  if (!payload || typeof payload !== "object") {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: "Body must be an object",
+    };
+  }
+
+  const record = payload as Record<string, unknown>;
+  const name = record.name;
+
+  if (!isNonEmptyString(name)) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: "name must be a non-empty string",
+    };
+  }
+
+  return {
+    ok: true,
+    data: {
+      name: name.trim(),
     },
   };
 }

@@ -34,6 +34,8 @@ type WorkspaceState = {
   loadingSnapshots: boolean;
   loadingSnapshotDiff: boolean;
   creatingProject: boolean;
+  renamingProject: boolean;
+  deletingProject: boolean;
   creatingChapter: boolean;
   savingChapter: boolean;
   creatingSnapshot: boolean;
@@ -46,6 +48,8 @@ type WorkspaceState = {
   error: string | null;
   fetchProjects: () => Promise<void>;
   createProject: (input: { name: string; mode: ProjectMode }) => Promise<void>;
+  renameProject: (input: { projectId: string; name: string }) => Promise<void>;
+  deleteProject: (projectId: string) => Promise<void>;
   selectProject: (projectId: string | null) => Promise<void>;
   fetchChapters: (projectId: string) => Promise<void>;
   fetchSnapshots: (projectId: string) => Promise<void>;
@@ -218,6 +222,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   loadingSnapshots: false,
   loadingSnapshotDiff: false,
   creatingProject: false,
+  renamingProject: false,
+  deletingProject: false,
   creatingChapter: false,
   savingChapter: false,
   creatingSnapshot: false,
@@ -297,6 +303,77 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({
         creatingProject: false,
         error: normalizeError(error, "项目创建失败"),
+      });
+    }
+  },
+
+  renameProject: async ({ projectId, name }) => {
+    set({ renamingProject: true, error: null });
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const json = await readJson<ProjectItem>(response);
+      const updated = json.data;
+
+      set({
+        projects: get().projects.map((project) =>
+          project.id === updated.id ? updated : project,
+        ),
+        renamingProject: false,
+      });
+    } catch (error) {
+      set({
+        renamingProject: false,
+        error: normalizeError(error, "项目重命名失败"),
+      });
+    }
+  },
+
+  deleteProject: async (projectId) => {
+    set({ deletingProject: true, error: null });
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: "DELETE",
+      });
+      await readJson<{ success: boolean; deletedProjectId: string }>(response);
+
+      const currentSelectedProjectId = get().selectedProjectId;
+      const nextProjects = get().projects.filter((project) => project.id !== projectId);
+      const deletedSelectedProject = currentSelectedProjectId === projectId;
+
+      if (!deletedSelectedProject) {
+        set({
+          projects: nextProjects,
+          deletingProject: false,
+        });
+        return;
+      }
+
+      const nextSelectedProjectId = nextProjects[0]?.id ?? null;
+      set({
+        projects: nextProjects,
+        selectedProjectId: nextSelectedProjectId,
+        selectedChapterId: null,
+        chapters: [],
+        snapshots: [],
+        snapshotDiff: null,
+        snapshotRestoreResult: null,
+        deletingProject: false,
+      });
+
+      if (nextSelectedProjectId) {
+        await Promise.all([
+          get().fetchChapters(nextSelectedProjectId),
+          get().fetchSnapshots(nextSelectedProjectId),
+        ]);
+      }
+    } catch (error) {
+      set({
+        deletingProject: false,
+        error: normalizeError(error, "项目删除失败"),
       });
     }
   },

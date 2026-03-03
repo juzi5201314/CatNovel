@@ -21,6 +21,8 @@ export function WorkspaceShell() {
   const loadingProjects = useWorkspaceStore((state) => state.loadingProjects);
   const loadingChapters = useWorkspaceStore((state) => state.loadingChapters);
   const creatingProject = useWorkspaceStore((state) => state.creatingProject);
+  const renamingProject = useWorkspaceStore((state) => state.renamingProject);
+  const deletingProject = useWorkspaceStore((state) => state.deletingProject);
   const creatingChapter = useWorkspaceStore((state) => state.creatingChapter);
   const savingChapter = useWorkspaceStore((state) => state.savingChapter);
   const importingProject = useWorkspaceStore((state) => state.importingProject);
@@ -39,6 +41,8 @@ export function WorkspaceShell() {
 
   const fetchProjects = useWorkspaceStore((state) => state.fetchProjects);
   const createProject = useWorkspaceStore((state) => state.createProject);
+  const renameProject = useWorkspaceStore((state) => state.renameProject);
+  const deleteProject = useWorkspaceStore((state) => state.deleteProject);
   const selectProject = useWorkspaceStore((state) => state.selectProject);
   const createChapter = useWorkspaceStore((state) => state.createChapter);
   const selectChapter = useWorkspaceStore((state) => state.selectChapter);
@@ -101,6 +105,8 @@ export function WorkspaceShell() {
         loadingProjects={loadingProjects}
         loadingChapters={loadingChapters}
         creatingProject={creatingProject}
+        renamingProject={renamingProject}
+        deletingProject={deletingProject}
         creatingChapter={creatingChapter}
         importingProject={importingProject}
         exportingProject={exportingProject}
@@ -109,6 +115,8 @@ export function WorkspaceShell() {
         lastExportJson={lastExportJson}
         error={error}
         onCreateProject={createProject}
+        onRenameProject={renameProject}
+        onDeleteProject={deleteProject}
         onSelectProject={selectProject}
         onCreateChapter={createChapter}
         onImportProjectFromJson={importProjectFromJson}

@@ -55,6 +55,34 @@ function buildForm(providerId: string): PresetForm {
   };
 }
 
+function toPresetPurpose(value: string): PresetPurpose {
+  return value === "embedding" ? "embedding" : "chat";
+}
+
+function toPresetApiFormat(value: string): PresetApiFormat {
+  if (value === "responses") {
+    return "responses";
+  }
+  if (value === "embeddings") {
+    return "embeddings";
+  }
+  return "chat_completions";
+}
+
+function toThinkingType(value: string): PresetForm["thinkingType"] {
+  if (value === "effort" || value === "tokens") {
+    return value;
+  }
+  return "none";
+}
+
+function toThinkingEffort(value: string): PresetForm["thinkingEffort"] {
+  if (value === "low" || value === "high") {
+    return value;
+  }
+  return "medium";
+}
+
 export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPanelProps) {
   const defaultProviderId = providers[0]?.id ?? "";
 
@@ -232,7 +260,11 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                 <select
                   className="w-full"
                   value={createForm.purpose}
-                  onChange={(e) => setCreateForm(f => alignApiFormat({ ...f, purpose: e.target.value as any }))}
+                  onChange={(e) =>
+                    setCreateForm((f) =>
+                      alignApiFormat({ ...f, purpose: toPresetPurpose(e.target.value) }),
+                    )
+                  }
                 >
                   <option value="chat">Chat</option>
                   <option value="embedding">Embedding</option>
@@ -243,7 +275,9 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                 <select
                   className="w-full"
                   value={createForm.apiFormat}
-                  onChange={(e) => setCreateForm(f => ({ ...f, apiFormat: e.target.value as any }))}
+                  onChange={(e) =>
+                    setCreateForm((f) => ({ ...f, apiFormat: toPresetApiFormat(e.target.value) }))
+                  }
                   disabled={createForm.purpose === "embedding"}
                 >
                   <option value="chat_completions">Chat Completions</option>
@@ -280,7 +314,9 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                 <select
                   className="flex-1"
                   value={createForm.thinkingType}
-                  onChange={(e) => setCreateForm(f => ({ ...f, thinkingType: e.target.value as any }))}
+                  onChange={(e) =>
+                    setCreateForm((f) => ({ ...f, thinkingType: toThinkingType(e.target.value) }))
+                  }
                 >
                   <option value="none">Disabled</option>
                   <option value="effort">Effort Based (o1/o3)</option>
@@ -290,7 +326,12 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
                   <select
                     className="flex-1"
                     value={createForm.thinkingEffort}
-                    onChange={(e) => setCreateForm(f => ({ ...f, thinkingEffort: e.target.value as any }))}
+                    onChange={(e) =>
+                      setCreateForm((f) => ({
+                        ...f,
+                        thinkingEffort: toThinkingEffort(e.target.value),
+                      }))
+                    }
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -369,7 +410,7 @@ export function ModelPresetsPanel({ providers, onPresetsChange }: ModelPresetsPa
               {presets.length === 0 && !loading && (
                 <tr>
                   <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
-                    No presets configured. Click "Add Preset" to get started.
+                    {`No presets configured. Click "Add Preset" to get started.`}
                   </td>
                 </tr>
               )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import {
   type ProviderCategory,
@@ -8,6 +8,7 @@ import {
   type ProviderProtocol,
   requestJson,
 } from "@/components/settings/types";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type ProviderForm = {
   name: string;
@@ -32,6 +33,17 @@ const EMPTY_PROVIDER_FORM: ProviderForm = {
   enabled: true,
   apiKey: "",
 };
+
+function toProviderProtocol(value: string): ProviderProtocol {
+  return value === "openai_responses" ? "openai_responses" : "openai_compatible";
+}
+
+function toProviderCategory(value: string): ProviderCategory {
+  if (value === "chat" || value === "embedding") {
+    return value;
+  }
+  return "both";
+}
 
 export function ProvidersPanel({
   activeProviderId,
@@ -188,7 +200,9 @@ export function ProvidersPanel({
                 <select
                   className="w-full"
                   value={createForm.protocol}
-                  onChange={(e) => setCreateForm(f => ({ ...f, protocol: e.target.value as any }))}
+                  onChange={(e) =>
+                    setCreateForm((f) => ({ ...f, protocol: toProviderProtocol(e.target.value) }))
+                  }
                 >
                   <option value="openai_compatible">OpenAI Compatible</option>
                   <option value="openai_responses">OpenAI Responses</option>
@@ -199,7 +213,9 @@ export function ProvidersPanel({
                 <select
                   className="w-full"
                   value={createForm.category}
-                  onChange={(e) => setCreateForm(f => ({ ...f, category: e.target.value as any }))}
+                  onChange={(e) =>
+                    setCreateForm((f) => ({ ...f, category: toProviderCategory(e.target.value) }))
+                  }
                 >
                   <option value="chat">Chat Only</option>
                   <option value="embedding">Embedding Only</option>
@@ -243,7 +259,8 @@ export function ProvidersPanel({
       )}
 
       {message && (
-        <div className="p-3 text-sm rounded-md bg-red-50 text-red-600 border border-red-100">
+        <div className="p-3 text-sm rounded-md bg-red-50 text-red-600 border border-red-100 flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           {message}
         </div>
       )}
@@ -251,83 +268,96 @@ export function ProvidersPanel({
       <div className="cn-panel p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className="bg-muted text-muted-foreground text-xs uppercase font-medium border-bottom border-border">
+            <thead className="bg-muted text-muted-foreground text-[10px] uppercase font-bold tracking-widest border-b border-border">
               <tr>
-                <th className="px-6 py-3">Provider</th>
-                <th className="px-6 py-3">Protocol / Category</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3 text-right">Actions</th>
+                <th className="px-6 py-4">Provider</th>
+                <th className="px-6 py-4">Protocol / Category</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {providers.map((provider) => {
-                const isEditing = editingId === provider.id && editForm;
-                const isActive = activeProviderId === provider.id;
-
-                return (
-                  <tr key={provider.id} className={`hover:bg-muted/50 transition-colors ${isActive ? 'bg-blue-50/30' : ''}`}>
-                    <td className="px-6 py-4">
-                      <div className="font-medium flex items-center gap-2">
-                        {provider.name}
-                        {isActive && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">ACTIVE</span>}
-                        {provider.isBuiltin && <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-bold">BUILTIN</span>}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5 max-w-[200px] truncate" title={provider.baseURL}>
-                        {provider.baseURL}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-xs uppercase opacity-70">{provider.protocol}</span>
-                        <span className="text-xs font-medium">{provider.category}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className={`h-2 w-2 rounded-full ${provider.enabled ? 'bg-green-500' : 'bg-gray-300'}`} />
-                        {provider.enabled ? 'Enabled' : 'Disabled'}
-                        {provider.hasApiKey && <span title="API Key Configured">🔑</span>}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        {!isActive && provider.enabled && (
-                          <button
-                            className="text-xs px-2 py-1"
-                            onClick={() => onActiveProviderIdChange(provider.id)}
-                          >
-                            Set Active
-                          </button>
-                        )}
-                        <button
-                          className="text-xs px-2 py-1"
-                          onClick={() => handleToggleEnabled(provider)}
-                        >
-                          {provider.enabled ? 'Disable' : 'Enable'}
-                        </button>
-                        <button
-                          className="text-xs px-2 py-1"
-                          onClick={() => startEdit(provider)}
-                        >
-                          Edit
-                        </button>
-                        {!provider.isBuiltin && (
-                          <button
-                            className="text-xs px-2 py-1 text-red-600 hover:text-red-700"
-                            onClick={() => handleDelete(provider.id)}
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
+              {loading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <tr key={i} className="animate-in fade-in duration-500">
+                    <td className="px-6 py-5"><Skeleton className="h-10 w-48" /></td>
+                    <td className="px-6 py-5"><Skeleton className="h-10 w-32" /></td>
+                    <td className="px-6 py-5"><Skeleton className="h-10 w-24" /></td>
+                    <td className="px-6 py-5"><Skeleton className="h-10 w-32 ml-auto" /></td>
                   </tr>
-                );
-              })}
+                ))
+              ) : (
+                providers.map((provider) => {
+                  const isActive = activeProviderId === provider.id;
+
+                  return (
+                    <tr key={provider.id} className={`hover:bg-muted/30 transition-all ${isActive ? 'bg-accent/5' : ''}`}>
+                      <td className="px-6 py-5">
+                        <div className="font-bold flex items-center gap-2">
+                          {provider.name}
+                          {isActive && <span className="text-[9px] bg-accent text-accent-foreground px-2 py-0.5 rounded-full font-black uppercase tracking-tighter shadow-sm">ACTIVE</span>}
+                          {provider.isBuiltin && <span className="text-[9px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-black uppercase tracking-tighter">BUILTIN</span>}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1 max-w-[200px] truncate font-medium opacity-60" title={provider.baseURL}>
+                          {provider.baseURL}
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-black uppercase tracking-widest opacity-40">{provider.protocol}</span>
+                          <span className="text-xs font-bold text-muted-foreground">{provider.category}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`h-2 w-2 rounded-full shadow-sm ${provider.enabled ? 'bg-green-500 shadow-green-500/20' : 'bg-gray-300'}`} />
+                          <span className={`text-xs font-bold ${provider.enabled ? 'text-green-600' : 'text-muted-foreground'}`}>{provider.enabled ? 'Live' : 'Paused'}</span>
+                          {provider.hasApiKey && <div className="bg-muted p-1 rounded" title="Key Confirmed"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3-3.5 3.5z"/></svg></div>}
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        <div className="flex justify-end gap-2">
+                          {!isActive && provider.enabled && (
+                            <button
+                              className="text-[10px] font-bold px-3 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent hover:text-accent-foreground transition-all"
+                              onClick={() => onActiveProviderIdChange(provider.id)}
+                            >
+                              Activate
+                            </button>
+                          )}
+                          <button
+                            className="text-[10px] font-bold px-3 py-1.5 rounded hover:bg-muted transition-all"
+                            onClick={() => handleToggleEnabled(provider)}
+                          >
+                            {provider.enabled ? 'Pause' : 'Resume'}
+                          </button>
+                          <button
+                            className="text-[10px] font-bold px-3 py-1.5 rounded hover:bg-muted transition-all"
+                            onClick={() => startEdit(provider)}
+                          >
+                            Settings
+                          </button>
+                          {!provider.isBuiltin && (
+                            <button
+                              className="text-[10px] font-bold px-3 py-1.5 rounded text-red-600 hover:bg-red-50 transition-all"
+                              onClick={() => handleDelete(provider.id)}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
               {providers.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
-                    No providers configured. Click "Add Provider" to get started.
+                  <td colSpan={4} className="px-6 py-20 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center gap-3 opacity-40">
+                       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M7 12h10M7 16h10M12 20v2M12 2v2"/></svg>
+                       <p className="text-sm font-bold uppercase tracking-widest">No Providers Available</p>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -337,50 +367,53 @@ export function ProvidersPanel({
       </div>
 
       {editingId && editForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-background rounded-lg border border-border shadow-xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-lg font-semibold">Edit Provider</h3>
-            <div className="space-y-4">
-               {/* Simplified edit form in dialog */}
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50 animate-in fade-in duration-300">
+          <div className="bg-background rounded-xl border border-border shadow-2xl max-w-md w-full p-8 space-y-6 zoom-in-95 animate-in duration-200">
+            <div>
+              <h3 className="text-lg font-bold tracking-tight">Provider Settings</h3>
+              <p className="text-xs text-muted-foreground font-medium uppercase mt-1 tracking-wider opacity-60">Update configuration for {editForm.name}</p>
+            </div>
+            <div className="space-y-5">
                <div className="space-y-2">
-                <label className="text-xs font-medium uppercase text-muted-foreground">Name</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Display Name</label>
                 <input
-                  className="w-full"
+                  className="w-full font-bold"
                   value={editForm.name}
                   onChange={(e) => setEditForm(f => f ? ({ ...f, name: e.target.value }) : f)}
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-medium uppercase text-muted-foreground">Base URL</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">API Base URL</label>
                 <input
-                  className="w-full"
+                  className="w-full font-mono text-xs"
                   value={editForm.baseURL}
                   onChange={(e) => setEditForm(f => f ? ({ ...f, baseURL: e.target.value }) : f)}
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-medium uppercase text-muted-foreground">API Key (Leave blank to keep current)</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">API Key <span className="text-[9px] opacity-40 italic ml-1">(Encrypted at rest)</span></label>
                 <input
                   type="password"
                   className="w-full"
                   value={editForm.apiKey}
                   onChange={(e) => setEditForm(f => f ? ({ ...f, apiKey: e.target.value }) : f)}
-                  placeholder="••••••••"
+                  placeholder="Leave empty to keep existing key"
                 />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 bg-muted/30 p-3 rounded-lg border border-border/50">
                 <input
                   type="checkbox"
                   id="edit-enabled"
+                  className="w-4 h-4 rounded border-border"
                   checked={editForm.enabled}
                   onChange={(e) => setEditForm(f => f ? ({ ...f, enabled: e.target.checked }) : f)}
                 />
-                <label htmlFor="edit-enabled" className="text-sm">Enabled</label>
+                <label htmlFor="edit-enabled" className="text-xs font-bold uppercase tracking-tight">Enable Provider</label>
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-4">
-              <button onClick={() => setEditingId(null)}>Cancel</button>
-              <button className="primary" onClick={() => handleSaveEdit(providers.find(p => p.id === editingId)!)}>Save Changes</button>
+              <button onClick={() => setEditingId(null)} className="text-[10px] font-bold uppercase tracking-widest px-4 py-2 hover:bg-muted rounded transition-colors">Cancel</button>
+              <button className="primary text-[10px] font-bold uppercase tracking-widest px-6 py-2 rounded shadow-lg shadow-black/5" onClick={() => handleSaveEdit(providers.find(p => p.id === editingId)!)}>Update Provider</button>
             </div>
           </div>
         </div>
