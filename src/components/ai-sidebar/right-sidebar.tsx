@@ -32,7 +32,7 @@ type RightSidebarProps = {
   onClearSnapshotDiff: () => void;
 };
 
-type AITab = "chat" | "history" | "tasks";
+type AITab = "chat" | "ghost" | "history" | "tasks";
 
 export function RightSidebar({
   project,
@@ -86,6 +86,12 @@ export function RightSidebar({
           >
             AI Chat
           </button>
+          <button
+            className={`flex-1 py-3 text-xs font-medium border-b-2 transition-all ${activeTab === 'ghost' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setActiveTab('ghost')}
+          >
+            Ghost Text
+          </button>
           <button 
             className={`flex-1 py-3 text-xs font-medium border-b-2 transition-all ${activeTab === 'history' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
             onClick={() => setActiveTab('history')}
@@ -101,15 +107,18 @@ export function RightSidebar({
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+        <div
+          className={`flex-1 min-h-0 p-4 ${activeTab === "chat" ? "" : "overflow-y-auto custom-scrollbar"}`}
+        >
           {activeTab === "chat" && (
-            <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="h-full animate-in fade-in duration-300">
               <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
-              <GhostActions
-                projectId={project?.id ?? null}
-                chapter={chapter}
-                onAcceptGhost={onAcceptGhost}
-              />
+            </div>
+          )}
+
+          {activeTab === "ghost" && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <GhostActions projectId={project?.id ?? null} chapter={chapter} onAcceptGhost={onAcceptGhost} />
             </div>
           )}
 

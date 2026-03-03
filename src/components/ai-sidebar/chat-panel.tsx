@@ -199,7 +199,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   );
 
   return (
-    <section className="space-y-4">
+    <section className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI Chat</h3>
         {isStreaming && (
@@ -209,9 +209,9 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
         )}
       </div>
 
-      <div 
+      <div
         ref={scrollRef}
-        className="space-y-6 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar py-2"
+        className="flex-1 min-h-0 space-y-6 overflow-y-auto pr-2 custom-scrollbar py-2"
       >
         {messages.length === 0 ? (
           <div className="py-12 text-center space-y-4">
