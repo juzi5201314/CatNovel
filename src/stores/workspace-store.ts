@@ -18,7 +18,7 @@ import type {
 
 type SaveChapterPayload = {
   content: string;
-  summary?: string | null;
+  summary?: string;
 };
 
 type WorkspaceState = {

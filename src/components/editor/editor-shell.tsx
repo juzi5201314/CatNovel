@@ -7,7 +7,7 @@ import StarterKit from "@tiptap/starter-kit";
 
 import { EditorToolbar } from "./editor-toolbar";
 import { SaveIndicator } from "./save-indicator";
-import type { EditorShellProps, EditorSaveStatus } from "./types";
+import type { EditorSavePayload, EditorShellProps, EditorSaveStatus } from "./types";
 
 type EditorMode = "edit" | "preview";
 
@@ -74,10 +74,13 @@ export function EditorShell({
       setSaveStatus("saving");
 
       try {
-        await onSave({
+        const payload: EditorSavePayload = {
           content: currentContent,
-          summary: chapter.summary ?? null,
-        });
+        };
+        if (typeof chapter.summary === "string") {
+          payload.summary = chapter.summary;
+        }
+        await onSave(payload);
 
         lastSavedContentRef.current = currentContent;
         setDirty(false);

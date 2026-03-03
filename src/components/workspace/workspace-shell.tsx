@@ -10,7 +10,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 
 type EditorSavePayload = {
   content: string;
-  summary?: string | null;
+  summary?: string;
 };
 
 export function WorkspaceShell() {
@@ -86,11 +86,14 @@ export function WorkspaceShell() {
 
       const current = selectedChapter.content ?? "";
       const separator = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
-
-      await saveChapter({
+      const payload: EditorSavePayload = {
         content: `${current}${separator}${ghostText}`,
-        summary: selectedChapter.summary ?? null,
-      });
+      };
+      if (typeof selectedChapter.summary === "string") {
+        payload.summary = selectedChapter.summary;
+      }
+
+      await saveChapter(payload);
     },
     [saveChapter, selectedChapter],
   );

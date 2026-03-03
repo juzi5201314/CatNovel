@@ -11,7 +11,7 @@ export type EditorChapter = {
 
 export type EditorSavePayload = {
   content: string;
-  summary?: string | null;
+  summary?: string;
 };
 
 export type EditorShellProps = {
