@@ -3,6 +3,12 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getToolCatalogItem,
+  getToolNameByAlias,
+  type ToolCatalogItem,
+  type ToolParameterSchema,
+} from "@/core/tools/tool-catalog";
 
 type ChatRole = "user" | "assistant";
 type ToolCallStatus = "planned" | "executed" | "requires_approval" | "failed" | "unknown";
@@ -62,10 +68,56 @@ type ApprovalDetail = {
   status: string;
 };
 
+type JsonSchemaNode = {
+  type?: string;
+  enum?: unknown[];
+  properties?: Record<string, unknown>;
+  items?: unknown;
+  required?: string[];
+};
+
+type FieldEntryKind = "primitive" | "array-primitive" | "json";
+
+type ApprovalFieldEntry = {
+  path: string[];
+  label: string;
+  value: unknown;
+  kind: FieldEntryKind;
+  schema?: JsonSchemaNode;
+  required: boolean;
+};
+
 type ChatPanelProps = {
   projectId: string | null;
   chapterId: string | null;
 };
+
+const NON_ADJUSTABLE_TOOLS = new Set<string>([
+  "approval.approve",
+  "approval.reject",
+  "settings.providers.rotateKey",
+  "settings.providers.delete",
+  "settings.modelPresets.deleteBuiltinLocked",
+]);
+
+function shouldHideApprovalField(path: string[]): boolean {
+  const tail = path[path.length - 1] ?? "";
+  if (!tail) {
+    return false;
+  }
+
+  if (/^(id|ids)$/i.test(tail)) {
+    return true;
+  }
+  if (/_(id|ids)$/i.test(tail)) {
+    return true;
+  }
+  if (/[a-z0-9]Id(s)?$/.test(tail)) {
+    return true;
+  }
+
+  return false;
+}
 
 function asRecord(payload: unknown): Record<string, unknown> | null {
   if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
@@ -80,6 +132,256 @@ function asString(value: unknown): string | null {
 
 function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isPrimitiveValue(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function asSchemaNode(value: unknown): JsonSchemaNode | undefined {
+  if (!asRecord(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    type: typeof record.type === "string" ? record.type : undefined,
+    enum: Array.isArray(record.enum) ? record.enum : undefined,
+    properties: asRecord(record.properties) ?? undefined,
+    items: record.items,
+    required: Array.isArray(record.required)
+      ? record.required.filter((item): item is string => typeof item === "string")
+      : undefined,
+  };
+}
+
+function readObjectValue(value: unknown): Record<string, unknown> {
+  return asRecord(value) ?? {};
+}
+
+function humanizeFieldKey(key: string): string {
+  const normalized = key
+    .replace(/_/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalized.length === 0) {
+    return key;
+  }
+  return normalized[0].toUpperCase() + normalized.slice(1);
+}
+
+function mergeFieldKeys(schemaKeys: string[], valueKeys: string[]): string[] {
+  const existing = new Set(schemaKeys);
+  const extraKeys = valueKeys.filter((key) => !existing.has(key)).sort();
+  return [...schemaKeys, ...extraKeys];
+}
+
+function formatValueForDisplay(value: unknown): string {
+  if (value === undefined) {
+    return "(未填写)";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "string") {
+    return value.length > 0 ? value : "(空字符串)";
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "[]" : value.map((item) => formatValueForDisplay(item)).join(", ");
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function toArrayItemType(schema: JsonSchemaNode | undefined): "string" | "number" | "integer" | "boolean" | "unknown" {
+  const itemSchema = asSchemaNode(schema?.items);
+  if (!itemSchema?.type) {
+    return "unknown";
+  }
+  if (
+    itemSchema.type === "string" ||
+    itemSchema.type === "number" ||
+    itemSchema.type === "integer" ||
+    itemSchema.type === "boolean"
+  ) {
+    return itemSchema.type;
+  }
+  return "unknown";
+}
+
+function canUsePrimitiveArrayEditor(value: unknown, schema: JsonSchemaNode | undefined): boolean {
+  const arrayValue = Array.isArray(value) ? value : [];
+  const itemType = toArrayItemType(schema);
+  if (itemType !== "unknown") {
+    return true;
+  }
+  return arrayValue.every((item) => isPrimitiveValue(item));
+}
+
+function collectApprovalFieldEntries(input: {
+  value: unknown;
+  schema?: JsonSchemaNode;
+  path?: string[];
+  labels?: string[];
+  required?: boolean;
+}): ApprovalFieldEntry[] {
+  const {
+    value,
+    schema,
+    path = [],
+    labels = [],
+    required = false,
+  } = input;
+  const label = labels.length > 0 ? labels.join(" / ") : "参数";
+
+  const isObjectLike = schema?.type === "object" || (schema?.type === undefined && asRecord(value));
+  if (isObjectLike) {
+    const record = readObjectValue(value);
+    const schemaProperties = asRecord(schema?.properties) ?? {};
+    const schemaKeys = Object.keys(schemaProperties);
+    const keys = mergeFieldKeys(schemaKeys, Object.keys(record));
+    const requiredSet = new Set(schema?.required ?? []);
+
+    if (keys.length === 0) {
+      return [
+        {
+          path,
+          label,
+          value: record,
+          kind: "json",
+          schema,
+          required,
+        },
+      ];
+    }
+
+    const entries: ApprovalFieldEntry[] = [];
+    for (const key of keys) {
+      entries.push(
+        ...collectApprovalFieldEntries({
+          value: record[key],
+          schema: asSchemaNode(schemaProperties[key]),
+          path: [...path, key],
+          labels: [...labels, humanizeFieldKey(key)],
+          required: requiredSet.has(key),
+        }),
+      );
+    }
+    return entries;
+  }
+
+  if (schema?.type === "array" || Array.isArray(value)) {
+    return [
+      {
+        path,
+        label,
+        value: Array.isArray(value) ? value : [],
+        kind: canUsePrimitiveArrayEditor(value, schema) ? "array-primitive" : "json",
+        schema,
+        required,
+      },
+    ];
+  }
+
+  return [
+    {
+      path,
+      label,
+      value,
+      kind: "primitive",
+      schema,
+      required,
+    },
+  ];
+}
+
+function setValueAtPath(root: unknown, path: string[], nextValue: unknown): Record<string, unknown> {
+  const source = readObjectValue(root);
+  if (path.length === 0) {
+    return readObjectValue(nextValue);
+  }
+
+  const cloned: Record<string, unknown> = { ...source };
+  let cursor: Record<string, unknown> = cloned;
+
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const key = path[index];
+    const next = readObjectValue(cursor[key]);
+    cursor[key] = { ...next };
+    cursor = cursor[key] as Record<string, unknown>;
+  }
+
+  const tail = path[path.length - 1];
+  if (nextValue === undefined) {
+    delete cursor[tail];
+  } else {
+    cursor[tail] = nextValue;
+  }
+
+  return cloned;
+}
+
+function parseFieldArrayFromText(text: string, itemType: "string" | "number" | "integer" | "boolean" | "unknown"): unknown[] {
+  const rows = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+
+  return rows.map((line) => {
+    if (itemType === "number" || itemType === "integer") {
+      const parsed = Number(line);
+      return Number.isFinite(parsed) ? (itemType === "integer" ? Math.trunc(parsed) : parsed) : line;
+    }
+    if (itemType === "boolean") {
+      if (line === "true") {
+        return true;
+      }
+      if (line === "false") {
+        return false;
+      }
+      return line;
+    }
+    return line;
+  });
+}
+
+function parseToolInputDraftSafe(draft: string): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
+  try {
+    const parsed = parseToolInputDraft(draft);
+    if (!asRecord(parsed)) {
+      return { ok: false, message: "审批参数必须是 JSON object" };
+    }
+    return { ok: true, value: parsed as Record<string, unknown> };
+  } catch {
+    return { ok: false, message: "审批参数 JSON 解析失败" };
+  }
+}
+
+function resolveInternalToolName(toolName: string): string {
+  if (toolName.includes(".")) {
+    return toolName;
+  }
+  return getToolNameByAlias(toolName) ?? toolName;
+}
+
+function canAdjustTool(catalogItem: ToolCatalogItem | undefined): boolean {
+  if (!catalogItem) {
+    return true;
+  }
+  if (catalogItem.riskLevel === "high_risk") {
+    return false;
+  }
+  if (NON_ADJUSTABLE_TOOLS.has(catalogItem.toolName)) {
+    return false;
+  }
+  return true;
 }
 
 function isToolPart(part: UIMessage["parts"][number]): boolean {
@@ -505,6 +807,25 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
     });
   }, []);
 
+  const updateDraftField = useCallback(
+    (approvalId: string, path: string[], nextValue: unknown) => {
+      setApprovalDrafts((current) => {
+        const raw = current[approvalId] ?? "{}";
+        const parsed = parseToolInputDraftSafe(raw);
+        if (!parsed.ok) {
+          return current;
+        }
+
+        const nextObject = setValueAtPath(parsed.value, path, nextValue);
+        return {
+          ...current,
+          [approvalId]: JSON.stringify(nextObject, null, 2),
+        };
+      });
+    },
+    [],
+  );
+
   const approveAndExecute = useCallback(
     async (call: ToolCallItem, args: unknown, reason?: string) => {
       if (!projectId) {
@@ -624,19 +945,16 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
 
       const approvalId = call.approvalId;
       const draft = approvalDrafts[approvalId] ?? stringifyToolInput(call.input);
-
-      let parsedArgs: unknown;
-      try {
-        parsedArgs = parseToolInputDraft(draft);
-      } catch {
+      const parsedResult = parseToolInputDraftSafe(draft);
+      if (!parsedResult.ok) {
         setApprovalErrors((current) => ({
           ...current,
-          [approvalId]: "微调内容必须是合法 JSON。",
+          [approvalId]: parsedResult.message,
         }));
         return;
       }
 
-      await approveAndExecute(call, parsedArgs, "Approved with manual adjustment");
+      await approveAndExecute(call, parsedResult.value, "Approved with manual adjustment");
     },
     [approvalDrafts, approveAndExecute],
   );
@@ -799,6 +1117,10 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
                             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Tools</div>
                             {toolCalls.map((call) => {
                               const approvalId = call.approvalId;
+                              const internalToolName = resolveInternalToolName(call.toolName);
+                              const catalogItem = getToolCatalogItem(internalToolName);
+                              const toolSchema = asSchemaNode(catalogItem?.parameters as ToolParameterSchema | undefined);
+                              const adjustable = canAdjustTool(catalogItem);
                               const isApprovalCall = call.status === "requires_approval" && Boolean(approvalId);
                               const isCollapsed = approvalId ? collapsedApprovals[approvalId] === true : false;
                               const isEditing = approvalId ? editingApprovalId === approvalId : false;
@@ -807,11 +1129,29 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
                                 ? (approvalDrafts[approvalId] ?? stringifyToolInput(call.input))
                                 : stringifyToolInput(call.input);
                               const approvalBusy = approvalId ? busyApprovalId === approvalId : false;
+                              const parsedDraft = parseToolInputDraftSafe(draft);
+                              const fields = parsedDraft.ok
+                                ? collectApprovalFieldEntries({
+                                    value: parsedDraft.value,
+                                    schema: toolSchema,
+                                  })
+                                : [];
+                              const visibleFields = fields.filter((field) => !shouldHideApprovalField(field.path));
+                              const hiddenFieldCount = Math.max(0, fields.length - visibleFields.length);
+                              const hasVisibleFieldEntries = visibleFields.length > 0;
+                              const adjustableInView = adjustable && (hasVisibleFieldEntries || !parsedDraft.ok);
 
                               return (
                                 <div key={call.id} className="rounded-lg border border-border bg-muted/20 p-2 space-y-1">
                                   <div className="flex items-center justify-between gap-2">
-                                    <span className="font-mono text-[11px] text-foreground">{call.toolName}</span>
+                                    <div className="flex flex-col">
+                                      <span className="font-mono text-[11px] text-foreground">{internalToolName}</span>
+                                      {internalToolName !== call.toolName ? (
+                                        <span className="font-mono text-[10px] text-muted-foreground">
+                                          alias: {call.toolName}
+                                        </span>
+                                      ) : null}
+                                    </div>
                                     <span
                                       className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${statusClassName(call.status)}`}
                                     >
@@ -834,28 +1174,194 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
                                       ) : (
                                         <>
                                           <div className="text-[11px] text-amber-800">该写入工具调用等待你确认。</div>
+                                          <div className="text-[11px] text-amber-700/90">
+                                            {adjustableInView ? "支持字段级微调" : "该工具不支持微调，仅可同意/拒绝"}
+                                          </div>
+                                          {hiddenFieldCount > 0 ? (
+                                            <div className="text-[11px] text-amber-700/80">
+                                              已隐藏 {hiddenFieldCount} 个系统字段（如各类 ID）。
+                                            </div>
+                                          ) : null}
                                           <div className="text-[10px] uppercase tracking-wide text-amber-700/80">写入参数</div>
-                                          {isEditing ? (
-                                            <textarea
-                                              rows={8}
-                                              value={draft}
-                                              onChange={(event) => {
-                                                if (!approvalId) {
-                                                  return;
-                                                }
-                                                setApprovalDrafts((current) => ({
-                                                  ...current,
-                                                  [approvalId]: event.target.value,
-                                                }));
-                                              }}
-                                              className="w-full resize-y rounded-md border border-amber-200 bg-white px-2 py-1 font-mono text-[11px]"
-                                              disabled={approvalBusy}
-                                            />
+
+                                          {parsedDraft.ok ? (
+                                            hasVisibleFieldEntries ? (
+                                              <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                                                {visibleFields.map((field) => {
+                                                  const fieldKey = field.path.join(".") || "root";
+                                                  const stringEnums = Array.isArray(field.schema?.enum)
+                                                    ? field.schema?.enum
+                                                        .filter((item): item is string => typeof item === "string")
+                                                    : [];
+                                                  const fieldType = field.schema?.type;
+                                                  const fieldTail = field.path[field.path.length - 1]?.toLowerCase() ?? "";
+                                                  const preferMultiline = /content|description|summary|evidence|note|reason/.test(fieldTail);
+
+                                                  return (
+                                                    <div
+                                                      key={`${call.id}-${fieldKey}`}
+                                                      className="rounded-md border border-amber-200/80 bg-white/80 p-2"
+                                                    >
+                                                      <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-amber-900">
+                                                        <span>{field.label}</span>
+                                                        {field.required ? <span className="text-red-600">*</span> : null}
+                                                      </div>
+
+                                                      {isEditing ? (
+                                                        field.kind === "primitive" ? (
+                                                          fieldType === "boolean" ? (
+                                                            <label className="inline-flex items-center gap-2 text-[11px] text-foreground">
+                                                              <input
+                                                                type="checkbox"
+                                                                checked={field.value === true}
+                                                                onChange={(event) => {
+                                                                  if (!approvalId) {
+                                                                    return;
+                                                                  }
+                                                                  updateDraftField(approvalId, field.path, event.target.checked);
+                                                                }}
+                                                                disabled={approvalBusy}
+                                                              />
+                                                              <span>{field.value === true ? "true" : "false"}</span>
+                                                            </label>
+                                                          ) : fieldType === "number" || fieldType === "integer" ? (
+                                                            <input
+                                                              type="number"
+                                                              step={fieldType === "integer" ? 1 : "any"}
+                                                              value={field.value === undefined || field.value === null ? "" : String(field.value)}
+                                                              onChange={(event) => {
+                                                                if (!approvalId) {
+                                                                  return;
+                                                                }
+                                                                const raw = event.target.value.trim();
+                                                                if (raw.length === 0) {
+                                                                  updateDraftField(approvalId, field.path, undefined);
+                                                                  return;
+                                                                }
+                                                                const parsed = Number(raw);
+                                                                if (!Number.isFinite(parsed)) {
+                                                                  return;
+                                                                }
+                                                                updateDraftField(
+                                                                  approvalId,
+                                                                  field.path,
+                                                                  fieldType === "integer" ? Math.trunc(parsed) : parsed,
+                                                                );
+                                                              }}
+                                                              className="w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px]"
+                                                              disabled={approvalBusy}
+                                                            />
+                                                          ) : stringEnums.length > 0 ? (
+                                                            <select
+                                                              value={typeof field.value === "string" ? field.value : ""}
+                                                              onChange={(event) => {
+                                                                if (!approvalId) {
+                                                                  return;
+                                                                }
+                                                                updateDraftField(approvalId, field.path, event.target.value);
+                                                              }}
+                                                              className="w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px]"
+                                                              disabled={approvalBusy}
+                                                            >
+                                                              <option value="">(未填写)</option>
+                                                              {stringEnums.map((option) => (
+                                                                <option key={option} value={option}>
+                                                                  {option}
+                                                                </option>
+                                                              ))}
+                                                            </select>
+                                                          ) : preferMultiline ? (
+                                                            <textarea
+                                                              rows={4}
+                                                              value={typeof field.value === "string" ? field.value : ""}
+                                                              onChange={(event) => {
+                                                                if (!approvalId) {
+                                                                  return;
+                                                                }
+                                                                updateDraftField(approvalId, field.path, event.target.value);
+                                                              }}
+                                                              className="w-full resize-y rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px]"
+                                                              disabled={approvalBusy}
+                                                            />
+                                                          ) : (
+                                                            <input
+                                                              type="text"
+                                                              value={field.value === undefined || field.value === null ? "" : String(field.value)}
+                                                              onChange={(event) => {
+                                                                if (!approvalId) {
+                                                                  return;
+                                                                }
+                                                                updateDraftField(approvalId, field.path, event.target.value);
+                                                              }}
+                                                              className="w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px]"
+                                                              disabled={approvalBusy}
+                                                            />
+                                                          )
+                                                        ) : field.kind === "array-primitive" ? (
+                                                          <textarea
+                                                            rows={Math.max(3, Math.min(8, Array.isArray(field.value) ? field.value.length + 1 : 3))}
+                                                            value={Array.isArray(field.value) ? field.value.map((item) => String(item ?? "")).join("\n") : ""}
+                                                            onChange={(event) => {
+                                                              if (!approvalId) {
+                                                                return;
+                                                              }
+                                                              const itemType = toArrayItemType(field.schema);
+                                                              const nextArray = parseFieldArrayFromText(event.target.value, itemType);
+                                                              updateDraftField(approvalId, field.path, nextArray);
+                                                            }}
+                                                            className="w-full resize-y rounded-md border border-amber-200 bg-white px-2 py-1 font-mono text-[11px]"
+                                                            disabled={approvalBusy}
+                                                          />
+                                                        ) : (
+                                                          <textarea
+                                                            key={`${approvalId}-${fieldKey}`}
+                                                            defaultValue={JSON.stringify(field.value ?? {}, null, 2)}
+                                                            rows={6}
+                                                            onBlur={(event) => {
+                                                              if (!approvalId) {
+                                                                return;
+                                                              }
+                                                              try {
+                                                                const parsed = JSON.parse(event.target.value);
+                                                                updateDraftField(approvalId, field.path, parsed);
+                                                              } catch {
+                                                                setApprovalErrors((current) => ({
+                                                                  ...current,
+                                                                  [approvalId]: `${field.label} 不是合法 JSON`,
+                                                                }));
+                                                              }
+                                                            }}
+                                                            className="w-full resize-y rounded-md border border-amber-200 bg-white px-2 py-1 font-mono text-[11px]"
+                                                            disabled={approvalBusy}
+                                                          />
+                                                        )
+                                                      ) : field.kind === "json" ? (
+                                                        <pre className="max-h-52 overflow-auto rounded-md border border-amber-200 bg-white p-2 font-mono text-[11px] whitespace-pre-wrap break-all">
+                                                          {JSON.stringify(field.value ?? {}, null, 2)}
+                                                        </pre>
+                                                      ) : (
+                                                        <div className="rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] whitespace-pre-wrap break-all">
+                                                          {formatValueForDisplay(field.value)}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            ) : (
+                                              <div className="rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] text-muted-foreground">
+                                                {hiddenFieldCount > 0 ? "(参数均为系统字段，已隐藏)" : "(无参数)"}
+                                              </div>
+                                            )
                                           ) : (
-                                            <pre className="max-h-52 overflow-auto rounded-md border border-amber-200 bg-white p-2 font-mono text-[11px] whitespace-pre-wrap break-all">
-                                              {draft}
-                                            </pre>
+                                            <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+                                              参数解析失败，请重试或重新生成该工具调用。
+                                            </div>
                                           )}
+
+                                          {!parsedDraft.ok ? (
+                                            <div className="text-[11px] text-red-600">{parsedDraft.message}</div>
+                                          ) : null}
 
                                           {approvalError && approvalError.trim().length > 0 ? (
                                             <div className="text-[11px] text-red-600">{approvalError}</div>
@@ -880,27 +1386,29 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
                                             >
                                               拒绝
                                             </button>
-                                            {isEditing ? (
-                                              <button
-                                                type="button"
-                                                disabled={approvalBusy || !approvalId}
-                                                onClick={() => {
-                                                  void handleConfirmAdjust(call);
-                                                }}
-                                              >
-                                                确认微调
-                                              </button>
-                                            ) : (
-                                              <button
-                                                type="button"
-                                                disabled={approvalBusy || !approvalId}
-                                                onClick={() => {
-                                                  handleStartAdjust(call);
-                                                }}
-                                              >
-                                                手动微调
-                                              </button>
-                                            )}
+                                            {adjustableInView ? (
+                                              isEditing ? (
+                                                <button
+                                                  type="button"
+                                                  disabled={approvalBusy || !approvalId}
+                                                  onClick={() => {
+                                                    void handleConfirmAdjust(call);
+                                                  }}
+                                                >
+                                                  确认微调
+                                                </button>
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  disabled={approvalBusy || !approvalId}
+                                                  onClick={() => {
+                                                    handleStartAdjust(call);
+                                                  }}
+                                                >
+                                                  手动微调
+                                                </button>
+                                              )
+                                            ) : null}
                                           </div>
                                         </>
                                       )}
