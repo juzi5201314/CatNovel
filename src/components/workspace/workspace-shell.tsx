@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { RightSidebar } from "@/components/ai-sidebar/right-sidebar";
+import { LoreEditorShell } from "@/components/lore/lore-editor-shell";
 import { LeftSidebar } from "@/components/sidebar/left-sidebar";
 import type { ChapterItem } from "@/components/workspace/types";
 import { EditorShell } from "@/components/editor/editor-shell";
@@ -12,6 +13,8 @@ type EditorSavePayload = {
   content: string;
   summary?: string;
 };
+
+type CenterView = "chapter" | "lore";
 
 export function WorkspaceShell() {
   const projects = useWorkspaceStore((state) => state.projects);
@@ -56,6 +59,7 @@ export function WorkspaceShell() {
   const clearSnapshotDiff = useWorkspaceStore((state) => state.clearSnapshotDiff);
   const clearImportFeedback = useWorkspaceStore((state) => state.clearImportFeedback);
   const clearError = useWorkspaceStore((state) => state.clearError);
+  const [activeCenterView, setActiveCenterView] = useState<CenterView>("chapter");
 
   useEffect(() => {
     void fetchProjects();
@@ -98,6 +102,18 @@ export function WorkspaceShell() {
     [saveChapter, selectedChapter],
   );
 
+  const handleSelectLorePage = useCallback(() => {
+    setActiveCenterView("lore");
+  }, []);
+
+  const handleSelectChapter = useCallback(
+    (chapterId: string | null) => {
+      setActiveCenterView("chapter");
+      selectChapter(chapterId);
+    },
+    [selectChapter],
+  );
+
   return (
     <div className="flex min-h-screen bg-background text-foreground overflow-hidden">
       <LeftSidebar
@@ -124,13 +140,19 @@ export function WorkspaceShell() {
         onCreateChapter={createChapter}
         onImportProjectFromJson={importProjectFromJson}
         onExportSelectedProject={exportSelectedProject}
-        onSelectChapter={selectChapter}
+        onSelectChapter={handleSelectChapter}
+        activeCenterView={activeCenterView}
+        onSelectLorePage={handleSelectLorePage}
         onClearImportFeedback={clearImportFeedback}
         onClearError={clearError}
       />
 
       <main className="flex-1 ml-[var(--cn-sidebar-left)] mr-[var(--cn-sidebar-right)] min-w-0 h-screen overflow-hidden flex flex-col">
-        <EditorShell chapter={selectedChapter} onSave={handleSave} />
+        {activeCenterView === "chapter" ? (
+          <EditorShell chapter={selectedChapter} onSave={handleSave} />
+        ) : (
+          <LoreEditorShell projectId={selectedProject?.id ?? null} />
+        )}
       </main>
 
       <RightSidebar

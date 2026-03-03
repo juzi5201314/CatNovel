@@ -41,6 +41,8 @@ type LeftSidebarProps = {
   onImportProjectFromJson: (rawJson: string) => Promise<void>;
   onExportSelectedProject: () => Promise<void>;
   onSelectChapter: (chapterId: string | null) => void;
+  activeCenterView: "chapter" | "lore";
+  onSelectLorePage: () => void;
   onClearImportFeedback: () => void;
   onClearError: () => void;
 };
@@ -70,6 +72,8 @@ export function LeftSidebar({
   onImportProjectFromJson,
   onExportSelectedProject,
   onSelectChapter,
+  activeCenterView,
+  onSelectLorePage,
   onClearImportFeedback,
   onClearError,
 }: LeftSidebarProps) {
@@ -263,6 +267,34 @@ export function LeftSidebar({
           </div>
         </section>
 
+        {/* Lore Section */}
+        {hasProject && (
+          <section className="space-y-3 pt-4 border-t border-border">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Lorebook
+            </h3>
+            <button
+              type="button"
+              onClick={onSelectLorePage}
+              className={`w-full text-left px-3 py-2.5 rounded-md text-sm transition-all border flex items-center justify-between ${
+                activeCenterView === "lore"
+                  ? "bg-accent text-accent-foreground font-bold shadow-md border-accent shadow-accent/20"
+                  : "hover:bg-muted text-muted-foreground hover:text-foreground border-transparent"
+              }`}
+            >
+              <span className="truncate flex-1">
+                <span className={`mr-2 text-[10px] font-mono ${activeCenterView === "lore" ? "text-white/60" : "opacity-40"}`}>
+                  WB
+                </span>
+                设定集
+              </span>
+              {activeCenterView === "lore" ? (
+                <div className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+              ) : null}
+            </button>
+          </section>
+        )}
+
         {/* Chapters Section */}
         {hasProject && (
           <section className="space-y-4 pt-4 border-t border-border">
@@ -310,25 +342,29 @@ export function LeftSidebar({
                 <div className="py-8 text-center border border-dashed border-border rounded bg-muted/5">
                    <p className="text-[10px] text-muted-foreground italic font-medium">Add your first chapter</p>
                 </div>
-              ) : chapters.map((chapter) => (
-                <button
-                  key={chapter.id}
-                  onClick={() => onSelectChapter(chapter.id)}
-                  className={`w-full text-left px-3 py-2.5 rounded-md text-sm transition-all group flex items-center justify-between border ${
-                    chapter.id === selectedChapterId 
-                      ? "bg-accent text-accent-foreground font-bold shadow-md border-accent shadow-accent/20" 
-                      : "hover:bg-muted text-muted-foreground hover:text-foreground border-transparent"
-                  }`}
-                >
-                  <span className="truncate flex-1">
-                    <span className={`mr-2 text-[10px] font-mono ${chapter.id === selectedChapterId ? 'text-white/60' : 'opacity-40'}`}>{String(chapter.orderNo).padStart(2, '0')}</span>
-                    {chapter.title}
-                  </span>
-                  {chapter.id === selectedChapterId && (
-                    <div className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                  )}
-                </button>
-              ))}
+              ) : chapters.map((chapter) => {
+                const isActive =
+                  activeCenterView === "chapter" && chapter.id === selectedChapterId;
+                return (
+                  <button
+                    key={chapter.id}
+                    onClick={() => onSelectChapter(chapter.id)}
+                    className={`w-full text-left px-3 py-2.5 rounded-md text-sm transition-all group flex items-center justify-between border ${
+                      isActive
+                        ? "bg-accent text-accent-foreground font-bold shadow-md border-accent shadow-accent/20"
+                        : "hover:bg-muted text-muted-foreground hover:text-foreground border-transparent"
+                    }`}
+                  >
+                    <span className="truncate flex-1">
+                      <span className={`mr-2 text-[10px] font-mono ${isActive ? "text-white/60" : "opacity-40"}`}>{String(chapter.orderNo).padStart(2, "0")}</span>
+                      {chapter.title}
+                    </span>
+                    {isActive ? (
+                      <div className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           </section>
         )}
