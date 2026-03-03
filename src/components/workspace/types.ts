@@ -4,6 +4,7 @@ export type ProjectItem = {
   id: string;
   name: string;
   mode: ProjectMode;
+  systemPrompt: string;
   createdAt?: string | Date;
   updatedAt?: string | Date;
 };

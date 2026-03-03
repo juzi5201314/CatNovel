@@ -3,6 +3,7 @@ import { createSseResponse } from "@/lib/ai/sse";
 import { parseThinkingBudget, toStreamErrorPayload } from "@/core/llm";
 import {
   isValidApiFormat,
+  prepareChatMessages,
   prepareChatStream,
   runChatStream,
   type ChatRequestInput,
@@ -164,8 +165,19 @@ export async function POST(request: Request): Promise<Response> {
       writer.emit("tool_call", prepared.toolCall);
       writer.emit("context_used", prepared.contextUsed);
 
+      const preparedMessages = await prepareChatMessages(validated.data, signal);
+      for (const toolEvent of preparedMessages.toolEvents) {
+        writer.emit("tool_call", toolEvent);
+      }
+
       let index = 0;
-      for await (const token of runChatStream(validated.data, signal)) {
+      for await (const token of runChatStream(
+        {
+          ...validated.data,
+          messages: preparedMessages.messages,
+        },
+        signal,
+      )) {
         if (signal.aborted) {
           return;
         }

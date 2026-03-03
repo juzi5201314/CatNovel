@@ -48,7 +48,11 @@ type WorkspaceState = {
   error: string | null;
   fetchProjects: () => Promise<void>;
   createProject: (input: { name: string; mode: ProjectMode }) => Promise<void>;
-  renameProject: (input: { projectId: string; name: string }) => Promise<void>;
+  updateProjectSettings: (input: {
+    projectId: string;
+    name: string;
+    systemPrompt: string;
+  }) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   selectProject: (projectId: string | null) => Promise<void>;
   fetchChapters: (projectId: string) => Promise<void>;
@@ -307,13 +311,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  renameProject: async ({ projectId, name }) => {
+  updateProjectSettings: async ({ projectId, name, systemPrompt }) => {
     set({ renamingProject: true, error: null });
     try {
       const response = await fetch(`/api/projects/${projectId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, systemPrompt }),
       });
       const json = await readJson<ProjectItem>(response);
       const updated = json.data;
@@ -327,7 +331,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     } catch (error) {
       set({
         renamingProject: false,
-        error: normalizeError(error, "项目重命名失败"),
+        error: normalizeError(error, "项目设置保存失败"),
       });
     }
   },

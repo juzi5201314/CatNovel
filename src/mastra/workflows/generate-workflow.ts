@@ -3,6 +3,7 @@ import {
   type ChatMessage,
   type ChatOverride,
 } from "@/core/llm";
+import { resolveProjectSystemPrompt } from "@/core/llm/project-system-prompt";
 
 export type GenerateTaskType = "continue" | "rewrite" | "polish" | "expand";
 
@@ -30,7 +31,10 @@ function taskInstruction(taskType: GenerateTaskType): string {
   }
 }
 
-function buildGenerateMessages(input: GenerateStreamInput): ChatMessage[] {
+function buildGenerateMessages(
+  input: GenerateStreamInput,
+  systemPrompt: string,
+): ChatMessage[] {
   const selection = input.selection?.trim();
   const userPromptParts = [
     `任务类型：${input.taskType}`,
@@ -43,8 +47,7 @@ function buildGenerateMessages(input: GenerateStreamInput): ChatMessage[] {
   return [
     {
       role: "system",
-      content:
-        "你是专业中文小说写作助手，需保持人物与世界观一致，输出可直接写入正文的文本。",
+      content: systemPrompt,
     },
     {
       role: "user",
@@ -57,7 +60,8 @@ export async function* streamGenerateTokens(
   input: GenerateStreamInput,
   signal: AbortSignal,
 ): AsyncGenerator<string> {
-  const messages = buildGenerateMessages(input);
+  const systemPrompt = resolveProjectSystemPrompt(input.projectId);
+  const messages = buildGenerateMessages(input, systemPrompt);
   yield* streamTextFromProvider({
     requestTag: "generate",
     projectId: input.projectId,

@@ -38,6 +38,28 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* Global thin scrollbar for non-webkit */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
 /* Geist-like Layout */
 .cn-workspace {
   display: grid;
@@ -57,7 +79,7 @@ body {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--background);
-  transition: box-shadow 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .cn-panel:hover {
@@ -105,11 +127,16 @@ button {
   border-radius: var(--radius);
   font-size: 0.875rem;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  user-select: none;
+}
+
+button:active {
+  transform: scale(0.96);
 }
 
 button:not(.primary) {
@@ -137,6 +164,37 @@ button.primary:hover {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Skeleton Pulse */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.skeleton {
+  background-color: var(--muted);
+  border-radius: 4px;
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Keyboard Hint Styles */
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  min-width: 1.5em;
+  height: 1.5em;
+  font-family: var(--font-geist-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+  margin-left: 0.5rem;
 }
 
 /* Settings Specific */
@@ -168,4 +226,10 @@ button:disabled {
     padding: 1rem;
     gap: 1rem;
   }
+}
+
+/* Custom Scrollbar for specific containers */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
 }

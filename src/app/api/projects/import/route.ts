@@ -78,6 +78,7 @@ export async function POST(request: Request) {
         id: crypto.randomUUID(),
         name: validation.data.projectName,
         mode: validation.data.projectMode,
+        systemPrompt: validation.data.projectSystemPrompt,
       },
       chapters: validation.data.chapters.map((chapter) => ({
         orderNo: chapter.orderNo,

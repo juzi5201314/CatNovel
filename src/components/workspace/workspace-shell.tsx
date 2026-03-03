@@ -41,7 +41,7 @@ export function WorkspaceShell() {
 
   const fetchProjects = useWorkspaceStore((state) => state.fetchProjects);
   const createProject = useWorkspaceStore((state) => state.createProject);
-  const renameProject = useWorkspaceStore((state) => state.renameProject);
+  const updateProjectSettings = useWorkspaceStore((state) => state.updateProjectSettings);
   const deleteProject = useWorkspaceStore((state) => state.deleteProject);
   const selectProject = useWorkspaceStore((state) => state.selectProject);
   const createChapter = useWorkspaceStore((state) => state.createChapter);
@@ -118,7 +118,7 @@ export function WorkspaceShell() {
         lastExportJson={lastExportJson}
         error={error}
         onCreateProject={createProject}
-        onRenameProject={renameProject}
+        onUpdateProjectSettings={updateProjectSettings}
         onDeleteProject={deleteProject}
         onSelectProject={selectProject}
         onCreateChapter={createChapter}

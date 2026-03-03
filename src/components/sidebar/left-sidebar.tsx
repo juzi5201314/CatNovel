@@ -30,7 +30,11 @@ type LeftSidebarProps = {
   lastExportJson: string | null;
   error: string | null;
   onCreateProject: (input: { name: string; mode: ProjectMode }) => Promise<void>;
-  onRenameProject: (input: { projectId: string; name: string }) => Promise<void>;
+  onUpdateProjectSettings: (input: {
+    projectId: string;
+    name: string;
+    systemPrompt: string;
+  }) => Promise<void>;
   onDeleteProject: (projectId: string) => Promise<void>;
   onSelectProject: (projectId: string | null) => Promise<void>;
   onCreateChapter: (input: { title: string }) => Promise<void>;
@@ -59,7 +63,7 @@ export function LeftSidebar({
   lastExportJson,
   error,
   onCreateProject,
-  onRenameProject,
+  onUpdateProjectSettings,
   onDeleteProject,
   onSelectProject,
   onCreateChapter,
@@ -73,14 +77,15 @@ export function LeftSidebar({
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [showCreateChapter, setShowCreateChapter] = useState(false);
   const [showImportExport, setShowImportExport] = useState(false);
-  const [showRenameProject, setShowRenameProject] = useState(false);
+  const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [showDeleteProject, setShowDeleteProject] = useState(false);
   
   const [projectName, setProjectName] = useState("");
   const [projectMode, setProjectMode] = useState<ProjectMode>("webnovel");
   const [chapterTitle, setChapterTitle] = useState("");
   const [importJson, setImportJson] = useState("");
-  const [renameProjectName, setRenameProjectName] = useState("");
+  const [settingsProjectName, setSettingsProjectName] = useState("");
+  const [settingsSystemPrompt, setSettingsSystemPrompt] = useState("");
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   
   const hasProject = selectedProjectId !== null;
@@ -106,24 +111,30 @@ export function LeftSidebar({
     setShowCreateChapter(false);
   }
 
-  function handleOpenRenameProject() {
+  function handleOpenProjectSettings() {
     if (!currentProject) {
       return;
     }
-    setRenameProjectName(currentProject.name);
-    setShowRenameProject(true);
+    setSettingsProjectName(currentProject.name);
+    setSettingsSystemPrompt(currentProject.systemPrompt);
+    setShowProjectSettings(true);
   }
 
-  async function handleRenameProject(e: FormEvent) {
+  async function handleSaveProjectSettings(e: FormEvent) {
     e.preventDefault();
-    if (!currentProject || !renameProjectName.trim()) {
+    if (
+      !currentProject ||
+      !settingsProjectName.trim() ||
+      !settingsSystemPrompt.trim()
+    ) {
       return;
     }
-    await onRenameProject({
+    await onUpdateProjectSettings({
       projectId: currentProject.id,
-      name: renameProjectName.trim(),
+      name: settingsProjectName.trim(),
+      systemPrompt: settingsSystemPrompt.trim(),
     });
-    setShowRenameProject(false);
+    setShowProjectSettings(false);
   }
 
   async function handleDeleteProject() {
@@ -219,19 +230,21 @@ export function LeftSidebar({
                   <div className="flex items-center gap-1 overflow-hidden max-w-0 opacity-0 -translate-x-1 pointer-events-none transition-all duration-200 group-hover:max-w-20 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto group-focus-within:max-w-20 group-focus-within:opacity-100 group-focus-within:translate-x-0 group-focus-within:pointer-events-auto">
                     <button
                       type="button"
-                      onClick={handleOpenRenameProject}
-                      className="h-7 w-7 shrink-0 inline-flex items-center justify-center transition-all border border-border bg-background hover:bg-muted rounded text-muted-foreground"
-                      title="Rename Project"
+                      onClick={handleOpenProjectSettings}
+                      className="h-7 w-7 p-0 shrink-0 inline-flex items-center justify-center transition-all border border-border bg-background hover:bg-muted rounded text-foreground"
+                      title="Project Settings"
+                      aria-label="Project Settings"
                     >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                      <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowDeleteProject(true)}
-                      className="h-7 w-7 shrink-0 inline-flex items-center justify-center transition-all border border-red-200 bg-background hover:bg-red-50 hover:border-red-300 text-red-600 rounded"
+                      className="h-7 w-7 p-0 shrink-0 inline-flex items-center justify-center transition-all border !border-red-300 bg-background !text-red-600 rounded hover:!bg-red-50 hover:!border-red-500 hover:!text-red-700"
                       title="Delete Project"
+                      aria-label="Delete Project"
                     >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                      <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                     </button>
                   </div>
                 </div>
@@ -396,35 +409,55 @@ export function LeftSidebar({
           </div>
         )}
 
-        {showRenameProject && currentProject && (
+        {showProjectSettings && currentProject && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-[1px] flex items-center justify-center p-4 z-[9999] animate-in fade-in duration-300">
-            <div className="bg-background rounded-xl border border-border shadow-2xl max-w-sm w-full p-6 space-y-5 zoom-in-95 animate-in duration-200">
+            <div className="bg-background rounded-xl border border-border shadow-2xl max-w-2xl w-full p-6 space-y-5 zoom-in-95 animate-in duration-200">
               <div>
-                <h3 className="text-sm font-bold tracking-tight">Rename Project</h3>
+                <h3 className="text-sm font-bold tracking-tight">Project Settings</h3>
                 <p className="text-[10px] text-muted-foreground mt-1 font-medium uppercase tracking-wider">
-                  Update display name for current workspace
+                  Configure project display name and chat system prompt
                 </p>
               </div>
-              <form onSubmit={handleRenameProject} className="space-y-4">
-                <input
-                  className="w-full text-xs"
-                  value={renameProjectName}
-                  onChange={(e) => setRenameProjectName(e.target.value)}
-                  placeholder="Project Name..."
-                  autoFocus
-                />
+              <form onSubmit={handleSaveProjectSettings} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Project Name
+                  </label>
+                  <input
+                    className="w-full text-xs"
+                    value={settingsProjectName}
+                    onChange={(e) => setSettingsProjectName(e.target.value)}
+                    placeholder="Project Name..."
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Chat System Prompt
+                  </label>
+                  <textarea
+                    className="w-full min-h-[180px] text-xs leading-relaxed font-mono p-3 bg-muted/20 focus:bg-background transition-all rounded-lg border border-border outline-none focus:ring-2 ring-accent/20"
+                    value={settingsSystemPrompt}
+                    onChange={(e) => setSettingsSystemPrompt(e.target.value)}
+                    placeholder="System Prompt..."
+                  />
+                </div>
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
                     className="text-xs px-3 py-1.5"
-                    onClick={() => setShowRenameProject(false)}
+                    onClick={() => setShowProjectSettings(false)}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     className="primary text-xs px-3 py-1.5"
-                    disabled={renamingProject || !renameProjectName.trim()}
+                    disabled={
+                      renamingProject ||
+                      !settingsProjectName.trim() ||
+                      !settingsSystemPrompt.trim()
+                    }
                   >
                     {renamingProject ? "Saving..." : "Save"}
                   </button>

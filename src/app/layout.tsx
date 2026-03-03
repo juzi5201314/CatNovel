@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "CatNovel workspace shell",
 };
 
+import { CommandPalette } from "@/components/ui/command-palette";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -26,6 +28,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         {children}
+        <CommandPalette />
       </body>
     </html>
   );

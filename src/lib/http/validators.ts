@@ -20,7 +20,8 @@ export type CreateProjectInput = {
 };
 
 export type PatchProjectInput = {
-  name: string;
+  name?: string;
+  systemPrompt?: string;
 };
 
 export type CreateChapterInput = {
@@ -91,21 +92,40 @@ export function validatePatchProjectInput(payload: unknown): ValidationResult<Pa
 
   const record = payload as Record<string, unknown>;
   const name = record.name;
+  const systemPrompt = record.systemPrompt;
 
-  if (!isNonEmptyString(name)) {
+  if (name !== undefined && !isNonEmptyString(name)) {
     return {
       ok: false,
       code: "INVALID_INPUT",
-      message: "name must be a non-empty string",
+      message: "name must be a non-empty string when provided",
     };
   }
 
-  return {
-    ok: true,
-    data: {
-      name: name.trim(),
-    },
-  };
+  if (systemPrompt !== undefined && !isNonEmptyString(systemPrompt)) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: "systemPrompt must be a non-empty string when provided",
+    };
+  }
+
+  if (name === undefined && systemPrompt === undefined) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: "At least one field is required",
+    };
+  }
+
+  const data: PatchProjectInput = {};
+  if (typeof name === "string") {
+    data.name = name.trim();
+  }
+  if (typeof systemPrompt === "string") {
+    data.systemPrompt = systemPrompt.trim();
+  }
+  return { ok: true, data };
 }
 
 export function validateCreateChapterInput(payload: unknown): ValidationResult<CreateChapterInput> {

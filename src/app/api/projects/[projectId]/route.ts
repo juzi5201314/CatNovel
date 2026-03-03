@@ -30,7 +30,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       return fail(validation.code, validation.message, 400, validation.details);
     }
 
-    const updated = projectsRepository.updateName(projectId, validation.data.name);
+    const updated = projectsRepository.updateSettings(projectId, validation.data);
     if (!updated) {
       return fail("UPDATE_FAILED", "failed to update project", 500);
     }

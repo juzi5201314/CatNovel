@@ -34,6 +34,7 @@ export type ProjectImportChapterInput = {
 export type ProjectJsonImportInput = {
   projectName: string;
   projectMode: ProjectMode;
+  projectSystemPrompt?: string;
   sourceProjectId?: string;
   chapters: ProjectImportChapterInput[];
 };
@@ -123,6 +124,14 @@ export function validateProjectJsonImportPayload(
       ok: false,
       code: "INVALID_INPUT",
       message: "project.mode must be one of webnovel/literary/screenplay",
+    };
+  }
+
+  if (rawProject.systemPrompt !== undefined && !isNonEmptyString(rawProject.systemPrompt)) {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: "project.systemPrompt must be a non-empty string when provided",
     };
   }
 
@@ -220,6 +229,10 @@ export function validateProjectJsonImportPayload(
     data: {
       projectName: rawProject.name.trim(),
       projectMode: rawProject.mode,
+      projectSystemPrompt:
+        typeof rawProject.systemPrompt === "string"
+          ? rawProject.systemPrompt.trim()
+          : undefined,
       sourceProjectId:
         typeof rawProject.id === "string" && rawProject.id.trim().length > 0
           ? rawProject.id.trim()

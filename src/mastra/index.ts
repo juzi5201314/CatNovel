@@ -14,6 +14,10 @@ import {
   type ContextToolCall,
   type ContextUsedPayload,
 } from "@/mastra/tools/context-tool";
+import {
+  prepareChatMessagesWithTools,
+  type ChatToolEvent,
+} from "@/mastra/workflows/chat-tool-workflow";
 
 export type ChatOverride = {
   apiFormat?: ChatApiFormat;
@@ -49,6 +53,11 @@ export type PreparedStream = {
   contextUsed: ContextUsedPayload;
 };
 
+export type PreparedChatMessages = {
+  messages: ChatMessage[];
+  toolEvents: ChatToolEvent[];
+};
+
 export function isValidApiFormat(value: unknown): value is ChatApiFormat {
   return value === "chat_completions" || value === "responses";
 }
@@ -63,6 +72,20 @@ export async function prepareChatStream(input: ChatRequestInput): Promise<Prepar
     chapterId: input.chapterId,
     query: pickQueryFromMessages(input.messages),
     topK: input.retrieval?.topK,
+  });
+}
+
+export async function prepareChatMessages(
+  input: ChatRequestInput,
+  signal: AbortSignal,
+): Promise<PreparedChatMessages> {
+  return prepareChatMessagesWithTools({
+    projectId: input.projectId,
+    chapterId: input.chapterId,
+    messages: input.messages,
+    chatPresetId: input.chatPresetId,
+    override: input.override,
+    signal,
   });
 }
 

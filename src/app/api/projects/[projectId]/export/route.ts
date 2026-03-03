@@ -31,6 +31,7 @@ export async function GET(_request: Request, context: RouteContext) {
         id: project.id,
         name: project.name,
         mode: project.mode,
+        systemPrompt: project.systemPrompt,
         createdAt: project.createdAt.toISOString(),
         updatedAt: project.updatedAt.toISOString(),
       },

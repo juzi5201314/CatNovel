@@ -1,4 +1,5 @@
 export * from "./projects";
+export * from "./project-settings";
 export * from "./chapters";
 export * from "./timeline";
 export * from "./project-snapshots";
