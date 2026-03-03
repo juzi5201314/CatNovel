@@ -2,9 +2,13 @@ import { eq } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/client";
 import { projects, type ProjectMode } from "@/db/schema";
+import { resolveInitialDefaultSelection } from "@/core/llm/initial-default-selection";
 
 import { BaseRepository } from "./base-repository";
 import { ChaptersRepository, type ChapterRecord } from "./chapters-repository";
+import { LlmDefaultSelectionRepository } from "./llm-default-selection-repository";
+import { LlmModelPresetsRepository } from "./llm-model-presets-repository";
+import { LlmProvidersRepository } from "./llm-providers-repository";
 
 export type ProjectRecord = {
   id: string;
@@ -49,6 +53,20 @@ export class ProjectsRepository extends BaseRepository {
 
   create(input: CreateProjectInput): ProjectRecord {
     this.db.insert(projects).values(input).run();
+
+    const modelPresetsRepository = new LlmModelPresetsRepository(this.db);
+    const providersRepository = new LlmProvidersRepository(this.db);
+    const defaultSelectionRepository = new LlmDefaultSelectionRepository(this.db);
+    const defaults = resolveInitialDefaultSelection(
+      modelPresetsRepository.list(),
+      providersRepository.list(),
+    );
+    defaultSelectionRepository.upsert({
+      projectId: input.id,
+      defaultChatPresetId: defaults.defaultChatPresetId,
+      defaultEmbeddingPresetId: defaults.defaultEmbeddingPresetId,
+    });
+
     const created = this.findById(input.id);
     if (!created) {
       throw new Error("failed to create project");

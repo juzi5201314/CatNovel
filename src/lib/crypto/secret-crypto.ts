@@ -10,16 +10,20 @@ import path from "node:path";
 const ALGORITHM = "aes-256-gcm";
 const NONCE_SIZE = 12;
 const REQUIRED_KEY_BYTES = 32;
-const DEV_KEY_PATH = path.join(process.cwd(), ".data", "dev-secret.key");
+const SECRET_ENV_KEY = "CATNOVEL_SECRET_KEY";
+const DEFAULT_SECRET_FILE_PATH = path.join(process.cwd(), ".data", ".secret.key");
 
-let cachedDevKey: Buffer | null = null;
-let hasLoggedDevFallback = false;
+let hasLoggedFileFallback = false;
 
 export type EncryptedSecret = {
   ciphertext: string;
   nonce: string;
   tag: string;
   keyVersion: number;
+};
+
+export type ResolveSecretKeyOptions = {
+  secretFilePath?: string;
 };
 
 function decodeBase64Key(raw: string): Buffer | null {
@@ -61,74 +65,105 @@ function decodeAnyKey(raw: string): Buffer | null {
   );
 }
 
-function isProductionMode(): boolean {
-  return (process.env.NODE_ENV ?? "").trim().toLowerCase() === "production";
+function normalizeOptionalKey(raw: string | undefined | null): string | null {
+  if (!raw) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
-function readDevKeyFromFile(): Buffer | null {
-  if (!fs.existsSync(DEV_KEY_PATH)) {
+function readSecretFile(secretFilePath: string): Buffer | null {
+  if (!fs.existsSync(secretFilePath)) {
     return null;
   }
 
-  const raw = fs.readFileSync(DEV_KEY_PATH, "utf8").trim();
-  const decoded = decodeAnyKey(raw);
-  if (!decoded) {
+  const rawKey = normalizeOptionalKey(fs.readFileSync(secretFilePath, "utf8"));
+  if (!rawKey) {
     throw new Error(
-      `Invalid dev secret key at ${DEV_KEY_PATH}; delete this file to regenerate`,
+      `Invalid secret key at ${displayPath(secretFilePath)}; delete this file to regenerate`,
     );
   }
 
+  const decoded = decodeAnyKey(rawKey);
+  if (!decoded) {
+    throw new Error(
+      `Invalid secret key at ${displayPath(secretFilePath)}; delete this file to regenerate`,
+    );
+  }
   return decoded;
 }
 
-function writeDevKeyToFile(key: Buffer): void {
-  fs.mkdirSync(path.dirname(DEV_KEY_PATH), { recursive: true });
-  fs.writeFileSync(DEV_KEY_PATH, key.toString("base64"), { mode: 0o600 });
+function writeSecretFile(secretFilePath: string, rawKey: string): void {
+  fs.mkdirSync(path.dirname(secretFilePath), { recursive: true });
+  fs.writeFileSync(secretFilePath, `${rawKey}\n`, { mode: 0o600 });
 }
 
-function resolveDevelopmentSecretKey(): Buffer {
-  if (cachedDevKey) {
-    return cachedDevKey;
+function decodeOrThrow(rawKey: string, source: string): Buffer {
+  const decoded = decodeAnyKey(rawKey);
+  if (!decoded) {
+    throw new Error(
+      `${source} must decode to 32 bytes (base64/hex/utf8)`,
+    );
   }
-
-  const existing = readDevKeyFromFile();
-  if (existing) {
-    cachedDevKey = existing;
-    return cachedDevKey;
-  }
-
-  const generated = randomBytes(REQUIRED_KEY_BYTES);
-  writeDevKeyToFile(generated);
-  cachedDevKey = generated;
-  return cachedDevKey;
+  return decoded;
 }
 
-export function resolveSecretKey(rawKey: string | undefined): Buffer {
-  if (!rawKey || rawKey.trim().length === 0) {
-    if (isProductionMode()) {
-      throw new Error("CATNOVEL_SECRET_KEY is required");
-    }
+function displayPath(filePath: string): string {
+  const relative = path.relative(process.cwd(), filePath);
+  if (relative.length === 0) {
+    return ".env";
+  }
+  if (!relative.startsWith("..")) {
+    return relative;
+  }
+  return filePath;
+}
 
-    const devKey = resolveDevelopmentSecretKey();
-    if (!hasLoggedDevFallback) {
+function generateAndPersistSecretKey(secretFilePath: string): string {
+  const generated = randomBytes(REQUIRED_KEY_BYTES).toString("base64");
+  try {
+    writeSecretFile(secretFilePath, generated);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to persist secret key to ${displayPath(secretFilePath)}: ${reason}`,
+    );
+  }
+  return generated;
+}
+
+export function resolveSecretKey(
+  rawKey: string | undefined,
+  options: ResolveSecretKeyOptions = {},
+): Buffer {
+  const directInput = normalizeOptionalKey(rawKey);
+  if (directInput) {
+    return decodeOrThrow(directInput, SECRET_ENV_KEY);
+  }
+
+  const processEnvValue = normalizeOptionalKey(process.env[SECRET_ENV_KEY]);
+  if (processEnvValue) {
+    return decodeOrThrow(processEnvValue, SECRET_ENV_KEY);
+  }
+
+  const secretFilePath = options.secretFilePath ?? DEFAULT_SECRET_FILE_PATH;
+  const fromSecretFile = readSecretFile(secretFilePath);
+  if (fromSecretFile) {
+    if (!hasLoggedFileFallback) {
       console.warn(
-        "[secret-crypto] CATNOVEL_SECRET_KEY is missing; using persisted dev key at .data/dev-secret.key",
+        `[secret-crypto] ${SECRET_ENV_KEY} is missing; using persisted key at ${displayPath(secretFilePath)}`,
       );
-      hasLoggedDevFallback = true;
+      hasLoggedFileFallback = true;
     }
-    return devKey;
+    return fromSecretFile;
   }
 
-  const normalized = rawKey.trim();
-  const decoded = decodeAnyKey(normalized);
-
-  if (!decoded) {
-    throw new Error(
-      "CATNOVEL_SECRET_KEY must decode to 32 bytes (base64/hex/utf8)",
-    );
-  }
-
-  return decoded;
+  const generated = generateAndPersistSecretKey(secretFilePath);
+  console.warn(
+    `[secret-crypto] ${SECRET_ENV_KEY} is missing; generated and persisted to ${displayPath(secretFilePath)}`,
+  );
+  return decodeOrThrow(generated, displayPath(secretFilePath));
 }
 
 export class SecretCrypto {

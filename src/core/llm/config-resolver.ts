@@ -1,6 +1,7 @@
 import { LlmDefaultSelectionRepository } from "@/repositories/llm-default-selection-repository";
 import { LlmModelPresetsRepository } from "@/repositories/llm-model-presets-repository";
 import { LlmProvidersRepository } from "@/repositories/llm-providers-repository";
+import { isSecretAuthenticationError } from "@/lib/crypto/secret-errors";
 import { SecretStoreRepository } from "@/repositories/secret-store-repository";
 
 import { LlmRuntimeError } from "./errors";
@@ -189,7 +190,21 @@ function resolveProvider(preset: ChatPresetRecord): ProviderRecord {
 
 function resolveProviderApiKey(provider: ProviderRecord): string {
   if (provider.apiKeyRef) {
-    const plainText = secretStoreRepository.readPlaintext(provider.apiKeyRef);
+    let plainText: string | null = null;
+    try {
+      plainText = secretStoreRepository.readPlaintext(provider.apiKeyRef);
+    } catch (error) {
+      throw new LlmRuntimeError({
+        code: "LLM_CONFIG_ERROR",
+        message: isSecretAuthenticationError(error)
+          ? "provider API Key 解密失败，请在设置里重新保存该 Provider 的 API Key"
+          : "provider API Key 无法读取",
+        retryable: false,
+        details: { providerId: provider.id },
+        cause: error,
+      });
+    }
+
     if (isNonEmptyString(plainText)) {
       return plainText.trim();
     }

@@ -1,6 +1,7 @@
 import { LlmDefaultSelectionRepository } from "@/repositories/llm-default-selection-repository";
 import { LlmModelPresetsRepository } from "@/repositories/llm-model-presets-repository";
 import { LlmProvidersRepository } from "@/repositories/llm-providers-repository";
+import { isSecretAuthenticationError } from "@/lib/crypto/secret-errors";
 import { SecretStoreRepository } from "@/repositories/secret-store-repository";
 
 const DEFAULT_EMBEDDING_PRESET_ID = "preset_embedding_default";
@@ -146,11 +147,21 @@ function resolveRuntimeConfig(options: EmbeddingOptions): EmbeddingRuntimeConfig
     throw new Error(`embedding provider baseUrl is empty: ${provider.id}`);
   }
 
-  const apiKeyFromProvider = provider.apiKeyRef
-    ? secretStoreRepository.readPlaintext(provider.apiKeyRef)
-    : null;
-  if (provider.apiKeyRef && !apiKeyFromProvider) {
-    throw new Error(`embedding provider api key missing: ${provider.id}`);
+  let apiKeyFromProvider: string | null = null;
+  if (provider.apiKeyRef) {
+    try {
+      apiKeyFromProvider = secretStoreRepository.readPlaintext(provider.apiKeyRef);
+    } catch (error) {
+      if (isSecretAuthenticationError(error)) {
+        throw new Error(
+          `embedding provider api key decrypt failed, please re-save provider api key: ${provider.id}`,
+        );
+      }
+      throw new Error(`embedding provider api key read failed: ${provider.id}`);
+    }
+    if (!apiKeyFromProvider) {
+      throw new Error(`embedding provider api key missing: ${provider.id}`);
+    }
   }
 
   const endpoint = `${sanitizeBaseUrl(baseURL)}${EMBEDDING_ENDPOINT_PATH}`;
