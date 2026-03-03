@@ -232,6 +232,7 @@ export async function POST(request: Request): Promise<Response> {
       toolChoice: "auto",
       temperature: runtime.callSettings.temperature,
       maxOutputTokens: runtime.callSettings.maxOutputTokens,
+      // 注意：当前网关会拒绝 previous_response_id，providerOptions 中禁止注入 previousResponseId。
       providerOptions: runtime.callSettings.providerOptions,
       stopWhen: stepCountIs(6),
       maxRetries: 0,

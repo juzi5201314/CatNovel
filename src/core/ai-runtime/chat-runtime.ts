@@ -44,7 +44,9 @@ function resolveProviderOptions(
 
   if (config.apiFormat === "responses") {
     sharedOptions.parallelToolCalls = false;
-    sharedOptions.store = true;
+    // 约束：当前网关在工具续跑场景会因 store=true 走 item_reference 历史路径并超时。
+    // 采用硬切换策略：Responses API 统一禁用持久化历史（store=false）。
+    sharedOptions.store = false;
   }
 
   if (Object.keys(sharedOptions).length === 0) {

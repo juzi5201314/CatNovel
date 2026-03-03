@@ -43,7 +43,7 @@ const TOOL_LIST_QUERY_REGEX =
 const CHAPTER_COUNT_QUERY_REGEX =
   /多少章|几章|章节数|章数|chapter count|how many chapters|number of chapters/iu;
 const LORE_LIST_QUERY_REGEX =
-  /设定集|设定里|设定中|有哪些设定|世界观|lore|设定资料|设定信息/iu;
+  /(?:列出|查看|展示|读取|有哪些|有什么|list|show).*(?:设定|设定集|世界观|lore)|(?:设定|设定集|世界观|lore).*(?:列表|清单|条目|内容|有哪些|有什么|list|show)/iu;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -109,6 +109,7 @@ function normalizeMessages(payload: unknown): ValidationOk | ValidationFailed {
         : crypto.randomUUID(),
       role: message.role,
       parts,
+      metadata: message.metadata,
     });
   }
 
@@ -466,6 +467,7 @@ export async function POST(request: Request): Promise<Response> {
       toolChoice: "auto",
       temperature: runtime.callSettings.temperature,
       maxOutputTokens: runtime.callSettings.maxOutputTokens,
+      // 注意：当前网关会拒绝 previous_response_id，providerOptions 中禁止注入 previousResponseId。
       providerOptions: runtime.callSettings.providerOptions,
       stopWhen: stepCountIs(8),
       maxRetries: 0,

@@ -28,7 +28,7 @@ type FetchLike = (
 ) => Promise<Response>;
 
 type CreateFetchOptions = {
-  enforceResponsesStore?: boolean;
+  responsesStoreDefault?: boolean;
 };
 
 export function normalizeProviderId(providerId: string): string {
@@ -70,7 +70,7 @@ export function createUserAgentOverrideFetch(
   options?: CreateFetchOptions,
 ): FetchLike | undefined {
   const normalizedUserAgent = normalizeCustomUserAgent(customUserAgent);
-  if (!normalizedUserAgent && !options?.enforceResponsesStore) {
+  if (!normalizedUserAgent && options?.responsesStoreDefault === undefined) {
     return undefined;
   }
 
@@ -81,7 +81,7 @@ export function createUserAgentOverrideFetch(
     }
 
     if (
-      options?.enforceResponsesStore &&
+      options?.responsesStoreDefault !== undefined &&
       request.method.toUpperCase() === "POST" &&
       request.headers.get("content-type")?.toLowerCase().includes("application/json")
     ) {
@@ -92,7 +92,9 @@ export function createUserAgentOverrideFetch(
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           const record = parsed as Record<string, unknown>;
           if (record.store === undefined) {
-            record.store = true;
+            // 约束：当前网关在 store=true + 工具调用时会走 item_reference 历史路径并超时。
+            // 硬切换为默认 store=false，且不覆盖调用方显式指定值。
+            record.store = options.responsesStoreDefault;
           }
           nextBody = JSON.stringify(record);
         }
@@ -110,7 +112,7 @@ export function buildChatLanguageModel(input: BuildChatModelInput): LanguageMode
   const providerName = normalizeProviderId(input.providerId);
   const baseURL = normalizeModelBaseUrl(input.baseURL);
   const requestFetch = createUserAgentOverrideFetch(input.customUserAgent, fetch, {
-    enforceResponsesStore: input.apiFormat === "responses",
+    responsesStoreDefault: input.apiFormat === "responses" ? false : undefined,
   });
 
   if (input.apiFormat === "responses") {

@@ -88,7 +88,7 @@ test("createUserAgentOverrideFetch enforces exact user-agent value", async () =>
   assert.equal(request.headers.get("x-test-header"), "ok");
 });
 
-test("createUserAgentOverrideFetch injects store=true for responses body", async () => {
+test("createUserAgentOverrideFetch injects store=false for responses body", async () => {
   let capturedRequest: Request | null = null;
   const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     capturedRequest = new Request(input, init);
@@ -101,7 +101,7 @@ test("createUserAgentOverrideFetch injects store=true for responses body", async
   };
 
   const wrappedFetch = createUserAgentOverrideFetch(undefined, fakeFetch, {
-    enforceResponsesStore: true,
+    responsesStoreDefault: false,
   });
   assert.equal(typeof wrappedFetch, "function");
 
@@ -112,6 +112,76 @@ test("createUserAgentOverrideFetch injects store=true for responses body", async
     },
     body: JSON.stringify({
       model: "gpt-5.2",
+      input: [{ role: "user", content: "hello" }],
+    }),
+  });
+
+  assert.ok(capturedRequest);
+  const request = capturedRequest as Request;
+  const payload = JSON.parse(await request.text()) as Record<string, unknown>;
+  assert.equal(payload.store, false);
+});
+
+test("createUserAgentOverrideFetch keeps explicit store=false unchanged", async () => {
+  let capturedRequest: Request | null = null;
+  const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    capturedRequest = new Request(input, init);
+    return new Response("{}", {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+  };
+
+  const wrappedFetch = createUserAgentOverrideFetch(undefined, fakeFetch, {
+    responsesStoreDefault: false,
+  });
+  assert.equal(typeof wrappedFetch, "function");
+
+  await wrappedFetch?.("https://example.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-5.2",
+      store: false,
+      input: [{ role: "user", content: "hello" }],
+    }),
+  });
+
+  assert.ok(capturedRequest);
+  const request = capturedRequest as Request;
+  const payload = JSON.parse(await request.text()) as Record<string, unknown>;
+  assert.equal(payload.store, false);
+});
+
+test("createUserAgentOverrideFetch keeps explicit store=true unchanged", async () => {
+  let capturedRequest: Request | null = null;
+  const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    capturedRequest = new Request(input, init);
+    return new Response("{}", {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+  };
+
+  const wrappedFetch = createUserAgentOverrideFetch(undefined, fakeFetch, {
+    responsesStoreDefault: false,
+  });
+  assert.equal(typeof wrappedFetch, "function");
+
+  await wrappedFetch?.("https://example.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-5.2",
+      store: true,
       input: [{ role: "user", content: "hello" }],
     }),
   });
