@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 
 import { DefaultSelectionPanel } from "@/components/settings/default-selection-panel";
 import { ModelPresetsPanel } from "@/components/settings/model-presets-panel";
@@ -23,7 +24,14 @@ export default function SettingsPage() {
 
   return (
     <main className="max-w-4xl mx-auto py-12 px-4">
-      <header className="mb-8">
+      <header className="mb-8 space-y-4">
+        <Link
+          href="/"
+          className="inline-flex items-center rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-muted-foreground hover:text-foreground"
+          aria-label="返回工作区"
+        >
+          Back to Workspace
+        </Link>
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground mt-2">
           Manage your AI providers, model presets, and project defaults.
