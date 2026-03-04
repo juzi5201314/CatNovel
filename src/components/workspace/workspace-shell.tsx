@@ -175,22 +175,9 @@ export function WorkspaceShell() {
                 title="缩小并返回编辑区"
                 aria-label="缩小并返回编辑区"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="mx-auto h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ color: "var(--foreground)" }}
-                  aria-hidden="true"
-                >
-                  <path d="M9 3H3v6" />
-                  <path d="M15 21h6v-6" />
-                  <path d="M3 9l7-7" />
-                  <path d="M21 15l-7 7" />
-                </svg>
+                <span aria-hidden="true" className="text-base leading-none">
+                  ⤡
+                </span>
               </button>
               <div className="h-full min-h-0 pt-10">
                 <ChatPanel projectId={selectedProject?.id ?? null} chapterId={selectedChapter?.id ?? null} />
