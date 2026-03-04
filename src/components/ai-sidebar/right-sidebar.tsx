@@ -29,6 +29,7 @@ type RightSidebarProps = {
   onRestoreSnapshot: (snapshotId: string, reason?: string) => Promise<void>;
   onLoadSnapshotDiff: (snapshotId: string) => Promise<void>;
   onClearSnapshotDiff: () => void;
+  onExpandChat: () => void;
 };
 
 type AITab = "chat" | "ghost" | "history";
@@ -49,6 +50,7 @@ export function RightSidebar({
   onRestoreSnapshot,
   onLoadSnapshotDiff,
   onClearSnapshotDiff,
+  onExpandChat,
 }: RightSidebarProps) {
   const [activeTab, setActiveTab] = useState<AITab>("chat");
 
@@ -104,8 +106,24 @@ export function RightSidebar({
           className={`flex-1 min-h-0 p-4 ${activeTab === "chat" ? "" : "overflow-y-auto custom-scrollbar"}`}
         >
           {activeTab === "chat" && (
-            <div className="h-full animate-in fade-in duration-300">
-              <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
+            <div className="relative h-full animate-in fade-in duration-300">
+              <button
+                type="button"
+                onClick={onExpandChat}
+                className="absolute right-1 top-1 z-10 h-8 w-8 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
+                title="放大到主区域"
+                aria-label="放大到主区域"
+              >
+                <svg viewBox="0 0 24 24" className="mx-auto h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <path d="M15 3h6v6" />
+                  <path d="M9 21H3v-6" />
+                  <path d="M21 3l-7 7" />
+                  <path d="M3 21l7-7" />
+                </svg>
+              </button>
+              <div className="h-full pt-10">
+                <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
+              </div>
             </div>
           )}
 

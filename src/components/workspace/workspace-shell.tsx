@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ChatPanel } from "@/components/ai-sidebar/chat-panel";
 import { RightSidebar } from "@/components/ai-sidebar/right-sidebar";
 import { LoreEditorShell } from "@/components/lore/lore-editor-shell";
 import { LeftSidebar } from "@/components/sidebar/left-sidebar";
@@ -60,6 +61,7 @@ export function WorkspaceShell() {
   const clearImportFeedback = useWorkspaceStore((state) => state.clearImportFeedback);
   const clearError = useWorkspaceStore((state) => state.clearError);
   const [activeCenterView, setActiveCenterView] = useState<CenterView>("chapter");
+  const [chatExpanded, setChatExpanded] = useState(false);
 
   useEffect(() => {
     void fetchProjects();
@@ -103,16 +105,27 @@ export function WorkspaceShell() {
   );
 
   const handleSelectLorePage = useCallback(() => {
+    setChatExpanded(false);
     setActiveCenterView("lore");
   }, []);
 
   const handleSelectChapter = useCallback(
     (chapterId: string | null) => {
+      setChatExpanded(false);
       setActiveCenterView("chapter");
       selectChapter(chapterId);
     },
     [selectChapter],
   );
+
+  const handleExpandChat = useCallback(() => {
+    setChatExpanded(true);
+  }, []);
+
+  const handleCollapseChat = useCallback(() => {
+    setChatExpanded(false);
+    setActiveCenterView("chapter");
+  }, []);
 
   return (
     <div className="flex min-h-screen bg-background text-foreground overflow-hidden">
@@ -147,36 +160,65 @@ export function WorkspaceShell() {
         onClearError={clearError}
       />
 
-      <main className="flex-1 ml-[var(--cn-sidebar-left)] mr-[var(--cn-sidebar-right)] min-w-0 h-screen overflow-hidden flex flex-col">
-        {activeCenterView === "chapter" ? (
+      <main
+        className={`flex-1 ml-[var(--cn-sidebar-left)] min-w-0 h-screen overflow-hidden flex flex-col ${
+          chatExpanded ? "mr-0" : "mr-[var(--cn-sidebar-right)]"
+        }`}
+      >
+        {chatExpanded ? (
+          <section className="h-full min-h-0 bg-muted/5 p-6 animate-in fade-in duration-300">
+            <div className="relative h-full min-h-0 rounded-xl border border-border bg-background p-5 shadow-sm">
+              <button
+                type="button"
+                onClick={handleCollapseChat}
+                className="absolute right-3 top-3 z-10 h-8 w-8 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
+                title="缩小并返回编辑区"
+                aria-label="缩小并返回编辑区"
+              >
+                <svg viewBox="0 0 24 24" className="mx-auto h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <path d="M9 3H3v6" />
+                  <path d="M15 21h6v-6" />
+                  <path d="M3 9l7-7" />
+                  <path d="M21 15l-7 7" />
+                </svg>
+              </button>
+              <div className="h-full min-h-0 pt-10">
+                <ChatPanel projectId={selectedProject?.id ?? null} chapterId={selectedChapter?.id ?? null} />
+              </div>
+            </div>
+          </section>
+        ) : activeCenterView === "chapter" ? (
           <EditorShell chapter={selectedChapter} onSave={handleSave} />
         ) : (
           <LoreEditorShell projectId={selectedProject?.id ?? null} />
         )}
       </main>
 
-      <RightSidebar
-        project={selectedProject}
-        chapter={selectedChapter}
-        snapshots={snapshots}
-        snapshotDiff={snapshotDiff}
-        snapshotRestoreResult={snapshotRestoreResult}
-        loadingSnapshots={loadingSnapshots}
-        creatingSnapshot={creatingSnapshot}
-        loadingSnapshotDiff={loadingSnapshotDiff}
-        restoringSnapshotId={restoringSnapshotId}
-        onAcceptGhost={handleAcceptGhost}
-        onRefreshSnapshots={async () => {
-          if (!selectedProject?.id) {
-            return;
-          }
-          await fetchSnapshots(selectedProject.id);
-        }}
-        onCreateSnapshot={createManualSnapshot}
-        onRestoreSnapshot={restoreSnapshot}
-        onLoadSnapshotDiff={loadSnapshotDiff}
-        onClearSnapshotDiff={clearSnapshotDiff}
-      />
+      {!chatExpanded ? (
+        <RightSidebar
+          project={selectedProject}
+          chapter={selectedChapter}
+          snapshots={snapshots}
+          snapshotDiff={snapshotDiff}
+          snapshotRestoreResult={snapshotRestoreResult}
+          loadingSnapshots={loadingSnapshots}
+          creatingSnapshot={creatingSnapshot}
+          loadingSnapshotDiff={loadingSnapshotDiff}
+          restoringSnapshotId={restoringSnapshotId}
+          onAcceptGhost={handleAcceptGhost}
+          onRefreshSnapshots={async () => {
+            if (!selectedProject?.id) {
+              return;
+            }
+            await fetchSnapshots(selectedProject.id);
+          }}
+          onCreateSnapshot={createManualSnapshot}
+          onRestoreSnapshot={restoreSnapshot}
+          onLoadSnapshotDiff={loadSnapshotDiff}
+          onClearSnapshotDiff={clearSnapshotDiff}
+          onExpandChat={handleExpandChat}
+        />
+      ) : null}
     </div>
   );
 }

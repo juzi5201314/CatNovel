@@ -92,6 +92,24 @@ type ChatPanelProps = {
   chapterId: string | null;
 };
 
+type ChatSessionSummary = {
+  id: string;
+  projectId: string;
+  chapterId: string | null;
+  title: string;
+  messageCount: number;
+  chatTerminated: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ChatSessionRecord = ChatSessionSummary & {
+  messages: UIMessage[];
+};
+
+const DEFAULT_CHAT_SESSION_TITLE = "新会话";
+const MAX_CHAT_SESSION_TITLE_LENGTH = 40;
+
 const NON_ADJUSTABLE_TOOLS = new Set<string>([
   "approval.approve",
   "approval.reject",
@@ -422,6 +440,91 @@ function getMessageText(message: UIMessage): string {
     .join("");
 }
 
+function normalizeSessionMessages(value: unknown): UIMessage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const output: UIMessage[] = [];
+  for (const item of value) {
+    const record = asRecord(item);
+    if (!record) {
+      continue;
+    }
+
+    const role = asString(record.role);
+    if (role !== "system" && role !== "user" && role !== "assistant") {
+      continue;
+    }
+
+    if (!Array.isArray(record.parts)) {
+      continue;
+    }
+
+    output.push({
+      id: asString(record.id) ?? crypto.randomUUID(),
+      role,
+      parts: record.parts as UIMessage["parts"],
+      metadata: record.metadata,
+    });
+  }
+
+  return output;
+}
+
+function sortSessions(sessions: ChatSessionSummary[]): ChatSessionSummary[] {
+  return [...sessions].sort((left, right) => {
+    const leftTs = new Date(left.updatedAt).getTime();
+    const rightTs = new Date(right.updatedAt).getTime();
+    if (leftTs !== rightTs) {
+      return rightTs - leftTs;
+    }
+    return right.id.localeCompare(left.id);
+  });
+}
+
+function toSessionSummary(session: ChatSessionSummary | ChatSessionRecord): ChatSessionSummary {
+  return {
+    id: session.id,
+    projectId: session.projectId,
+    chapterId: session.chapterId ?? null,
+    title: session.title,
+    messageCount: session.messageCount,
+    chatTerminated: session.chatTerminated,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+  };
+}
+
+function buildSessionTitle(messages: UIMessage[]): string {
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  if (!firstUserMessage) {
+    return DEFAULT_CHAT_SESSION_TITLE;
+  }
+
+  const normalized = getMessageText(firstUserMessage)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalized.length === 0) {
+    return DEFAULT_CHAT_SESSION_TITLE;
+  }
+
+  return normalized.slice(0, MAX_CHAT_SESSION_TITLE_LENGTH);
+}
+
+function formatSessionUpdatedAt(updatedAt: string): string {
+  const date = new Date(updatedAt);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  return `${mm}-${dd} ${hh}:${min}`;
+}
+
 function normalizeToolName(partType: string, dynamicName?: string): string {
   if (partType === "dynamic-tool") {
     return dynamicName ?? "dynamic-tool";
@@ -721,6 +824,13 @@ function readApprovalDetail(payload: unknown): ApprovalDetail {
 export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [chatTerminated, setChatTerminated] = useState(false);
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
   const [editingApprovalId, setEditingApprovalId] = useState<string | null>(null);
   const [approvalDrafts, setApprovalDrafts] = useState<Record<string, string>>({});
@@ -728,15 +838,17 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   const [collapsedApprovals, setCollapsedApprovals] = useState<Record<string, boolean>>({});
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const latestMessagesRef = useRef<UIMessage[]>([]);
+  const latestChatTerminatedRef = useRef(false);
+  const activeSessionIdRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    setChatTerminated(false);
+  const resetApprovalUi = useCallback(() => {
     setBusyApprovalId(null);
     setEditingApprovalId(null);
     setApprovalDrafts({});
     setApprovalErrors({});
     setCollapsedApprovals({});
-  }, [chapterId, projectId]);
+  }, []);
 
   const transport = useMemo(
     () =>
@@ -757,14 +869,328 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
     [chatTerminated],
   );
 
-  const { messages, sendMessage, stop, status, error, addToolOutput } = useChat({
-    id: `chat-${projectId ?? "none"}-${chapterId ?? "none"}`,
+  const { messages, setMessages, sendMessage, stop, status, error, addToolOutput } = useChat({
+    id: `chat-${projectId ?? "none"}-${activeSessionId ?? "none"}`,
     transport,
     sendAutomaticallyWhen,
   });
 
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId) ?? null,
+    [activeSessionId, sessions],
+  );
+
   const isStreaming = status === "submitted" || status === "streaming";
-  const canSend = Boolean(projectId) && input.trim().length > 0 && !isStreaming && !chatTerminated;
+  const loadingSessionData = loadingSessions || restoringSessionId !== null;
+  const canSend =
+    Boolean(projectId) &&
+    Boolean(activeSessionId) &&
+    input.trim().length > 0 &&
+    !isStreaming &&
+    !chatTerminated &&
+    !loadingSessionData;
+
+  useEffect(() => {
+    latestMessagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    latestChatTerminatedRef.current = chatTerminated;
+  }, [chatTerminated]);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  const fetchSessionList = useCallback(async (): Promise<ChatSessionSummary[]> => {
+    if (!projectId) {
+      return [];
+    }
+
+    const searchParams = new URLSearchParams({ projectId });
+    const response = await fetch(`/api/ai/sessions?${searchParams.toString()}`, {
+      method: "GET",
+    });
+    const listed = await parseApiData<ChatSessionSummary[]>(response);
+    return sortSessions(listed.map((session) => toSessionSummary(session)));
+  }, [projectId]);
+
+  const fetchSessionById = useCallback(async (sessionId: string): Promise<ChatSessionRecord> => {
+    const response = await fetch(`/api/ai/sessions/${sessionId}`, {
+      method: "GET",
+    });
+    const session = await parseApiData<ChatSessionRecord>(response);
+    return {
+      ...session,
+      chapterId: session.chapterId ?? null,
+      messages: normalizeSessionMessages(session.messages),
+    };
+  }, []);
+
+  const createSessionOnServer = useCallback(async (): Promise<ChatSessionRecord> => {
+    if (!projectId) {
+      throw new Error("projectId is required");
+    }
+
+    const response = await fetch("/api/ai/sessions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        projectId,
+        chapterId: chapterId ?? null,
+        title: DEFAULT_CHAT_SESSION_TITLE,
+        messages: [],
+        chatTerminated: false,
+      }),
+    });
+    const created = await parseApiData<ChatSessionRecord>(response);
+    return {
+      ...created,
+      chapterId: created.chapterId ?? null,
+      messages: normalizeSessionMessages(created.messages),
+    };
+  }, [chapterId, projectId]);
+
+  const persistSession = useCallback(
+    async (inputPayload: {
+      sessionId: string;
+      messages: UIMessage[];
+      chatTerminated: boolean;
+    }): Promise<void> => {
+      const response = await fetch(`/api/ai/sessions/${inputPayload.sessionId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          title: buildSessionTitle(inputPayload.messages),
+          messages: inputPayload.messages,
+          chatTerminated: inputPayload.chatTerminated,
+        }),
+      });
+      const updated = await parseApiData<ChatSessionRecord>(response);
+      const summary = toSessionSummary(updated);
+      setSessions((current) => {
+        const rest = current.filter((session) => session.id !== summary.id);
+        return sortSessions([summary, ...rest]);
+      });
+    },
+    [],
+  );
+
+  const applySessionToUi = useCallback(
+    (session: ChatSessionRecord) => {
+      stop();
+      resetApprovalUi();
+      setInput("");
+      setActiveSessionId(session.id);
+      setMessages(normalizeSessionMessages(session.messages));
+      setChatTerminated(session.chatTerminated);
+    },
+    [resetApprovalUi, setMessages, stop],
+  );
+
+  // 会话引导仅在 scope 切换时触发，避免 active session 切换时重复重建。
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrapSessions() {
+      stop();
+      setSessionError(null);
+      setShowHistoryPanel(false);
+      setInput("");
+      resetApprovalUi();
+      setChatTerminated(false);
+      setSessions([]);
+      setActiveSessionId(null);
+      setMessages([]);
+
+      if (!projectId) {
+        return;
+      }
+
+      setLoadingSessions(true);
+      try {
+        const listed = await fetchSessionList();
+        if (cancelled) {
+          return;
+        }
+
+        if (listed.length === 0) {
+          const created = await createSessionOnServer();
+          if (cancelled) {
+            return;
+          }
+          setSessions([toSessionSummary(created)]);
+          applySessionToUi(created);
+          return;
+        }
+
+        const restored = await fetchSessionById(listed[0].id);
+        if (cancelled) {
+          return;
+        }
+        setSessions(listed);
+        applySessionToUi(restored);
+      } catch (reasonUnknown) {
+        if (cancelled) {
+          return;
+        }
+        const message = reasonUnknown instanceof Error ? reasonUnknown.message : "加载历史会话失败";
+        setSessionError(message);
+      } finally {
+        if (!cancelled) {
+          setLoadingSessions(false);
+        }
+      }
+    }
+
+    void bootstrapSessions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!projectId || !activeSessionId || loadingSessionData || deletingSessionId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void persistSession({
+        sessionId: activeSessionId,
+        messages,
+        chatTerminated,
+      }).catch((reasonUnknown) => {
+        const message = reasonUnknown instanceof Error ? reasonUnknown.message : "保存会话失败";
+        setSessionError(message);
+      });
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeSessionId,
+    chatTerminated,
+    deletingSessionId,
+    loadingSessionData,
+    messages,
+    persistSession,
+    projectId,
+  ]);
+
+  const handleCreateSession = useCallback(async () => {
+    if (!projectId || loadingSessionData) {
+      return;
+    }
+
+    try {
+      if (activeSessionIdRef.current) {
+        await persistSession({
+          sessionId: activeSessionIdRef.current,
+          messages: latestMessagesRef.current,
+          chatTerminated: latestChatTerminatedRef.current,
+        });
+      }
+
+      const created = await createSessionOnServer();
+      setSessions((current) => sortSessions([toSessionSummary(created), ...current]));
+      applySessionToUi(created);
+      setShowHistoryPanel(false);
+      setSessionError(null);
+    } catch (reasonUnknown) {
+      const message = reasonUnknown instanceof Error ? reasonUnknown.message : "创建会话失败";
+      setSessionError(message);
+    }
+  }, [applySessionToUi, createSessionOnServer, loadingSessionData, persistSession, projectId]);
+
+  const handleRestoreSession = useCallback(
+    async (sessionId: string) => {
+      if (!projectId || loadingSessionData || sessionId === activeSessionIdRef.current) {
+        setShowHistoryPanel(false);
+        return;
+      }
+
+      setRestoringSessionId(sessionId);
+      try {
+        if (activeSessionIdRef.current) {
+          await persistSession({
+            sessionId: activeSessionIdRef.current,
+            messages: latestMessagesRef.current,
+            chatTerminated: latestChatTerminatedRef.current,
+          });
+        }
+
+        const restored = await fetchSessionById(sessionId);
+        setSessions((current) => {
+          const next = current.filter((session) => session.id !== restored.id);
+          return sortSessions([toSessionSummary(restored), ...next]);
+        });
+        applySessionToUi(restored);
+        setShowHistoryPanel(false);
+        setSessionError(null);
+      } catch (reasonUnknown) {
+        const message = reasonUnknown instanceof Error ? reasonUnknown.message : "恢复会话失败";
+        setSessionError(message);
+      } finally {
+        setRestoringSessionId(null);
+      }
+    },
+    [applySessionToUi, fetchSessionById, loadingSessionData, persistSession, projectId],
+  );
+
+  const handleDeleteSession = useCallback(
+    async (sessionId: string) => {
+      if (!projectId || deletingSessionId || loadingSessionData) {
+        return;
+      }
+
+      setDeletingSessionId(sessionId);
+      try {
+        const response = await fetch(`/api/ai/sessions/${sessionId}`, {
+          method: "DELETE",
+        });
+        await parseApiData<{ deleted: boolean }>(response);
+
+        const wasActive = activeSessionIdRef.current === sessionId;
+        if (!wasActive) {
+          setSessions((current) => current.filter((session) => session.id !== sessionId));
+          setSessionError(null);
+          return;
+        }
+
+        const listed = await fetchSessionList();
+        if (listed.length === 0) {
+          const created = await createSessionOnServer();
+          setSessions([toSessionSummary(created)]);
+          applySessionToUi(created);
+          setSessionError(null);
+          return;
+        }
+
+        const restored = await fetchSessionById(listed[0].id);
+        setSessions(listed);
+        applySessionToUi(restored);
+        setSessionError(null);
+      } catch (reasonUnknown) {
+        const message = reasonUnknown instanceof Error ? reasonUnknown.message : "删除会话失败";
+        setSessionError(message);
+      } finally {
+        setDeletingSessionId(null);
+      }
+    },
+    [
+      applySessionToUi,
+      createSessionOnServer,
+      deletingSessionId,
+      fetchSessionById,
+      fetchSessionList,
+      loadingSessionData,
+      projectId,
+    ],
+  );
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -1012,16 +1438,113 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI Chat</h3>
-        {isStreaming && (
+      <div className="relative flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI Chat</h3>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {activeSession ? activeSession.title : loadingSessions ? "会话加载中..." : "暂无会话"}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
           <button
-            className="text-[10px] px-2 py-0.5 text-red-600 hover:bg-red-50 transition-colors font-bold uppercase tracking-tighter"
-            onClick={stop}
+            type="button"
+            className="text-[10px] px-2 py-0.5 font-bold uppercase tracking-tighter"
+            onClick={() => setShowHistoryPanel((current) => !current)}
+            disabled={!projectId || loadingSessionData}
           >
-            Stop
+            History
           </button>
-        )}
+          {isStreaming && (
+            <button
+              className="text-[10px] px-2 py-0.5 text-red-600 hover:bg-red-50 transition-colors font-bold uppercase tracking-tighter"
+              onClick={stop}
+            >
+              Stop
+            </button>
+          )}
+        </div>
+
+        {showHistoryPanel ? (
+          <div className="absolute right-0 top-8 z-20 w-80 rounded-xl border border-border bg-background p-3 shadow-lg">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Sessions
+              </span>
+              <button
+                type="button"
+                className="text-[10px] px-2 py-0.5 font-bold uppercase tracking-tighter"
+                onClick={() => {
+                  void handleCreateSession();
+                }}
+                disabled={!projectId || loadingSessionData}
+              >
+                New
+              </button>
+            </div>
+
+            <div className="max-h-64 space-y-1 overflow-y-auto custom-scrollbar pr-1">
+              {sessions.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border px-2 py-3 text-[11px] text-muted-foreground">
+                  暂无历史会话
+                </div>
+              ) : (
+                sessions.map((session) => {
+                  const isActive = session.id === activeSessionId;
+                  const restoring = restoringSessionId === session.id;
+                  const deleting = deletingSessionId === session.id;
+
+                  return (
+                    <div
+                      key={session.id}
+                      className={`w-full rounded-md border px-2 py-2 transition-colors ${
+                        isActive
+                          ? "border-accent bg-accent/5"
+                          : "border-border hover:border-foreground/20 hover:bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left"
+                          onClick={() => {
+                            void handleRestoreSession(session.id);
+                          }}
+                          disabled={restoring || deleting || loadingSessionData}
+                        >
+                          <div className="truncate text-[11px] font-medium">
+                            {session.title || DEFAULT_CHAT_SESSION_TITLE}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {formatSessionUpdatedAt(session.updatedAt)} · {session.messageCount} msgs
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          className="h-6 w-6 shrink-0 rounded-full border border-border text-[10px] text-red-600 hover:bg-red-50"
+                          onClick={() => {
+                            void handleDeleteSession(session.id);
+                          }}
+                          disabled={deleting || loadingSessionData}
+                          title="删除会话"
+                          aria-label="删除会话"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      {restoring ? (
+                        <div className="mt-1 text-[10px] text-muted-foreground">恢复中...</div>
+                      ) : null}
+                      {deleting ? (
+                        <div className="mt-1 text-[10px] text-muted-foreground">删除中...</div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {chatTerminated ? (
@@ -1030,11 +1553,19 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
         </div>
       ) : null}
 
+      {sessionError ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          {sessionError}
+        </div>
+      ) : null}
+
       <div
         ref={scrollRef}
         className="flex-1 min-h-0 space-y-6 overflow-y-auto pr-2 custom-scrollbar py-2"
       >
-        {messages.length === 0 ? (
+        {loadingSessionData ? (
+          <div className="py-10 text-center text-xs text-muted-foreground">会话加载中...</div>
+        ) : messages.length === 0 ? (
           <div className="py-12 text-center space-y-4">
             <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto opacity-20">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1454,10 +1985,16 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
               }
             }
           }}
-          placeholder={chatTerminated ? "当前对话已终止" : "Message AI Assistant..."}
+          placeholder={
+            loadingSessionData
+              ? "会话加载中..."
+              : chatTerminated
+                ? "当前对话已终止"
+                : "Message AI Assistant..."
+          }
           rows={3}
           className="w-full pr-12 resize-none bg-muted/20 focus:bg-background transition-all rounded-2xl border border-border p-4 outline-none focus:ring-4 ring-accent/5 text-sm leading-relaxed"
-          disabled={!projectId || isStreaming || chatTerminated}
+          disabled={!projectId || !activeSessionId || isStreaming || chatTerminated || loadingSessionData}
         />
         <div className="absolute right-3 bottom-3 flex items-center gap-3">
           <kbd className="hidden md:inline-flex opacity-0 group-focus-within:opacity-30 transition-opacity bg-transparent border-none shadow-none text-[9px] font-black">ENTER</kbd>
