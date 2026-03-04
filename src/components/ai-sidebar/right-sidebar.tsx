@@ -8,6 +8,7 @@ import type {
   ProjectSnapshotSummary,
   SnapshotRestoreResult,
 } from "@/components/workspace/types";
+import { ChatZoomIcon } from "@/components/ai-sidebar/chat-zoom-icon";
 import { ChatPanel } from "@/components/ai-sidebar/chat-panel";
 import { GhostActions } from "@/components/ai-sidebar/ghost-actions";
 import { SnapshotPanel } from "@/components/ai-sidebar/snapshot-panel";
@@ -110,15 +111,14 @@ export function RightSidebar({
               <button
                 type="button"
                 onClick={onExpandChat}
-                className="absolute right-1 top-1 z-10 h-8 w-8 p-0 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
+                className="absolute right-2 top-16 z-10 h-8 w-8 p-0 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
                 title="放大到主区域"
                 aria-label="放大到主区域"
+                style={{ padding: 0, gap: 0 }}
               >
-                <span aria-hidden="true" className="text-base leading-none">
-                  ⤢
-                </span>
+                <ChatZoomIcon mode="expand" />
               </button>
-              <div className="h-full pt-10">
+              <div className="h-full">
                 <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
               </div>
             </div>

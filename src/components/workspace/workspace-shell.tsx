@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ChatZoomIcon } from "@/components/ai-sidebar/chat-zoom-icon";
 import { ChatPanel } from "@/components/ai-sidebar/chat-panel";
 import { RightSidebar } from "@/components/ai-sidebar/right-sidebar";
 import { LoreEditorShell } from "@/components/lore/lore-editor-shell";
@@ -171,15 +172,14 @@ export function WorkspaceShell() {
               <button
                 type="button"
                 onClick={handleCollapseChat}
-                className="absolute right-3 top-3 z-10 h-8 w-8 p-0 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
+                className="absolute right-3 top-16 z-10 h-8 w-8 p-0 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
                 title="缩小并返回编辑区"
                 aria-label="缩小并返回编辑区"
+                style={{ padding: 0, gap: 0 }}
               >
-                <span aria-hidden="true" className="text-base leading-none">
-                  ⤡
-                </span>
+                <ChatZoomIcon mode="collapse" />
               </button>
-              <div className="h-full min-h-0 pt-10">
+              <div className="h-full min-h-0">
                 <ChatPanel projectId={selectedProject?.id ?? null} chapterId={selectedChapter?.id ?? null} />
               </div>
             </div>
