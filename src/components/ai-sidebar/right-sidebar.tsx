@@ -110,7 +110,7 @@ export function RightSidebar({
               <button
                 type="button"
                 onClick={onExpandChat}
-                className="absolute right-1 top-1 z-10 h-8 w-8 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
+                className="absolute right-1 top-1 z-10 h-8 w-8 p-0 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
                 title="放大到主区域"
                 aria-label="放大到主区域"
               >

@@ -171,7 +171,7 @@ export function WorkspaceShell() {
               <button
                 type="button"
                 onClick={handleCollapseChat}
-                className="absolute right-3 top-3 z-10 h-8 w-8 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
+                className="absolute right-3 top-3 z-10 h-8 w-8 p-0 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
                 title="缩小并返回编辑区"
                 aria-label="缩小并返回编辑区"
               >
