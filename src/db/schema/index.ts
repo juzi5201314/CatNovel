@@ -6,3 +6,4 @@ export * from "./project-snapshots";
 export * from "./secret-store";
 export * from "./llm";
 export * from "./tool-approval";
+export * from "./worldbuilding";

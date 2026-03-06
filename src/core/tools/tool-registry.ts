@@ -14,16 +14,15 @@ import { listToolCatalog } from "@/core/tools/tool-catalog";
 import { getDatabase, runInTransaction } from "@/db/client";
 import {
   chapters,
-  entities,
   eventEntities,
   events,
   projectSnapshots,
-  type TimelineEntityType,
 } from "@/db/schema";
 import { ChaptersRepository } from "@/repositories/chapters-repository";
 import { ProjectsRepository } from "@/repositories/projects-repository";
 import { TimelineRepository } from "@/repositories/timeline-repository";
 import { ToolApprovalsRepository } from "@/repositories/tool-approvals-repository";
+import { WorldbuildingRepository } from "@/repositories/worldbuilding-repository";
 
 export type ToolExecutionInput = {
   projectId: string;
@@ -85,6 +84,7 @@ const chaptersRepository = new ChaptersRepository();
 const timelineRepository = new TimelineRepository();
 const snapshotsService = new ProjectSnapshotsService();
 const approvalsRepository = new ToolApprovalsRepository();
+const worldbuildingRepository = new WorldbuildingRepository();
 const retrievalIndexer = new RetrievalIndexer();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -148,20 +148,6 @@ function asTimelineStatus(value: unknown): TimelineRepositoryStatus | undefined 
 
 function asTimelineResolveDecision(value: unknown): TimelineResolveDecision | undefined {
   if (value === "confirm" || value === "reject" || value === "queue" || value === "auto") {
-    return value;
-  }
-  return undefined;
-}
-
-function asTimelineEntityType(value: unknown): TimelineEntityType | undefined {
-  if (
-    value === "character" ||
-    value === "location" ||
-    value === "item" ||
-    value === "organization" ||
-    value === "concept" ||
-    value === "other"
-  ) {
     return value;
   }
   return undefined;
@@ -1188,113 +1174,58 @@ const handlers: Record<string, ToolHandler> = {
   },
   "lore.listNodes": async ({ projectId, args }) => {
     const record = asRecord(args) ?? {};
-    const typeFilter = asTimelineEntityType(record.type);
-    const query = asOptionalNonEmptyString(record.query)?.toLowerCase();
+    const query = asOptionalNonEmptyString(record.query);
     const limit = clampLimit(asOptionalInteger(record.limit), 100, 500);
 
-    const rows = timelineRepository
-      .listEntitiesByProject(projectId)
-      .filter((row) => {
-        const entity = asRecord(row.entity);
-        if (!entity) {
-          return false;
-        }
-
-        const entityType = asTimelineEntityType(entity.type);
-        if (typeFilter && entityType !== typeFilter) {
-          return false;
-        }
-
-        if (!query) {
-          return true;
-        }
-
-        const name = asOptionalNonEmptyString(entity.name)?.toLowerCase() ?? "";
-        if (name.includes(query)) {
-          return true;
-        }
-
-        const aliases = Array.isArray(row.aliases) ? row.aliases : [];
-        return aliases.some((alias) => {
-          const aliasRecord = asRecord(alias);
-          const aliasText = asOptionalNonEmptyString(aliasRecord?.alias)?.toLowerCase() ?? "";
-          return aliasText.includes(query);
-        });
-      })
-      .slice(0, limit)
-      .map((row) => {
-        const entity = asRecord(row.entity) ?? {};
-        const aliases = Array.isArray(row.aliases)
-          ? row.aliases
-              .map((alias) => asRecord(alias))
-              .filter((alias): alias is Record<string, unknown> => alias !== null)
-              .map((alias) => ({
-                id: asOptionalNonEmptyString(alias.id) ?? "",
-                alias: asOptionalNonEmptyString(alias.alias) ?? "",
-                isPrimary: asOptionalBoolean(alias.isPrimary) ?? false,
-              }))
-          : [];
-
-        return {
-          id: asOptionalNonEmptyString(entity.id) ?? "",
-          name: asOptionalNonEmptyString(entity.name) ?? "",
-          type: asTimelineEntityType(entity.type) ?? "other",
-          description: asNullableString(entity.description) ?? null,
-          aliases,
-        };
-      });
+    let nodes;
+    if (query) {
+      nodes = worldbuildingRepository.searchByText(projectId, query, limit);
+    } else {
+      nodes = worldbuildingRepository.listByProject(projectId).slice(0, limit);
+    }
 
     return {
-      nodes: rows,
-      count: rows.length,
+      nodes: nodes.map((n) => ({
+        id: n.id,
+        name: n.name,
+        parentId: n.parentId,
+        description: n.description,
+        sortOrder: n.sortOrder,
+        depth: n.parentId ? "nested" : "root",
+      })),
+      count: nodes.length,
     };
   },
   "lore.getNode": async ({ projectId, args }) => {
     const record = asRecord(args);
-    const nodeId = asOptionalNonEmptyString(record?.nodeId) ?? asOptionalNonEmptyString(record?.entityId);
-    const nameOrAlias = asOptionalNonEmptyString(record?.nameOrAlias);
+    const nodeId = asOptionalNonEmptyString(record?.nodeId);
+    const name = asOptionalNonEmptyString(record?.name);
 
-    let resolvedEntityId = nodeId;
-    if (!resolvedEntityId && nameOrAlias) {
-      resolvedEntityId =
-        timelineRepository.findEntityByNameOrAlias(projectId, nameOrAlias)?.id ?? undefined;
-    }
-    if (!resolvedEntityId) {
-      throw new Error("nodeId/entityId or nameOrAlias is required");
+    let node = nodeId ? worldbuildingRepository.findById(nodeId) : null;
+
+    if (!node && name) {
+      const all = worldbuildingRepository.listByProject(projectId);
+      node = all.find((n) => n.name.toLowerCase() === name.toLowerCase()) ?? null;
     }
 
-    const row = timelineRepository
-      .listEntitiesByProject(projectId)
-      .find((item) => extractEntityId(item) === resolvedEntityId);
-
-    if (!row) {
-      return {
-        node: null,
-      };
+    if (!node || node.projectId !== projectId) {
+      return { node: null };
     }
 
-    const entity = asRecord(row.entity) ?? {};
-    const aliases = Array.isArray(row.aliases)
-      ? row.aliases
-          .map((alias) => asRecord(alias))
-          .filter((alias): alias is Record<string, unknown> => alias !== null)
-          .map((alias) => ({
-            id: asOptionalNonEmptyString(alias.id) ?? "",
-            alias: asOptionalNonEmptyString(alias.alias) ?? "",
-            normalizedAlias: asOptionalNonEmptyString(alias.normalizedAlias) ?? "",
-            isPrimary: asOptionalBoolean(alias.isPrimary) ?? false,
-          }))
-      : [];
-
+    const children = worldbuildingRepository.getChildren(node.id);
     return {
       node: {
-        id: asOptionalNonEmptyString(entity.id) ?? "",
-        name: asOptionalNonEmptyString(entity.name) ?? "",
-        normalizedName: asOptionalNonEmptyString(entity.normalizedName) ?? "",
-        type: asTimelineEntityType(entity.type) ?? "other",
-        description: asNullableString(entity.description) ?? null,
-        aliases,
+        id: node.id,
+        name: node.name,
+        parentId: node.parentId,
+        description: node.description,
+        sortOrder: node.sortOrder,
       },
+      children: children.map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+      })),
     };
   },
   "lore.upsertNode": async ({ projectId, args }) => {
@@ -1308,54 +1239,80 @@ const handlers: Record<string, ToolHandler> = {
       throw new Error("name is required");
     }
 
-    const type = asTimelineEntityType(record.type);
-    if (record.type !== undefined && !type) {
-      throw new Error("type is invalid");
+    const nodeId = asOptionalNonEmptyString(record.nodeId);
+    const description = typeof record.description === "string" ? record.description : undefined;
+    const parentId = record.parentId === null
+      ? null
+      : asOptionalNonEmptyString(record.parentId) ?? undefined;
+
+    if (nodeId) {
+      const updates: Record<string, unknown> = { name };
+      if (description !== undefined) updates.description = description;
+      if (parentId !== undefined) updates.parentId = parentId;
+
+      const updated = worldbuildingRepository.update(nodeId, updates as { name?: string; description?: string; parentId?: string | null });
+      if (!updated) {
+        throw new Error("node not found");
+      }
+      return { upserted: true, node: updated };
     }
 
-    const aliases = asStringArray(record.aliases);
-    const description = asNullableString(record.description);
-    const nodeId = asOptionalNonEmptyString(record.nodeId) ?? asOptionalNonEmptyString(record.entityId);
-
-    const result = timelineRepository.normalizeEntityAndAliases({
-      entityId: nodeId,
+    const created = worldbuildingRepository.create({
+      id: crypto.randomUUID(),
       projectId,
+      parentId: parentId ?? null,
       name,
-      type: type ?? "other",
-      description: description ?? null,
-      aliases,
+      description: description ?? "",
     });
 
-    return {
-      upserted: true,
-      node: result.entity,
-      aliases: result.aliases,
-      conflictResult: result.conflictResult,
-    };
+    return { upserted: true, node: created };
   },
   "lore.deleteNode": async ({ projectId, args }) => {
     const record = asRecord(args);
-    const nodeId = asOptionalNonEmptyString(record?.nodeId) ?? asOptionalNonEmptyString(record?.entityId);
-    const nameOrAlias = asOptionalNonEmptyString(record?.nameOrAlias);
-
-    let resolvedNodeId = nodeId;
-    if (!resolvedNodeId && nameOrAlias) {
-      resolvedNodeId =
-        timelineRepository.findEntityByNameOrAlias(projectId, nameOrAlias)?.id ?? undefined;
-    }
-    if (!resolvedNodeId) {
-      throw new Error("nodeId/entityId or nameOrAlias is required");
+    const nodeId = asOptionalNonEmptyString(record?.nodeId);
+    if (!nodeId) {
+      throw new Error("nodeId is required");
     }
 
-    const result = runInTransaction((tx) =>
-      tx.delete(entities)
-        .where(and(eq(entities.projectId, projectId), eq(entities.id, resolvedNodeId as string)))
-        .run(),
-    );
+    const existing = worldbuildingRepository.findById(nodeId);
+    if (!existing || existing.projectId !== projectId) {
+      return { deleted: false, nodeId };
+    }
+
+    const deleted = worldbuildingRepository.deleteById(nodeId);
+    return { deleted, nodeId };
+  },
+  "lore.searchNodes": async ({ projectId, args }) => {
+    const record = asRecord(args);
+    const query = asOptionalNonEmptyString(record?.query);
+    if (!query) {
+      throw new Error("query is required");
+    }
+
+    const limit = clampLimit(asOptionalInteger(record?.limit), 20, 100);
+    const results = worldbuildingRepository.searchByText(projectId, query, limit);
 
     return {
-      deleted: result.changes > 0,
-      nodeId: resolvedNodeId,
+      query,
+      results: results.map((n) => ({
+        id: n.id,
+        name: n.name,
+        parentId: n.parentId,
+        description: n.description.slice(0, 500),
+        sortOrder: n.sortOrder,
+      })),
+      count: results.length,
+    };
+  },
+  "lore.getRootDescriptions": async ({ projectId }) => {
+    const roots = worldbuildingRepository.getRootNodes(projectId);
+    return {
+      nodes: roots.map((n) => ({
+        id: n.id,
+        name: n.name,
+        description: n.description,
+      })),
+      count: roots.length,
     };
   },
   "rag.search": async ({ projectId, args }) => {

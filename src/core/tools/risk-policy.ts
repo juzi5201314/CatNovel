@@ -30,6 +30,8 @@ const fallbackPolicies: Record<string, Omit<ResolvedToolPolicy, "toolName">> = {
   "timeline.listEvents": { riskLevel: "read", requiresConfirmation: false, enabled: true },
   "lore.listNodes": { riskLevel: "read", requiresConfirmation: false, enabled: true },
   "lore.getNode": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "lore.searchNodes": { riskLevel: "read", requiresConfirmation: false, enabled: true },
+  "lore.getRootDescriptions": { riskLevel: "read", requiresConfirmation: false, enabled: true },
   "chapter.create": { riskLevel: "write", requiresConfirmation: true, enabled: true },
   "chapter.updateMeta": { riskLevel: "write", requiresConfirmation: true, enabled: true },
   "chapter.updateContent": { riskLevel: "write", requiresConfirmation: true, enabled: true },
