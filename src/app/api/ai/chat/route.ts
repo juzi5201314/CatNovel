@@ -15,6 +15,7 @@ import {
 import { parseThinkingBudget, resolveProjectSystemPrompt } from "@/core/llm";
 import { executeManagedTool } from "@/core/tools/tool-execution-service";
 import { fail, internalError, parseJsonBody } from "@/lib/http/api-response";
+import { WorldbuildingRepository } from "@/repositories/worldbuilding-repository";
 
 type ChatRole = "system" | "user" | "assistant";
 
@@ -252,15 +253,37 @@ function toModelInputMessages(messages: UIMessage[]): Array<Omit<UIMessage, "id"
   }));
 }
 
+function buildWorldbuildingContext(projectId: string): string {
+  try {
+    const repo = new WorldbuildingRepository();
+    const rootNodes = repo.getRootNodes(projectId);
+    if (rootNodes.length === 0) return "";
+
+    const sections = rootNodes
+      .filter((n) => n.description.trim().length > 0)
+      .map((n) => `## ${n.name}\n${n.description}`)
+      .join("\n\n");
+
+    if (!sections) return "";
+    return `\n\n# \u4e16\u754c\u89c2\u8bbe\u5b9a\uff08\u81ea\u52a8\u6ce8\u5165\uff09\n\n${sections}`;
+  } catch {
+    return "";
+  }
+}
+
 function toChatSystemPrompt(projectId: string): string {
+  const worldbuildingContext = buildWorldbuildingContext(projectId);
+
   return [
     resolveProjectSystemPrompt(projectId),
-    "你是 CatNovel 的写作助理。可以使用内置工具查询章节、时间线、设定、快照与审批信息。",
-    "凡是涉及项目事实数据的问题，优先调用工具再回答，不要编造。",
-    "当工具返回 requires_approval 时，提示用户在当前聊天中的审批卡片完成同意/拒绝/微调。",
-    "当用户要求“列出可用工具”时，必须调用 system.listTools。",
-    "当用户询问“有多少章/几章”时，必须调用 chapter.list 后根据 count 回答。",
-    "当用户询问设定集内容时，必须调用 lore.listNodes。",
+    "\u4f60\u662f CatNovel \u7684\u5199\u4f5c\u52a9\u7406\u3002\u53ef\u4ee5\u4f7f\u7528\u5185\u7f6e\u5de5\u5177\u67e5\u8be2\u7ae0\u8282\u3001\u65f6\u95f4\u7ebf\u3001\u8bbe\u5b9a\u3001\u5feb\u7167\u4e0e\u5ba1\u6279\u4fe1\u606f\u3002",
+    "\u51e1\u662f\u6d89\u53ca\u9879\u76ee\u4e8b\u5b9e\u6570\u636e\u7684\u95ee\u9898\uff0c\u4f18\u5148\u8c03\u7528\u5de5\u5177\u518d\u56de\u7b54\uff0c\u4e0d\u8981\u7f16\u9020\u3002",
+    "\u5f53\u5de5\u5177\u8fd4\u56de requires_approval \u65f6\uff0c\u63d0\u793a\u7528\u6237\u5728\u5f53\u524d\u804a\u5929\u4e2d\u7684\u5ba1\u6279\u5361\u7247\u5b8c\u6210\u540c\u610f/\u62d2\u7edd/\u5fae\u8c03\u3002",
+    "\u5f53\u7528\u6237\u8981\u6c42\u201c\u5217\u51fa\u53ef\u7528\u5de5\u5177\u201d\u65f6\uff0c\u5fc5\u987b\u8c03\u7528 system.listTools\u3002",
+    "\u5f53\u7528\u6237\u8be2\u95ee\u201c\u6709\u591a\u5c11\u7ae0/\u51e0\u7ae0\u201d\u65f6\uff0c\u5fc5\u987b\u8c03\u7528 chapter.list \u540e\u6839\u636e count \u56de\u7b54\u3002",
+    "\u5f53\u7528\u6237\u8be2\u95ee\u8bbe\u5b9a\u96c6\u5185\u5bb9\u65f6\uff0c\u5fc5\u987b\u8c03\u7528 lore.listNodes\u3002",
+    "\u4f60\u53ef\u4ee5\u4f7f\u7528 lore.searchNodes \u5de5\u5177\u6309\u5173\u952e\u8bcd\u641c\u7d22\u6df1\u5c42\u8bbe\u5b9a\u8282\u70b9\u3002",
+    worldbuildingContext,
   ].join("\n\n");
 }
 
@@ -298,7 +321,7 @@ function renderForcedToolFallback(
     if (count === null) {
       return null;
     }
-    return `当前项目共有 ${count} 章。`;
+    return `\u5f53\u524d\u9879\u76ee\u5171\u6709 ${count} \u7ae0\u3002`;
   }
 
   if (forcedToolName === "system.listTools") {
@@ -324,7 +347,7 @@ function renderForcedToolFallback(
     }
 
     const count = asNumber(record.count) ?? tools.length;
-    return [`当前可用工具共 ${count} 个：`, ...tools].join("\n");
+    return [`\u5f53\u524d\u53ef\u7528\u5de5\u5177\u5171 ${count} \u4e2a\uff1a`, ...tools].join("\n");
   }
 
   if (forcedToolName === "lore.listNodes") {
@@ -339,49 +362,38 @@ function renderForcedToolFallback(
             if (!name) {
               return null;
             }
-            const type = asString(row.type) ?? "other";
             const description = asString(row.description) ?? "";
-            const aliases = Array.isArray(row.aliases)
-              ? row.aliases
-                  .map((aliasItem) => {
-                    const alias = asRecord(aliasItem);
-                    const aliasText = asString(alias?.alias);
-                    return aliasText && aliasText.trim().length > 0 ? aliasText : null;
-                  })
-                  .filter((item): item is string => item !== null)
-              : [];
+            const parentId = asString(row.parentId);
             return {
               name,
-              type,
               description,
-              aliases,
+              parentId,
             };
           })
           .filter(
             (
               item,
-            ): item is { name: string; type: string; description: string; aliases: string[] } =>
+            ): item is { name: string; description: string; parentId: string | null } =>
               item !== null,
           )
       : [];
 
     if (nodes.length === 0) {
-      return "当前设定集暂无条目。";
+      return "\u5f53\u524d\u8bbe\u5b9a\u96c6\u6682\u65e0\u6761\u76ee\u3002";
     }
 
     const maxRows = Math.min(nodes.length, 30);
     const lines = nodes.slice(0, maxRows).map((node, index) => {
-      const aliasText =
-        node.aliases.length > 0
-          ? `；别名：${node.aliases.slice(0, 3).join("、")}`
-          : "";
+      const depthLabel = node.parentId ? "\u5b50\u8282\u70b9" : "\u6839\u8282\u70b9";
       const descText =
-        node.description.trim().length > 0 ? `；描述：${node.description.trim()}` : "";
-      return `${index + 1}. ${node.name}（${node.type}）${aliasText}${descText}`;
+        node.description.trim().length > 0
+          ? `\uff1b\u63cf\u8ff0\uff1a${node.description.trim().slice(0, 100)}`
+          : "";
+      return `${index + 1}. ${node.name}\uff08${depthLabel}\uff09${descText}`;
     });
     const total = asNumber(record.count) ?? nodes.length;
-    const suffix = total > maxRows ? `\n仅展示前 ${maxRows} 条，共 ${total} 条。` : "";
-    return [`当前设定集共有 ${total} 条：`, ...lines].join("\n") + suffix;
+    const suffix = total > maxRows ? `\n\u4ec5\u5c55\u793a\u524d ${maxRows} \u6761\uff0c\u5171 ${total} \u6761\u3002` : "";
+    return [`\u5f53\u524d\u8bbe\u5b9a\u96c6\u5171\u6709 ${total} \u4e2a\u8282\u70b9\uff1a`, ...lines].join("\n") + suffix;
   }
 
   return null;
@@ -408,8 +420,8 @@ async function streamForcedToolResponse(input: {
 
   const text =
     toolResult.status === "executed"
-      ? renderForcedToolFallback(input.forcedToolName, toolResult.result) ?? "工具调用已完成。"
-      : `该工具调用需要审批，请在当前聊天中的审批卡片处理后再继续。approvalId=${toolResult.approvalId}`;
+      ? renderForcedToolFallback(input.forcedToolName, toolResult.result) ?? "\u5de5\u5177\u8c03\u7528\u5df2\u5b8c\u6210\u3002"
+      : `\u8be5\u5de5\u5177\u8c03\u7528\u9700\u8981\u5ba1\u6279\uff0c\u8bf7\u5728\u5f53\u524d\u804a\u5929\u4e2d\u7684\u5ba1\u6279\u5361\u7247\u5904\u7406\u540e\u518d\u7ee7\u7eed\u3002approvalId=${toolResult.approvalId}`;
 
   const stream = createUIMessageStream({
     execute: ({ writer }) => {
@@ -467,7 +479,6 @@ export async function POST(request: Request): Promise<Response> {
       toolChoice: "auto",
       temperature: runtime.callSettings.temperature,
       maxOutputTokens: runtime.callSettings.maxOutputTokens,
-      // 注意：当前网关会拒绝 previous_response_id，providerOptions 中禁止注入 previousResponseId。
       providerOptions: runtime.callSettings.providerOptions,
       stopWhen: stepCountIs(8),
       maxRetries: 0,

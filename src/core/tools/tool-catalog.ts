@@ -132,9 +132,8 @@ const TOOL_CATALOG: ToolCatalogItem[] = [
   {
     toolName: "lore.listNodes",
     riskLevel: "read",
-    description: "获取设定节点列表。",
+    description: "获取设定集树形节点列表，支持按关键词搜索。",
     parameters: objectSchema({
-      type: stringEnum(["character", "location", "item", "organization", "concept", "other"]),
       query: STRING,
       limit: INTEGER,
     }),
@@ -142,12 +141,29 @@ const TOOL_CATALOG: ToolCatalogItem[] = [
   {
     toolName: "lore.getNode",
     riskLevel: "read",
-    description: "获取设定节点详情。",
+    description: "获取设定节点详情及其子节点。",
     parameters: objectSchema({
       nodeId: STRING,
-      entityId: STRING,
-      nameOrAlias: STRING,
+      name: STRING,
     }),
+  },
+  {
+    toolName: "lore.searchNodes",
+    riskLevel: "read",
+    description: "按关键词搜索设定节点名称和描述。",
+    parameters: objectSchema(
+      {
+        query: STRING,
+        limit: INTEGER,
+      },
+      ["query"],
+    ),
+  },
+  {
+    toolName: "lore.getRootDescriptions",
+    riskLevel: "read",
+    description: "获取一级设定节点的描述（世界观上下文）。",
+    parameters: objectSchema({}, [], false),
   },
   {
     toolName: "rag.search",
@@ -316,11 +332,9 @@ const TOOL_CATALOG: ToolCatalogItem[] = [
     parameters: objectSchema(
       {
         nodeId: STRING,
-        entityId: STRING,
         name: STRING,
-        type: stringEnum(["character", "location", "item", "organization", "concept", "other"]),
-        aliases: stringArray(),
         description: STRING,
+        parentId: STRING,
       },
       ["name"],
     ),
@@ -328,12 +342,13 @@ const TOOL_CATALOG: ToolCatalogItem[] = [
   {
     toolName: "lore.deleteNode",
     riskLevel: "write",
-    description: "删除设定节点（需要审批）。",
-    parameters: objectSchema({
-      nodeId: STRING,
-      entityId: STRING,
-      nameOrAlias: STRING,
-    }),
+    description: "删除设定节点及其所有子节点（需要审批）。",
+    parameters: objectSchema(
+      {
+        nodeId: STRING,
+      },
+      ["nodeId"],
+    ),
   },
   {
     toolName: "rag.reindex",

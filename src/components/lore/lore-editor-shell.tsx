@@ -1,652 +1,849 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-type LoreNodeType =
-  | "character"
-  | "location"
-  | "item"
-  | "organization"
-  | "concept"
-  | "other";
+import { MarkdownPreview } from "@/components/lore/markdown-renderer";
 
-type LoreNode = {
+type WorldbuildingNode = {
   id: string;
+  projectId: string;
+  parentId: string | null;
   name: string;
-  type: LoreNodeType;
-  description: string | null;
-  aliases: string[];
+  description: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
-type ToolExecutionData =
-  {
-    status: "executed";
-    result: unknown;
-  };
-
-type ApiSuccess<T> = {
-  success: true;
-  data: T;
+type TreeNode = WorldbuildingNode & {
+  children: TreeNode[];
+  depth: number;
 };
-
-type ApiFailure = {
-  success: false;
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-};
-
-type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
 type LoreEditorShellProps = {
   projectId: string | null;
 };
 
-const LORE_TYPE_OPTIONS: Array<{ value: LoreNodeType; label: string }> = [
-  { value: "character", label: "角色" },
-  { value: "location", label: "地点" },
-  { value: "item", label: "物品" },
-  { value: "organization", label: "组织" },
-  { value: "concept", label: "概念" },
-  { value: "other", label: "其他" },
-];
+type ApiSuccess<T> = { success: true; data: T };
+type ApiFailure = { success: false; error: { code: string; message: string } };
+type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : null;
-}
-
-function normalizeNodeType(value: unknown): LoreNodeType {
-  if (
-    value === "character" ||
-    value === "location" ||
-    value === "item" ||
-    value === "organization" ||
-    value === "concept"
-  ) {
-    return value;
-  }
-  return "other";
-}
-
-function normalizeAliases(input: unknown): string[] {
-  if (!Array.isArray(input)) {
-    return [];
-  }
-
-  const aliases: string[] = [];
-  for (const item of input) {
-    if (typeof item === "string") {
-      const alias = item.trim();
-      if (alias.length > 0) {
-        aliases.push(alias);
-      }
-      continue;
-    }
-    if (!isRecord(item)) {
-      continue;
-    }
-    const alias = asString(item.alias);
-    if (alias) {
-      aliases.push(alias);
-    }
-  }
-
-  return [...new Set(aliases)];
-}
-
-function normalizeLoreNode(input: unknown): LoreNode | null {
-  if (!isRecord(input)) {
-    return null;
-  }
-
-  const id = asString(input.id);
-  const name = asString(input.name);
-  if (!id || !name) {
-    return null;
-  }
-
-  return {
-    id,
-    name,
-    type: normalizeNodeType(input.type),
-    description: typeof input.description === "string" ? input.description : null,
-    aliases: normalizeAliases(input.aliases),
-  };
-}
-
-function normalizeLoreNodes(input: unknown): LoreNode[] {
-  if (!isRecord(input) || !Array.isArray(input.nodes)) {
-    return [];
-  }
-
-  return input.nodes
-    .map((item) => normalizeLoreNode(item))
-    .filter((item): item is LoreNode => item !== null);
-}
-
-function extractNodeIdFromUpsertResult(input: unknown): string | null {
-  if (!isRecord(input)) {
-    return null;
-  }
-
-  if (isRecord(input.node)) {
-    return asString(input.node.id);
-  }
-  return null;
-}
-
-function parseToolExecutionData(input: unknown): ToolExecutionData {
-  if (!isRecord(input)) {
-    throw new Error("工具响应格式不正确");
-  }
-
-  if (input.status === "executed") {
-    return {
-      status: "executed",
-      result: input.result,
-    };
-  }
-
-  if (input.status === "requires_approval") {
-    throw new Error("前端用户操作不应进入审批队列");
-  }
-
-  throw new Error("未知工具执行状态");
-}
-
-function toErrorMessage(reason: unknown, fallback: string): string {
-  if (reason instanceof Error) {
-    return reason.message;
-  }
-  if (typeof reason === "string" && reason.trim().length > 0) {
-    return reason;
-  }
-  return fallback;
-}
-
-async function parseApiData<T>(response: Response): Promise<T> {
+async function apiRequest<T>(
+  url: string,
+  options?: RequestInit,
+): Promise<T> {
+  const response = await fetch(url, {
+    headers: { "content-type": "application/json", ...options?.headers },
+    ...options,
+  });
   const payload = (await response.json()) as ApiResult<T>;
   if (!response.ok || !payload.success) {
-    if (!payload.success) {
-      throw new Error(payload.error.message);
-    }
-    throw new Error("request failed");
+    if (!payload.success) throw new Error(payload.error.message);
+    throw new Error("Request failed");
   }
   return payload.data;
 }
 
-function parseAliasesInput(raw: string): string[] {
-  return [...new Set(raw.split(/[\n,，]/).map((item) => item.trim()).filter((item) => item.length > 0))];
+function buildTree(nodes: WorldbuildingNode[]): TreeNode[] {
+  const map = new Map<string, TreeNode>();
+  const roots: TreeNode[] = [];
+
+  for (const node of nodes) {
+    map.set(node.id, { ...node, children: [], depth: 0 });
+  }
+
+  for (const node of nodes) {
+    const treeNode = map.get(node.id)!;
+    if (node.parentId && map.has(node.parentId)) {
+      const parent = map.get(node.parentId)!;
+      treeNode.depth = parent.depth + 1;
+      parent.children.push(treeNode);
+    } else {
+      roots.push(treeNode);
+    }
+  }
+
+  function fixDepth(node: TreeNode, depth: number) {
+    node.depth = depth;
+    for (const child of node.children) {
+      fixDepth(child, depth + 1);
+    }
+  }
+  for (const root of roots) {
+    fixDepth(root, 0);
+  }
+
+  function sortChildren(nodeList: TreeNode[]) {
+    nodeList.sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const node of nodeList) {
+      sortChildren(node.children);
+    }
+  }
+  sortChildren(roots);
+
+  return roots;
+}
+
+function flattenTree(roots: TreeNode[]): TreeNode[] {
+  const result: TreeNode[] = [];
+  function walk(nodes: TreeNode[]) {
+    for (const node of nodes) {
+      result.push(node);
+      walk(node.children);
+    }
+  }
+  walk(roots);
+  return result;
+}
+
+function ChevronRight({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PlusIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MoveUpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M7 11V3M4 6l3-3 3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MoveDownIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M7 3v8M4 8l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+type TreeNodeRowProps = {
+  node: TreeNode;
+  isSelected: boolean;
+  isExpanded: boolean;
+  hasChildren: boolean;
+  onSelect: (id: string) => void;
+  onToggleExpand: (id: string) => void;
+  onAddChild: (parentId: string) => void;
+};
+
+function TreeNodeRow({
+  node,
+  isSelected,
+  isExpanded,
+  hasChildren,
+  onSelect,
+  onToggleExpand,
+  onAddChild,
+}: TreeNodeRowProps) {
+  const paddingLeft = 12 + node.depth * 20;
+  const isRoot = node.depth === 0;
+
+  return (
+    <div
+      role="treeitem"
+      aria-selected={isSelected}
+      aria-expanded={hasChildren ? isExpanded : undefined}
+      className={[
+        "group flex items-center gap-1 cursor-pointer transition-all rounded-md",
+        "hover:bg-muted/80",
+        isSelected
+          ? "bg-accent text-accent-foreground shadow-sm"
+          : "text-foreground",
+      ].join(" ")}
+      style={{ paddingLeft: `${paddingLeft}px`, paddingRight: "8px" }}
+      onClick={() => onSelect(node.id)}
+    >
+      <button
+        type="button"
+        className={[
+          "flex-shrink-0 w-5 h-5 flex items-center justify-center rounded transition-transform",
+          hasChildren ? "visible" : "invisible",
+          isSelected ? "text-accent-foreground/80" : "text-muted-foreground",
+        ].join(" ")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleExpand(node.id);
+        }}
+        tabIndex={-1}
+      >
+        <ChevronRight
+          className={`transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`}
+        />
+      </button>
+
+      <span
+        className={[
+          "flex-1 truncate py-2 text-sm",
+          isRoot ? "font-semibold" : "font-normal",
+          isSelected ? "" : "text-foreground",
+        ].join(" ")}
+        title={node.name}
+      >
+        {node.name}
+      </span>
+
+      <button
+        type="button"
+        className={[
+          "flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-opacity",
+          "opacity-0 group-hover:opacity-100 hover:bg-black/10",
+          isSelected ? "text-accent-foreground/80" : "text-muted-foreground",
+        ].join(" ")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onAddChild(node.id);
+        }}
+        title="添加子节点"
+        tabIndex={-1}
+      >
+        <PlusIcon />
+      </button>
+    </div>
+  );
 }
 
 export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
-  const [nodes, setNodes] = useState<LoreNode[]>([]);
+  const [nodes, setNodes] = useState<WorldbuildingNode[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-
-  const [queryInput, setQueryInput] = useState("");
-  const [appliedQuery, setAppliedQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<LoreNodeType | "all">("all");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const [draftName, setDraftName] = useState("");
-  const [draftType, setDraftType] = useState<LoreNodeType>("character");
-  const [draftAliases, setDraftAliases] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
+  const [previewMode, setPreviewMode] = useState(false);
 
-  const [loadingNodes, setLoadingNodes] = useState(false);
-  const [savingNode, setSavingNode] = useState(false);
-  const [deletingNode, setDeletingNode] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
-  const isCreatingRef = useRef<boolean>(isCreating);
-  const loadRequestSeqRef = useRef(0);
+  const [creatingChildOf, setCreatingChildOf] = useState<string | null | undefined>(undefined);
+  const [newNodeName, setNewNodeName] = useState("");
+
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const lastProjectIdRef = useRef<string | null>(projectId);
+  const loadSeqRef = useRef(0);
 
-  useEffect(() => {
-    selectedNodeIdRef.current = selectedNodeId;
-  }, [selectedNodeId]);
-
-  useEffect(() => {
-    isCreatingRef.current = isCreating;
-  }, [isCreating]);
+  const tree = useMemo(() => buildTree(nodes), [nodes]);
+  const flat = useMemo(() => flattenTree(tree), [tree]);
 
   const selectedNode = useMemo(
-    () => nodes.find((node) => node.id === selectedNodeId) ?? null,
+    () => nodes.find((n) => n.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId],
   );
 
-  const resetDraft = useCallback(() => {
-    setDraftName("");
-    setDraftType("character");
-    setDraftAliases("");
-    setDraftDescription("");
-  }, []);
-
-  const applyNodeToDraft = useCallback((node: LoreNode) => {
-    setDraftName(node.name);
-    setDraftType(node.type);
-    setDraftAliases(node.aliases.join(", "));
-    setDraftDescription(node.description ?? "");
-  }, []);
+  const selectedTreeNode = useMemo(
+    () => flat.find((n) => n.id === selectedNodeId) ?? null,
+    [flat, selectedNodeId],
+  );
 
   useEffect(() => {
-    if (lastProjectIdRef.current === projectId) {
-      return;
-    }
+    if (lastProjectIdRef.current === projectId) return;
     lastProjectIdRef.current = projectId;
+    setNodes([]);
+    setSelectedNodeId(null);
+    setExpandedIds(new Set());
     setError(null);
     setNotice(null);
-    setSelectedNodeId(null);
-    setIsCreating(false);
-    resetDraft();
-  }, [projectId, resetDraft]);
-
-  const executeTool = useCallback(
-    async (input: {
-      projectId: string;
-      toolName: "lore.listNodes" | "lore.upsertNode" | "lore.deleteNode";
-      args?: unknown;
-    }): Promise<ToolExecutionData> => {
-      const response = await fetch("/api/tools/execute", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          ...input,
-          caller: "user",
-        }),
-      });
-      const data = await parseApiData<unknown>(response);
-      return parseToolExecutionData(data);
-    },
-    [],
-  );
+    setDraftName("");
+    setDraftDescription("");
+    setPreviewMode(false);
+    setCreatingChildOf(undefined);
+  }, [projectId]);
 
   const loadNodes = useCallback(async () => {
     if (!projectId) {
       setNodes([]);
-      setSelectedNodeId(null);
-      setIsCreating(false);
-      resetDraft();
       return;
     }
 
-    const requestId = ++loadRequestSeqRef.current;
-
-    setLoadingNodes(true);
+    const seq = ++loadSeqRef.current;
+    setLoading(true);
     setError(null);
+
     try {
-      const args: Record<string, unknown> = {
-        limit: 200,
-      };
-      if (appliedQuery.length > 0) {
-        args.query = appliedQuery;
+      const data = await apiRequest<{ nodes: WorldbuildingNode[] }>(
+        `/api/projects/${projectId}/worldbuilding`,
+      );
+      if (seq !== loadSeqRef.current) return;
+      setNodes(data.nodes);
+
+      if (data.nodes.length > 0 && !selectedNodeId) {
+        const roots = data.nodes.filter((n) => !n.parentId).sort((a, b) => a.sortOrder - b.sortOrder);
+        const firstRoot = roots[0] ?? data.nodes[0]!;
+        setSelectedNodeId(firstRoot.id);
+        setDraftName(firstRoot.name);
+        setDraftDescription(firstRoot.description);
+        setExpandedIds(new Set(roots.map((n) => n.id)));
       }
-      if (typeFilter !== "all") {
-        args.type = typeFilter;
-      }
-
-      const execution = await executeTool({
-        projectId,
-        toolName: "lore.listNodes",
-        args,
-      });
-
-      if (requestId !== loadRequestSeqRef.current) {
-        return;
-      }
-
-      const nextNodes = normalizeLoreNodes(execution.result);
-      setNodes(nextNodes);
-
-      if (isCreatingRef.current) {
-        return;
-      }
-
-      const currentSelectedId = selectedNodeIdRef.current;
-      if (currentSelectedId && nextNodes.some((item) => item.id === currentSelectedId)) {
-        return;
-      }
-
-      const fallbackNode = nextNodes[0];
-      if (!fallbackNode) {
-        setSelectedNodeId(null);
-        resetDraft();
-        return;
-      }
-
-      setSelectedNodeId(fallbackNode.id);
-      applyNodeToDraft(fallbackNode);
     } catch (reason) {
-      if (requestId === loadRequestSeqRef.current) {
-        setError(toErrorMessage(reason, "设定节点加载失败"));
-      }
+      if (seq !== loadSeqRef.current) return;
+      setError(reason instanceof Error ? reason.message : "加载设定集失败");
     } finally {
-      if (requestId === loadRequestSeqRef.current) {
-        setLoadingNodes(false);
-      }
+      if (seq === loadSeqRef.current) setLoading(false);
     }
-  }, [appliedQuery, applyNodeToDraft, executeTool, projectId, resetDraft, typeFilter]);
+  }, [projectId, selectedNodeId]);
 
   useEffect(() => {
     if (!projectId) {
       setNodes([]);
       setSelectedNodeId(null);
-      setIsCreating(false);
-      setLoadingNodes(false);
-      setSavingNode(false);
-      setDeletingNode(false);
+      setLoading(false);
+      return;
+    }
+    void loadNodes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  const selectNode = useCallback(
+    (nodeId: string) => {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+      setSelectedNodeId(nodeId);
+      setDraftName(node.name);
+      setDraftDescription(node.description);
+      setPreviewMode(false);
+      setCreatingChildOf(undefined);
       setError(null);
       setNotice(null);
-      resetDraft();
-      return;
-    }
+    },
+    [nodes],
+  );
 
-    void loadNodes();
-  }, [loadNodes, projectId, resetDraft]);
+  const toggleExpand = useCallback((nodeId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }, []);
 
-  async function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setAppliedQuery(queryInput.trim());
-  }
-
-  function handleCreateNode() {
-    setIsCreating(true);
-    setSelectedNodeId(null);
-    resetDraft();
+  const startCreateChild = useCallback((parentId: string | null) => {
+    setCreatingChildOf(parentId);
+    setNewNodeName("");
     setError(null);
-    setNotice("已切换到新建设定节点。");
-  }
-
-  function handleSelectNode(node: LoreNode) {
-    setIsCreating(false);
-    setSelectedNodeId(node.id);
-    applyNodeToDraft(node);
-    setError(null);
-  }
-
-  async function handleSaveNode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!projectId) {
-      return;
+    setNotice(null);
+    if (parentId) {
+      setExpandedIds((prev) => new Set(prev).add(parentId));
     }
+  }, []);
 
-    const name = draftName.trim();
-    if (name.length === 0) {
+  const cancelCreate = useCallback(() => {
+    setCreatingChildOf(undefined);
+    setNewNodeName("");
+  }, []);
+
+  async function handleCreateNode(e?: FormEvent) {
+    e?.preventDefault();
+    if (!projectId) return;
+
+    const name = newNodeName.trim();
+    if (!name) {
       setError("节点名称不能为空");
       return;
     }
 
-    setSavingNode(true);
+    const parentId = creatingChildOf === undefined ? null : creatingChildOf;
+
+    setSaving(true);
     setError(null);
-    setNotice(null);
-
-    const args: Record<string, unknown> = {
-      name,
-      type: draftType,
-      aliases: parseAliasesInput(draftAliases),
-      description: draftDescription.trim().length > 0 ? draftDescription.trim() : null,
-    };
-    if (!isCreating && selectedNodeId) {
-      args.nodeId = selectedNodeId;
-    }
-
     try {
-      const execution = await executeTool({
-        projectId,
-        toolName: "lore.upsertNode",
-        args,
-      });
+      const created = await apiRequest<WorldbuildingNode>(
+        `/api/projects/${projectId}/worldbuilding`,
+        {
+          method: "POST",
+          body: JSON.stringify({ parentId, name }),
+        },
+      );
+      setCreatingChildOf(undefined);
+      setNewNodeName("");
+      setNotice(`节点「${created.name}」已创建`);
 
-      const nodeId = extractNodeIdFromUpsertResult(execution.result);
-      if (nodeId) {
-        setSelectedNodeId(nodeId);
+      await loadNodes();
+      setSelectedNodeId(created.id);
+      setDraftName(created.name);
+      setDraftDescription(created.description);
+      if (parentId) {
+        setExpandedIds((prev) => new Set(prev).add(parentId));
       }
-      setIsCreating(false);
-      setNotice("设定节点已保存。");
-      await loadNodes();
     } catch (reason) {
-      setError(toErrorMessage(reason, "设定节点保存失败"));
+      setError(reason instanceof Error ? reason.message : "创建节点失败");
     } finally {
-      setSavingNode(false);
+      setSaving(false);
     }
   }
 
-  async function handleDeleteNode() {
-    if (!projectId || !selectedNode) {
-      return;
-    }
-    if (!window.confirm(`确认删除节点「${selectedNode.name}」吗？此操作不可撤销。`)) {
+  async function handleSave(e: FormEvent) {
+    e.preventDefault();
+    if (!projectId || !selectedNodeId) return;
+
+    const name = draftName.trim();
+    if (!name) {
+      setError("节点名称不能为空");
       return;
     }
 
-    setDeletingNode(true);
+    setSaving(true);
     setError(null);
     setNotice(null);
-
-    const args = {
-      nodeId: selectedNode.id,
-    };
-
     try {
-      await executeTool({
-        projectId,
-        toolName: "lore.deleteNode",
-        args,
-      });
-
-      setIsCreating(true);
-      setSelectedNodeId(null);
-      resetDraft();
-      setNotice("设定节点已删除。");
+      await apiRequest<WorldbuildingNode>(
+        `/api/projects/${projectId}/worldbuilding/${selectedNodeId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ name, description: draftDescription }),
+        },
+      );
+      setNotice("设定已保存");
       await loadNodes();
     } catch (reason) {
-      setError(toErrorMessage(reason, "设定节点删除失败"));
+      setError(reason instanceof Error ? reason.message : "保存失败");
     } finally {
-      setDeletingNode(false);
+      setSaving(false);
     }
   }
+
+  async function handleDelete() {
+    if (!projectId || !selectedNode) return;
+    const childCount = flat.filter(
+      (n) => n.id !== selectedNode.id && isDescendant(flat, selectedNode.id, n.id),
+    ).length;
+    const extra = childCount > 0 ? `（包含 ${childCount} 个子节点）` : "";
+    if (!window.confirm(`确认删除「${selectedNode.name}」${extra}？此操作不可撤销。`)) return;
+
+    setDeleting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await apiRequest<{ deleted: boolean }>(
+        `/api/projects/${projectId}/worldbuilding/${selectedNode.id}`,
+        { method: "DELETE" },
+      );
+      setNotice(`「${selectedNode.name}」已删除`);
+      setSelectedNodeId(null);
+      setDraftName("");
+      setDraftDescription("");
+      await loadNodes();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "删除失败");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleMoveUp() {
+    if (!projectId || !selectedTreeNode) return;
+    const siblings = getSiblings(flat, selectedTreeNode);
+    const idx = siblings.findIndex((n) => n.id === selectedTreeNode.id);
+    if (idx <= 0) return;
+    const ids = siblings.map((n) => n.id);
+    [ids[idx - 1], ids[idx]] = [ids[idx]!, ids[idx - 1]!];
+    await doReorder(selectedTreeNode.parentId, ids);
+  }
+
+  async function handleMoveDown() {
+    if (!projectId || !selectedTreeNode) return;
+    const siblings = getSiblings(flat, selectedTreeNode);
+    const idx = siblings.findIndex((n) => n.id === selectedTreeNode.id);
+    if (idx < 0 || idx >= siblings.length - 1) return;
+    const ids = siblings.map((n) => n.id);
+    [ids[idx], ids[idx + 1]] = [ids[idx + 1]!, ids[idx]!];
+    await doReorder(selectedTreeNode.parentId, ids);
+  }
+
+  async function doReorder(parentId: string | null, orderedIds: string[]) {
+    if (!projectId) return;
+    setError(null);
+    try {
+      await apiRequest<{ nodes: WorldbuildingNode[] }>(
+        `/api/projects/${projectId}/worldbuilding/reorder`,
+        {
+          method: "POST",
+          body: JSON.stringify({ parentId, orderedIds }),
+        },
+      );
+      await loadNodes();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "排序失败");
+    }
+  }
+
+  function handleNewNodeKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void handleCreateNode();
+    }
+    if (e.key === "Escape") {
+      cancelCreate();
+    }
+  }
+
+  function renderTreeNodes(treeNodes: TreeNode[]): ReactNode[] {
+    const result: ReactNode[] = [];
+
+    for (const node of treeNodes) {
+      const hasChildren = node.children.length > 0;
+      const isExpanded = expandedIds.has(node.id);
+      const isSelected = node.id === selectedNodeId;
+
+      result.push(
+        <TreeNodeRow
+          key={node.id}
+          node={node}
+          isSelected={isSelected}
+          isExpanded={isExpanded}
+          hasChildren={hasChildren}
+          onSelect={selectNode}
+          onToggleExpand={toggleExpand}
+          onAddChild={(parentId) => startCreateChild(parentId)}
+        />,
+      );
+
+      if (creatingChildOf === node.id) {
+        result.push(
+          <div
+            key={`create-${node.id}`}
+            className="flex items-center gap-1 py-1"
+            style={{ paddingLeft: `${12 + (node.depth + 1) * 20}px`, paddingRight: "8px" }}
+          >
+            <input
+              autoFocus
+              className="flex-1 text-sm px-2 py-1 rounded border border-accent bg-background"
+              placeholder="输入节点名称..."
+              value={newNodeName}
+              onChange={(e) => setNewNodeName(e.target.value)}
+              onKeyDown={handleNewNodeKeyDown}
+              disabled={saving}
+            />
+            <button
+              type="button"
+              className="primary text-xs px-2 py-1"
+              onClick={() => void handleCreateNode()}
+              disabled={saving || !newNodeName.trim()}
+            >
+              {saving ? "..." : "确定"}
+            </button>
+            <button
+              type="button"
+              className="text-xs px-2 py-1"
+              onClick={cancelCreate}
+              disabled={saving}
+            >
+              取消
+            </button>
+          </div>,
+        );
+      }
+
+      if (hasChildren && isExpanded) {
+        result.push(...renderTreeNodes(node.children));
+      }
+    }
+
+    return result;
+  }
+
+  const canMoveUp = selectedTreeNode
+    ? getSiblings(flat, selectedTreeNode).findIndex((n) => n.id === selectedTreeNode.id) > 0
+    : false;
+
+  const canMoveDown = selectedTreeNode
+    ? (() => {
+        const siblings = getSiblings(flat, selectedTreeNode);
+        const idx = siblings.findIndex((n) => n.id === selectedTreeNode.id);
+        return idx >= 0 && idx < siblings.length - 1;
+      })()
+    : false;
 
   return (
     <div className="flex flex-col h-full bg-background animate-in fade-in duration-500">
-      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border px-8 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border px-6 py-4 flex items-center justify-between">
         <div className="space-y-0.5">
-          <h1 className="text-xl font-semibold tracking-tight">设定集编辑器</h1>
+          <h1 className="text-xl font-semibold tracking-tight">设定集</h1>
           <p className="text-xs text-muted-foreground">
-            管理角色、地点、组织、概念等设定节点
+            树形管理世界观、角色、地点等设定 — 一级节点将在对话中自动注入
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => void loadNodes()} disabled={loadingNodes || !projectId}>
-            {loadingNodes ? "刷新中..." : "刷新"}
-          </button>
-          <button type="button" className="primary" onClick={handleCreateNode} disabled={!projectId}>
-            新建节点
+          <button
+            type="button"
+            onClick={() => void loadNodes()}
+            disabled={loading || !projectId}
+          >
+            {loading ? "刷新中..." : "刷新"}
           </button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-8 py-6 custom-scrollbar bg-muted/10">
+      <div className="flex-1 overflow-hidden">
         {!projectId ? (
-          <div className="max-w-4xl mx-auto cn-panel">
-            <h2 className="cn-card-title">暂无项目</h2>
-            <p className="cn-card-description">请先在左侧选择或创建项目，再编辑设定集。</p>
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center cn-panel max-w-md">
+              <h2 className="cn-card-title">暂无项目</h2>
+              <p className="cn-card-description">请先在左侧选择或创建项目，再编辑设定集。</p>
+            </div>
           </div>
         ) : (
-          <div className="max-w-6xl mx-auto space-y-4">
-            <section className="cn-panel">
-              <form className="flex flex-wrap items-end gap-3" onSubmit={handleSearchSubmit}>
-                <label className="flex-1 min-w-[220px]">
-                  <span className="block text-xs text-muted-foreground mb-1">关键词</span>
-                  <input
-                    value={queryInput}
-                    onChange={(event) => setQueryInput(event.target.value)}
-                    placeholder="按名称或别名搜索"
-                  />
-                </label>
-                <label className="w-[180px]">
-                  <span className="block text-xs text-muted-foreground mb-1">节点类型</span>
-                  <select
-                    value={typeFilter}
-                    onChange={(event) => {
-                      const nextValue = event.target.value as LoreNodeType | "all";
-                      setTypeFilter(nextValue);
-                    }}
-                  >
-                    <option value="all">全部类型</option>
-                    {LORE_TYPE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button type="submit">应用筛选</button>
-              </form>
-            </section>
+          <div className="flex h-full">
+            {/* Tree Panel */}
+            <div className="w-72 min-w-[260px] border-r border-border flex flex-col h-full">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  节点树
+                </span>
+                <button
+                  type="button"
+                  className="h-7 w-7 p-0 flex items-center justify-center rounded-md hover:bg-muted"
+                  onClick={() => startCreateChild(null)}
+                  title="添加根节点"
+                >
+                  <PlusIcon className="text-muted-foreground" />
+                </button>
+              </div>
 
-            {error ? (
-              <section className="rounded-md border border-red-200 bg-red-50 p-3">
-                <p className="text-sm text-red-700">{error}</p>
-              </section>
-            ) : null}
-
-            {notice ? (
-              <section className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
-                <p className="text-sm text-emerald-700">{notice}</p>
-              </section>
-            ) : null}
-
-            <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-4">
-              <section className="cn-panel">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">节点列表</h2>
-                  <span className="text-xs text-muted-foreground">共 {nodes.length} 个</span>
-                </div>
-                {loadingNodes ? <p className="cn-card-description">加载中...</p> : null}
-                <ul className="mt-3 space-y-1 max-h-[640px] overflow-y-auto pr-1 custom-scrollbar">
-                  {nodes.map((node) => {
-                    const active = !isCreating && node.id === selectedNodeId;
-                    return (
-                      <li key={node.id}>
+              <div className="flex-1 overflow-y-auto py-2 custom-scrollbar" role="tree">
+                {loading && nodes.length === 0 ? (
+                  <div className="px-4 py-8 text-center">
+                    <div className="text-sm text-muted-foreground">加载中...</div>
+                  </div>
+                ) : nodes.length === 0 && !loading ? (
+                  <div className="px-4 py-8 text-center space-y-3">
+                    <div className="text-sm text-muted-foreground">暂无设定节点</div>
+                    <button
+                      type="button"
+                      className="primary text-xs px-3 py-1.5"
+                      onClick={() => startCreateChild(null)}
+                    >
+                      创建第一个节点
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {creatingChildOf === null && (
+                      <div className="flex items-center gap-1 py-1 px-3 mb-1">
+                        <input
+                          autoFocus
+                          className="flex-1 text-sm px-2 py-1 rounded border border-accent bg-background"
+                          placeholder="输入根节点名称..."
+                          value={newNodeName}
+                          onChange={(e) => setNewNodeName(e.target.value)}
+                          onKeyDown={handleNewNodeKeyDown}
+                          disabled={saving}
+                        />
                         <button
                           type="button"
-                          onClick={() => handleSelectNode(node)}
-                          className={[
-                            "w-full text-left px-3 py-2.5 rounded-md border transition-all",
-                            active
-                              ? "bg-accent text-accent-foreground border-accent"
-                              : "border-transparent hover:bg-muted",
-                          ].join(" ")}
+                          className="primary text-xs px-2 py-1"
+                          onClick={() => void handleCreateNode()}
+                          disabled={saving || !newNodeName.trim()}
                         >
-                          <span className="block text-sm font-semibold truncate">{node.name}</span>
-                          <span
-                            className={[
-                              "block text-xs mt-1",
-                              active ? "text-white/70" : "text-muted-foreground",
-                            ].join(" ")}
-                          >
-                            {LORE_TYPE_OPTIONS.find((option) => option.value === node.type)?.label ?? "其他"}
-                          </span>
+                          {saving ? "..." : "确定"}
                         </button>
-                      </li>
-                    );
-                  })}
-                  {nodes.length === 0 && !loadingNodes ? (
-                    <li>
-                      <p className="cn-card-description">当前筛选下暂无设定节点。</p>
-                    </li>
-                  ) : null}
-                </ul>
-              </section>
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1"
+                          onClick={cancelCreate}
+                          disabled={saving}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    )}
+                    {renderTreeNodes(tree)}
+                  </>
+                )}
+              </div>
+            </div>
 
-              <section className="cn-panel">
-                <div className="flex items-center justify-between gap-2">
-                  <h2 className="text-sm font-semibold">
-                    {isCreating ? "新建设定节点" : selectedNode ? `编辑：${selectedNode.name}` : "设定节点"}
-                  </h2>
-                  {!isCreating && selectedNode ? (
-                    <span className="text-xs text-muted-foreground font-mono">{selectedNode.id}</span>
-                  ) : null}
+            {/* Editor Panel */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              {error && (
+                <div className="mx-6 mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5">
+                  <p className="text-sm text-red-700">{error}</p>
                 </div>
+              )}
+              {notice && (
+                <div className="mx-6 mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+                  <p className="text-sm text-emerald-700">{notice}</p>
+                </div>
+              )}
 
-                <form className="mt-3 space-y-3" onSubmit={handleSaveNode}>
-                  <label className="block">
-                    <span className="block text-xs text-muted-foreground mb-1">名称</span>
-                    <input
-                      value={draftName}
-                      onChange={(event) => setDraftName(event.target.value)}
-                      placeholder="例如：阿尔卡迪亚王城"
-                      required
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="block text-xs text-muted-foreground mb-1">类型</span>
-                    <select
-                      value={draftType}
-                      onChange={(event) => setDraftType(event.target.value as LoreNodeType)}
-                    >
-                      {LORE_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block">
-                    <span className="block text-xs text-muted-foreground mb-1">别名（逗号分隔）</span>
-                    <input
-                      value={draftAliases}
-                      onChange={(event) => setDraftAliases(event.target.value)}
-                      placeholder="例如：王都, 中央城"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="block text-xs text-muted-foreground mb-1">描述</span>
-                    <textarea
-                      rows={14}
-                      value={draftDescription}
-                      onChange={(event) => setDraftDescription(event.target.value)}
-                      placeholder="记录核心设定、约束、背景信息..."
-                    />
-                  </label>
-
-                  <div className="flex items-center gap-2">
-                    <button type="submit" className="primary" disabled={savingNode || !projectId}>
-                      {savingNode ? "保存中..." : "保存节点"}
-                    </button>
-                    {!isCreating && selectedNode ? (
+              {selectedNode ? (
+                <form className="p-6 space-y-5 max-w-4xl" onSubmit={handleSave}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1">
+                      <label className="block">
+                        <span className="block text-xs text-muted-foreground mb-1 font-medium">
+                          名称
+                        </span>
+                        <input
+                          ref={nameInputRef}
+                          className="w-full text-lg font-semibold"
+                          value={draftName}
+                          onChange={(e) => setDraftName(e.target.value)}
+                          placeholder="节点名称"
+                          required
+                        />
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-1 self-end pb-0.5">
                       <button
                         type="button"
-                        disabled={deletingNode || !projectId}
-                        onClick={() => void handleDeleteNode()}
+                        className="h-8 w-8 p-0 flex items-center justify-center rounded-md"
+                        onClick={() => void handleMoveUp()}
+                        disabled={!canMoveUp}
+                        title="上移"
                       >
-                        {deletingNode ? "删除中..." : "删除节点"}
+                        <MoveUpIcon />
                       </button>
-                    ) : null}
+                      <button
+                        type="button"
+                        className="h-8 w-8 p-0 flex items-center justify-center rounded-md"
+                        onClick={() => void handleMoveDown()}
+                        disabled={!canMoveDown}
+                        title="下移"
+                      >
+                        <MoveDownIcon />
+                      </button>
+                    </div>
+                  </div>
+
+                  {selectedTreeNode && selectedTreeNode.depth === 0 && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-blue-50 border border-blue-200">
+                      <span className="text-xs text-blue-700 font-medium">
+                        一级节点 — 描述将在每次对话中自动注入作为世界观上下文
+                      </span>
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-muted-foreground font-medium">
+                        描述 (Markdown)
+                      </span>
+                      <div className="flex rounded-md border border-border overflow-hidden">
+                        <button
+                          type="button"
+                          className={`text-xs px-3 py-1 rounded-none border-none ${!previewMode ? "bg-foreground text-background font-medium" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                          onClick={() => setPreviewMode(false)}
+                        >
+                          编辑
+                        </button>
+                        <button
+                          type="button"
+                          className={`text-xs px-3 py-1 rounded-none border-none border-l border-border ${previewMode ? "bg-foreground text-background font-medium" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                          onClick={() => setPreviewMode(true)}
+                        >
+                          预览
+                        </button>
+                      </div>
+                    </div>
+
+                    {previewMode ? (
+                      <div className="min-h-[320px] rounded-md border border-border p-4 bg-background overflow-y-auto">
+                        <MarkdownPreview content={draftDescription} />
+                      </div>
+                    ) : (
+                      <textarea
+                        className="w-full min-h-[320px] font-mono text-sm leading-relaxed resize-y"
+                        value={draftDescription}
+                        onChange={(e) => setDraftDescription(e.target.value)}
+                        placeholder={"使用 Markdown 记录世界观、角色背景、魔法体系等设定...\n\n# 标题\n## 子标题\n\n**加粗** *斜体*\n\n- 列表项\n- 列表项"}
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-border">
+                    <button
+                      type="submit"
+                      className="primary"
+                      disabled={saving || !draftName.trim()}
+                    >
+                      {saving ? "保存中..." : "保存"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startCreateChild(selectedNode.id)}
+                      disabled={saving}
+                    >
+                      添加子节点
+                    </button>
+                    <div className="flex-1" />
+                    <button
+                      type="button"
+                      className="text-red-600 hover:bg-red-50 border-red-200"
+                      onClick={() => void handleDelete()}
+                      disabled={deleting}
+                    >
+                      {deleting ? "删除中..." : "删除"}
+                    </button>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground pt-1">
+                    <span className="font-mono">{selectedNode.id.slice(0, 8)}...</span>
+                    <span className="mx-2">|</span>
+                    <span>深度 {selectedTreeNode?.depth ?? 0}</span>
+                    <span className="mx-2">|</span>
+                    <span>
+                      子节点 {selectedTreeNode?.children.length ?? 0} 个
+                    </span>
                   </div>
                 </form>
-              </section>
+              ) : (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center space-y-3 max-w-sm">
+                    <div className="text-lg text-muted-foreground/50 font-medium">
+                      {nodes.length > 0
+                        ? "选择一个节点开始编辑"
+                        : "创建第一个设定节点"}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      在左侧树中选择或创建节点，在此编辑名称和描述
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function getSiblings(flat: TreeNode[], node: TreeNode): TreeNode[] {
+  return flat.filter((n) => n.parentId === node.parentId && n.depth === node.depth);
+}
+
+function isDescendant(flat: TreeNode[], ancestorId: string, nodeId: string): boolean {
+  let current = flat.find((n) => n.id === nodeId);
+  while (current) {
+    if (current.parentId === ancestorId) return true;
+    current = flat.find((n) => n.id === current!.parentId);
+  }
+  return false;
 }
