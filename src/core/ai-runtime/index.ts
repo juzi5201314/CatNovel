@@ -12,3 +12,11 @@ export {
   type ResolveAiRuntimeInput,
   type ResolvedAiRuntime,
 } from "./chat-runtime";
+export {
+  createChatSessionRunStream,
+  hasChatSessionRunInRuntime,
+  markStaleRunAsFailed,
+  startChatSessionRun,
+  stopChatSessionRun,
+  type StartChatSessionRunInput,
+} from "./chat-session-runner";

@@ -1,26 +1,30 @@
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
-  convertToModelMessages,
-  stepCountIs,
-  streamText,
   type UIMessage,
 } from "ai";
 
 import {
   buildManagedTools,
+  createChatSessionRunStream,
   isValidChatApiFormat,
+  hasChatSessionRunInRuntime,
+  markStaleRunAsFailed,
   resolveAiRuntime,
+  startChatSessionRun,
 } from "@/core/ai-runtime";
 import { parseThinkingBudget, resolveProjectSystemPrompt } from "@/core/llm";
 import { executeManagedTool } from "@/core/tools/tool-execution-service";
 import { fail, internalError, parseJsonBody } from "@/lib/http/api-response";
 import { WorldbuildingRepository } from "@/repositories/worldbuilding-repository";
+import { ChatSessionRunsRepository } from "@/repositories/chat-sessions/chat-session-runs-repository";
+import { ChatSessionsRepository } from "@/repositories/chat-sessions/chat-sessions-repository";
 
 type ChatRole = "system" | "user" | "assistant";
 
 type ChatRequestInput = {
   projectId: string;
+  sessionId: string;
   chapterId?: string;
   messages: UIMessage[];
   chatPresetId?: string;
@@ -38,6 +42,9 @@ type ChatRequestInput = {
 
 type ValidationOk = { ok: true; data: ChatRequestInput };
 type ValidationFailed = { ok: false; response: Response };
+
+const chatSessionsRepository = new ChatSessionsRepository();
+const chatSessionRunsRepository = new ChatSessionRunsRepository();
 
 const TOOL_LIST_QUERY_REGEX =
   /列出.*(工具|tools?)|可用.*(工具|tools?)|有哪些.*(工具|tools?)|available tools|list tools|what tools/iu;
@@ -118,6 +125,7 @@ function normalizeMessages(payload: unknown): ValidationOk | ValidationFailed {
     ok: true,
     data: {
       projectId: "",
+      sessionId: "",
       messages,
     },
   };
@@ -132,6 +140,10 @@ function validateChatBody(payload: unknown): ValidationOk | ValidationFailed {
   const projectId = record.projectId;
   if (typeof projectId !== "string" || projectId.trim().length === 0) {
     return { ok: false, response: fail("INVALID_INPUT", "projectId is required", 400) };
+  }
+  const sessionId = record.sessionId;
+  if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+    return { ok: false, response: fail("INVALID_INPUT", "sessionId is required", 400) };
   }
 
   const normalizedMessages = normalizeMessages(record.messages);
@@ -200,6 +212,7 @@ function validateChatBody(payload: unknown): ValidationOk | ValidationFailed {
     ok: true,
     data: {
       projectId: projectId.trim(),
+      sessionId: sessionId.trim(),
       chapterId: typeof record.chapterId === "string" ? record.chapterId : undefined,
       chatPresetId: typeof record.chatPresetId === "string" ? record.chatPresetId : undefined,
       messages: normalizedMessages.data.messages,
@@ -245,12 +258,42 @@ function readLastUserMessage(messages: UIMessage[]): string {
   return "";
 }
 
-function toModelInputMessages(messages: UIMessage[]): Array<Omit<UIMessage, "id">> {
-  return messages.map((message) => ({
-    role: message.role,
-    parts: message.parts,
-    metadata: message.metadata,
-  }));
+function readMessageText(message: UIMessage): string {
+  return message.parts
+    .filter(
+      (part): part is Extract<typeof part, { type: "text" | "reasoning" }> =>
+        part.type === "text" || part.type === "reasoning",
+    )
+    .map((part) => part.text)
+    .join("");
+}
+
+function buildSessionTitle(messages: UIMessage[]): string {
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  if (!firstUserMessage) {
+    return "新会话";
+  }
+
+  const normalized = readMessageText(firstUserMessage)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalized.length === 0) {
+    return "新会话";
+  }
+
+  return normalized.slice(0, 40);
+}
+
+function persistSessionSnapshot(sessionId: string, messages: UIMessage[]): void {
+  const updated = chatSessionsRepository.updateAndGet(sessionId, {
+    title: buildSessionTitle(messages),
+    messages,
+    chatTerminated: false,
+  });
+
+  if (!updated) {
+    throw new Error("chat session not found when persisting snapshot");
+  }
 }
 
 function buildWorldbuildingContext(projectId: string): string {
@@ -437,6 +480,34 @@ async function streamForcedToolResponse(input: {
   return createUIMessageStreamResponse({ stream });
 }
 
+function validateSessionScope(input: { sessionId: string; projectId: string }): ValidationFailed | null {
+  const session = chatSessionsRepository.findById(input.sessionId);
+  if (!session) {
+    return { ok: false, response: fail("NOT_FOUND", "chat session not found", 404) };
+  }
+  if (session.projectId !== input.projectId) {
+    return {
+      ok: false,
+      response: fail("INVALID_INPUT", "chat session does not belong to current project", 400),
+    };
+  }
+  return null;
+}
+
+function resolveExistingRunnableRun(sessionId: string): string | null {
+  const activeRun = chatSessionRunsRepository.findLatestActiveBySessionId(sessionId);
+  if (!activeRun) {
+    return null;
+  }
+
+  if (!hasChatSessionRunInRuntime(activeRun.id)) {
+    markStaleRunAsFailed(activeRun.id);
+    return null;
+  }
+
+  return activeRun.id;
+}
+
 export async function POST(request: Request): Promise<Response> {
   try {
     const bodyResult = await parseJsonBody(request);
@@ -447,6 +518,14 @@ export async function POST(request: Request): Promise<Response> {
     const validated = validateChatBody(bodyResult.data);
     if (!validated.ok) {
       return validated.response;
+    }
+
+    const sessionScopeValidation = validateSessionScope({
+      sessionId: validated.data.sessionId,
+      projectId: validated.data.projectId,
+    });
+    if (sessionScopeValidation) {
+      return sessionScopeValidation.response;
     }
 
     const runtime = resolveAiRuntime({
@@ -462,6 +541,8 @@ export async function POST(request: Request): Promise<Response> {
 
     const forcedToolName = resolveForcedToolName(readLastUserMessage(validated.data.messages));
     if (forcedToolName) {
+      // forced-tool 快捷路径同样需要更新会话快照，避免历史会话遗漏当前输入。
+      persistSessionSnapshot(validated.data.sessionId, validated.data.messages);
       return await streamForcedToolResponse({
         projectId: validated.data.projectId,
         chapterId: validated.data.chapterId,
@@ -469,24 +550,33 @@ export async function POST(request: Request): Promise<Response> {
       });
     }
 
-    const modelMessages = await convertToModelMessages(toModelInputMessages(validated.data.messages));
+    let runId = resolveExistingRunnableRun(validated.data.sessionId);
+    if (!runId) {
+      const createdRun = chatSessionRunsRepository.createQueued({
+        id: crypto.randomUUID(),
+        sessionId: validated.data.sessionId,
+        projectId: validated.data.projectId,
+        chapterId: validated.data.chapterId ?? null,
+        inputMessages: validated.data.messages,
+      });
+      runId = createdRun.id;
 
-    const result = streamText({
-      model: runtime.model,
-      system: toChatSystemPrompt(validated.data.projectId),
-      messages: modelMessages,
-      tools: toolsBundle.tools,
-      toolChoice: "auto",
-      temperature: runtime.callSettings.temperature,
-      maxOutputTokens: runtime.callSettings.maxOutputTokens,
-      providerOptions: runtime.callSettings.providerOptions,
-      stopWhen: stepCountIs(8),
-      maxRetries: 0,
-      abortSignal: request.signal,
-    });
+      startChatSessionRun({
+        runId,
+        sessionId: validated.data.sessionId,
+        inputMessages: validated.data.messages,
+        model: runtime.model,
+        systemPrompt: toChatSystemPrompt(validated.data.projectId),
+        tools: toolsBundle.tools,
+        temperature: runtime.callSettings.temperature,
+        maxOutputTokens: runtime.callSettings.maxOutputTokens,
+        // 注意：当前网关会拒绝 previous_response_id，providerOptions 中禁止注入 previousResponseId。
+        providerOptions: runtime.callSettings.providerOptions,
+      });
+    }
 
-    return result.toUIMessageStreamResponse({
-      originalMessages: validated.data.messages,
+    return createUIMessageStreamResponse({
+      stream: createChatSessionRunStream(runId),
     });
   } catch (error) {
     return internalError(error);
