@@ -11,6 +11,12 @@ import {
   useState,
 } from "react";
 
+import {
+  LORE_NODE_NAME_INPUT_LABEL,
+  resolveLoreSelectionAfterLoad,
+  shouldShowLoreEmptyCreateCta,
+  shouldShowLoreRootCreateInput,
+} from "@/components/lore/lore-create-state";
 import { MarkdownPreview } from "@/components/lore/markdown-renderer";
 
 type WorldbuildingNode = {
@@ -272,7 +278,7 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
     setCreatingChildOf(undefined);
   }, [projectId]);
 
-  const loadNodes = useCallback(async () => {
+  const loadNodes = useCallback(async (options?: { preserveCurrentSelection?: boolean }) => {
     if (!projectId) {
       setNodes([]);
       return;
@@ -289,13 +295,20 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
       if (seq !== loadSeqRef.current) return;
       setNodes(data.nodes);
 
-      if (data.nodes.length > 0 && !selectedNodeId) {
-        const roots = data.nodes.filter((n) => !n.parentId).sort((a, b) => a.sortOrder - b.sortOrder);
-        const firstRoot = roots[0] ?? data.nodes[0]!;
-        setSelectedNodeId(firstRoot.id);
-        setDraftName(firstRoot.name);
-        setDraftDescription(firstRoot.description);
-        setExpandedIds(new Set(roots.map((n) => n.id)));
+      const selection = resolveLoreSelectionAfterLoad({
+        nodes: data.nodes,
+        selectedNodeId,
+        preserveCurrentSelection: options?.preserveCurrentSelection !== false,
+      });
+
+      if (selection) {
+        const selected = data.nodes.find((node) => node.id === selection.selectedNodeId) ?? data.nodes[0] ?? null;
+        if (selected) {
+          setSelectedNodeId(selected.id);
+          setDraftName(selected.name);
+          setDraftDescription(selected.description);
+          setExpandedIds(new Set(selection.expandedRootIds));
+        }
       }
     } catch (reason) {
       if (seq !== loadSeqRef.current) return;
@@ -448,7 +461,7 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
       setSelectedNodeId(null);
       setDraftName("");
       setDraftDescription("");
-      await loadNodes();
+      await loadNodes({ preserveCurrentSelection: false });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "删除失败");
     } finally {
@@ -539,6 +552,7 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
               onChange={(e) => setNewNodeName(e.target.value)}
               onKeyDown={handleNewNodeKeyDown}
               disabled={saving}
+              aria-label={LORE_NODE_NAME_INPUT_LABEL}
             />
             <button
               type="button"
@@ -633,19 +647,12 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
                   </div>
                 ) : nodes.length === 0 && !loading ? (
                   <div className="px-4 py-8 text-center space-y-3">
-                    <div className="text-sm text-muted-foreground">暂无设定节点</div>
-                    <button
-                      type="button"
-                      className="primary text-xs px-3 py-1.5"
-                      onClick={() => startCreateChild(null)}
-                    >
-                      创建第一个节点
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {creatingChildOf === null && (
-                      <div className="flex items-center gap-1 py-1 px-3 mb-1">
+                    {shouldShowLoreRootCreateInput({
+                      loading,
+                      nodeCount: nodes.length,
+                      creatingChildOf,
+                    }) ? (
+                      <div className="flex items-center gap-1 py-1 px-3">
                         <input
                           autoFocus
                           className="flex-1 text-sm px-2 py-1 rounded border border-accent bg-background"
@@ -654,7 +661,60 @@ export function LoreEditorShell({ projectId }: LoreEditorShellProps) {
                           onChange={(e) => setNewNodeName(e.target.value)}
                           onKeyDown={handleNewNodeKeyDown}
                           disabled={saving}
+                          aria-label={LORE_NODE_NAME_INPUT_LABEL}
                         />
+                        <button
+                          type="button"
+                          className="primary text-xs px-2 py-1"
+                          onClick={() => void handleCreateNode()}
+                          disabled={saving || !newNodeName.trim()}
+                        >
+                          {saving ? "..." : "确定"}
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1"
+                          onClick={cancelCreate}
+                          disabled={saving}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    ) : shouldShowLoreEmptyCreateCta({
+                      loading,
+                      nodeCount: nodes.length,
+                      creatingChildOf,
+                    }) ? (
+                      <>
+                        <div className="text-sm text-muted-foreground">暂无设定节点</div>
+                        <button
+                          type="button"
+                          className="primary text-xs px-3 py-1.5"
+                          onClick={() => startCreateChild(null)}
+                        >
+                          创建第一个节点
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
+                     {shouldShowLoreRootCreateInput({
+                       loading,
+                       nodeCount: nodes.length,
+                       creatingChildOf,
+                     }) && (
+                        <div className="flex items-center gap-1 py-1 px-3 mb-1">
+                         <input
+                           autoFocus
+                           className="flex-1 text-sm px-2 py-1 rounded border border-accent bg-background"
+                           placeholder="输入根节点名称..."
+                           value={newNodeName}
+                           onChange={(e) => setNewNodeName(e.target.value)}
+                           onKeyDown={handleNewNodeKeyDown}
+                           disabled={saving}
+                            aria-label={LORE_NODE_NAME_INPUT_LABEL}
+                          />
                         <button
                           type="button"
                           className="primary text-xs px-2 py-1"
