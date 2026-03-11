@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
     "test:contract": "node scripts/w7-contract.mjs",
+    "smoke:frontend": "node --env-file=.env scripts/w9-frontend-smoke.mjs",
     "syntax:check": "node scripts/syntax-check.mjs",
     "format:check": "node scripts/format-check.mjs",
     "check:static": "pnpm run lint && pnpm run typecheck && pnpm run syntax:check && pnpm run format:check",
@@ -20,9 +21,10 @@
     "verify:static:60s": "timeout 60s pnpm run check:static",
     "verify:unit:60s": "timeout 60s pnpm run test:unit",
     "verify:contract:60s": "timeout 60s pnpm run test:contract",
-    "verify:smoke:60s": "timeout 60s pnpm run smoke:core",
+    "verify:smoke:60s": "timeout 60s env SMOKE_FAST=1 pnpm run smoke:core",
+    "verify:frontend:60s": "timeout 60s pnpm run smoke:frontend",
     "verify:perf:60s": "timeout 60s pnpm run perf:rag",
-    "verify:all": "pnpm run verify:static:60s && pnpm run verify:unit:60s && pnpm run verify:contract:60s && pnpm run verify:smoke:60s && pnpm run verify:perf:60s",
+    "verify:all": "pnpm run verify:static:60s && pnpm run verify:unit:60s && pnpm run verify:contract:60s && pnpm run verify:smoke:60s && pnpm run verify:frontend:60s && pnpm run verify:perf:60s",
     "slides:build:ppt": "node scripts/build-slide-ppt.mjs"
   },
   "dependencies": {
