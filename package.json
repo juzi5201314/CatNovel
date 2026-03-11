@@ -22,7 +22,8 @@
     "verify:contract:60s": "timeout 60s pnpm run test:contract",
     "verify:smoke:60s": "timeout 60s pnpm run smoke:core",
     "verify:perf:60s": "timeout 60s pnpm run perf:rag",
-    "verify:all": "pnpm run verify:static:60s && pnpm run verify:unit:60s && pnpm run verify:contract:60s && pnpm run verify:smoke:60s && pnpm run verify:perf:60s"
+    "verify:all": "pnpm run verify:static:60s && pnpm run verify:unit:60s && pnpm run verify:contract:60s && pnpm run verify:smoke:60s && pnpm run verify:perf:60s",
+    "slides:build:ppt": "node scripts/build-slide-ppt.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.39",
@@ -41,6 +42,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@marp-team/marp-cli": "^4.2.3",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
