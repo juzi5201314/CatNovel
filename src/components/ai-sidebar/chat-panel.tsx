@@ -107,6 +107,20 @@ type ChatSessionRecord = ChatSessionSummary & {
   messages: UIMessage[];
 };
 
+type ChatSessionRunSummary = {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  chapterId: string | null;
+  status: "queued" | "running";
+  stopRequested: boolean;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+};
+
 const DEFAULT_CHAT_SESSION_TITLE = "新会话";
 const MAX_CHAT_SESSION_TITLE_LENGTH = 40;
 
@@ -512,6 +526,10 @@ function buildSessionTitle(messages: UIMessage[]): string {
   return normalized.slice(0, MAX_CHAT_SESSION_TITLE_LENGTH);
 }
 
+function hasUserMessage(messages: UIMessage[]): boolean {
+  return messages.some((message) => message.role === "user");
+}
+
 function formatSessionUpdatedAt(updatedAt: string): string {
   const date = new Date(updatedAt);
   if (Number.isNaN(date.getTime())) {
@@ -831,6 +849,8 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [activeRunStatus, setActiveRunStatus] = useState<"queued" | "running" | null>(null);
   const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
   const [editingApprovalId, setEditingApprovalId] = useState<string | null>(null);
   const [approvalDrafts, setApprovalDrafts] = useState<Record<string, string>>({});
@@ -841,6 +861,10 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   const latestMessagesRef = useRef<UIMessage[]>([]);
   const latestChatTerminatedRef = useRef(false);
   const activeSessionIdRef = useRef<string | null>(null);
+  const activeRunIdRef = useRef<string | null>(null);
+  const previousProjectIdRef = useRef<string | null>(projectId);
+  const lastStableProjectIdRef = useRef<string | null>(projectId);
+  const latestSessionsRef = useRef<ChatSessionSummary[]>([]);
 
   const resetApprovalUi = useCallback(() => {
     setBusyApprovalId(null);
@@ -856,11 +880,31 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
         api: "/api/ai/chat",
         body: {
           projectId,
+          sessionId: activeSessionId ?? undefined,
           chapterId: chapterId ?? undefined,
           retrieval: { enableGraph: "auto", topK: 8 },
         },
+        prepareReconnectToStreamRequest: ({ body }) => {
+          const payload = (body ?? {}) as {
+            projectId?: unknown;
+            sessionId?: unknown;
+          };
+          if (typeof payload.projectId !== "string" || typeof payload.sessionId !== "string") {
+            return {
+              api: "/api/ai/chat/reconnect",
+            };
+          }
+
+          const search = new URLSearchParams({
+            projectId: payload.projectId,
+            sessionId: payload.sessionId,
+          });
+          return {
+            api: `/api/ai/chat/reconnect?${search.toString()}`,
+          };
+        },
       }),
-    [chapterId, projectId],
+    [activeSessionId, chapterId, projectId],
   );
 
   const sendAutomaticallyWhen = useCallback(
@@ -873,6 +917,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
     id: `chat-${projectId ?? "none"}-${activeSessionId ?? "none"}`,
     transport,
     sendAutomaticallyWhen,
+    resume: Boolean(projectId && activeSessionId),
   });
 
   const activeSession = useMemo(
@@ -881,12 +926,14 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   );
 
   const isStreaming = status === "submitted" || status === "streaming";
+  const hasBackgroundRun = activeRunId !== null;
   const loadingSessionData = loadingSessions || restoringSessionId !== null;
   const canSend =
     Boolean(projectId) &&
     Boolean(activeSessionId) &&
     input.trim().length > 0 &&
     !isStreaming &&
+    !hasBackgroundRun &&
     !chatTerminated &&
     !loadingSessionData;
 
@@ -901,6 +948,14 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  useEffect(() => {
+    activeRunIdRef.current = activeRunId;
+  }, [activeRunId]);
+
+  useEffect(() => {
+    latestSessionsRef.current = sessions;
+  }, [sessions]);
 
   const fetchSessionList = useCallback(async (): Promise<ChatSessionSummary[]> => {
     if (!projectId) {
@@ -926,6 +981,23 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
       messages: normalizeSessionMessages(session.messages),
     };
   }, []);
+
+  const fetchActiveRunBySession = useCallback(
+    async (sessionId: string): Promise<ChatSessionRunSummary | null> => {
+      const response = await fetch(`/api/ai/sessions/${sessionId}/active-run`, {
+        method: "GET",
+      });
+      const run = await parseApiData<ChatSessionRunSummary | null>(response);
+      if (!run) {
+        return null;
+      }
+      return {
+        ...run,
+        chapterId: run.chapterId ?? null,
+      };
+    },
+    [],
+  );
 
   const createSessionOnServer = useCallback(async (): Promise<ChatSessionRecord> => {
     if (!projectId) {
@@ -958,19 +1030,48 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
       sessionId: string;
       messages: UIMessage[];
       chatTerminated: boolean;
+    }, options?: {
+      syncSummary?: boolean;
+      keepalive?: boolean;
     }): Promise<void> => {
+      const normalizedMessages = normalizeSessionMessages(inputPayload.messages);
+      const currentSummary =
+        latestSessionsRef.current.find((session) => session.id === inputPayload.sessionId) ?? null;
+      const canPersistEmptySnapshot =
+        normalizedMessages.length === 0 &&
+        currentSummary !== null &&
+        currentSummary.messageCount === 0;
+      const canPersistMessages =
+        normalizedMessages.length > 0 ? hasUserMessage(normalizedMessages) : canPersistEmptySnapshot;
+
+      if (!canPersistMessages && inputPayload.chatTerminated !== true) {
+        return;
+      }
+
+      const patchPayload: {
+        title?: string;
+        messages?: UIMessage[];
+        chatTerminated?: boolean;
+      } = {};
+
+      if (canPersistMessages) {
+        patchPayload.title = buildSessionTitle(normalizedMessages);
+        patchPayload.messages = normalizedMessages;
+      }
+      patchPayload.chatTerminated = inputPayload.chatTerminated;
+
       const response = await fetch(`/api/ai/sessions/${inputPayload.sessionId}`, {
         method: "PATCH",
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          title: buildSessionTitle(inputPayload.messages),
-          messages: inputPayload.messages,
-          chatTerminated: inputPayload.chatTerminated,
-        }),
+        keepalive: options?.keepalive === true,
+        body: JSON.stringify(patchPayload),
       });
       const updated = await parseApiData<ChatSessionRecord>(response);
+      if (options?.syncSummary === false) {
+        return;
+      }
       const summary = toSessionSummary(updated);
       setSessions((current) => {
         const rest = current.filter((session) => session.id !== summary.id);
@@ -980,11 +1081,55 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
     [],
   );
 
+  const flushCurrentSessionNow = useCallback(
+    async (options?: {
+      syncSummary?: boolean;
+      keepalive?: boolean;
+      silent?: boolean;
+    }): Promise<void> => {
+      const sessionId = activeSessionIdRef.current;
+      if (!sessionId) {
+        return;
+      }
+
+      // 没有任何消息且未终止时，不需要额外写库。
+      if (
+        latestMessagesRef.current.length === 0 &&
+        latestChatTerminatedRef.current === false
+      ) {
+        return;
+      }
+
+      try {
+        await persistSession(
+          {
+            sessionId,
+            messages: latestMessagesRef.current,
+            chatTerminated: latestChatTerminatedRef.current,
+          },
+          {
+            syncSummary: options?.syncSummary,
+            keepalive: options?.keepalive,
+          },
+        );
+      } catch (reasonUnknown) {
+        if (options?.silent) {
+          return;
+        }
+        const message = reasonUnknown instanceof Error ? reasonUnknown.message : "保存会话失败";
+        setSessionError(message);
+      }
+    },
+    [persistSession],
+  );
+
   const applySessionToUi = useCallback(
     (session: ChatSessionRecord) => {
       stop();
       resetApprovalUi();
       setInput("");
+      setActiveRunId(null);
+      setActiveRunStatus(null);
       setActiveSessionId(session.id);
       setMessages(normalizeSessionMessages(session.messages));
       setChatTerminated(session.chatTerminated);
@@ -995,17 +1140,48 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   // 会话引导仅在 scope 切换时触发，避免 active session 切换时重复重建。
   useEffect(() => {
     let cancelled = false;
+    const previousProjectId = previousProjectIdRef.current;
+    previousProjectIdRef.current = projectId;
 
     async function bootstrapSessions() {
+      // scope 变更前先强制落库，避免防抖窗口内丢会话。
+      if (previousProjectId && previousProjectId !== projectId) {
+        await flushCurrentSessionNow({
+          syncSummary: false,
+          keepalive: false,
+          silent: true,
+        });
+      }
+
+      if (projectId) {
+        lastStableProjectIdRef.current = projectId;
+      }
+
       stop();
       setSessionError(null);
       setShowHistoryPanel(false);
       setInput("");
       resetApprovalUi();
       setChatTerminated(false);
-      setSessions([]);
-      setActiveSessionId(null);
-      setMessages([]);
+
+      const isTransientProjectGap = !projectId && previousProjectId !== null;
+      if (isTransientProjectGap) {
+        return;
+      }
+
+      const isRebindingSameProject =
+        projectId !== null &&
+        previousProjectId === null &&
+        lastStableProjectIdRef.current === projectId &&
+        activeSessionIdRef.current !== null;
+
+      if (!isRebindingSameProject) {
+        setSessions([]);
+        setActiveSessionId(null);
+        setActiveRunId(null);
+        setActiveRunStatus(null);
+        setMessages([]);
+      }
 
       if (!projectId) {
         return;
@@ -1052,7 +1228,106 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [flushCurrentSessionNow, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!projectId || !activeSessionId) {
+      setActiveRunId(null);
+      setActiveRunStatus(null);
+      return;
+    }
+
+    const sessionId = activeSessionId;
+    let cancelled = false;
+    let syncing = false;
+
+    async function syncActiveRunState() {
+      if (syncing) {
+        return;
+      }
+      syncing = true;
+
+      try {
+        const run = await fetchActiveRunBySession(sessionId);
+        if (cancelled) {
+          return;
+        }
+
+        if (run) {
+          setActiveRunId(run.id);
+          setActiveRunStatus(run.status);
+          return;
+        }
+
+        if (activeRunIdRef.current) {
+          setActiveRunId(null);
+          setActiveRunStatus(null);
+          const restored = await fetchSessionById(sessionId);
+          if (cancelled) {
+            return;
+          }
+
+          setSessions((current) => {
+            const next = current.filter((session) => session.id !== restored.id);
+            return sortSessions([toSessionSummary(restored), ...next]);
+          });
+          if (activeSessionIdRef.current === restored.id) {
+            setMessages(normalizeSessionMessages(restored.messages));
+            setChatTerminated(restored.chatTerminated);
+          }
+        } else {
+          setActiveRunId(null);
+          setActiveRunStatus(null);
+
+          // 即使当前无活跃 run，也需要回源一次会话详情，修复“run 在首次轮询前结束”导致的陈旧快照。
+          const restored = await fetchSessionById(sessionId);
+          if (cancelled) {
+            return;
+          }
+
+          setSessions((current) => {
+            const next = current.filter((session) => session.id !== restored.id);
+            return sortSessions([toSessionSummary(restored), ...next]);
+          });
+
+          if (activeSessionIdRef.current === restored.id) {
+            const normalized = normalizeSessionMessages(restored.messages);
+            const localSnapshot = JSON.stringify(latestMessagesRef.current);
+            const serverSnapshot = JSON.stringify(normalized);
+            if (localSnapshot !== serverSnapshot) {
+              setMessages(normalized);
+            }
+            if (latestChatTerminatedRef.current !== restored.chatTerminated) {
+              setChatTerminated(restored.chatTerminated);
+            }
+          }
+        }
+      } catch (reasonUnknown) {
+        if (!cancelled) {
+          const message = reasonUnknown instanceof Error ? reasonUnknown.message : "同步会话运行状态失败";
+          setSessionError(message);
+        }
+      } finally {
+        syncing = false;
+      }
+    }
+
+    void syncActiveRunState();
+    const timer = window.setInterval(() => {
+      void syncActiveRunState();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    activeSessionId,
+    fetchActiveRunBySession,
+    fetchSessionById,
+    projectId,
+    setMessages,
+  ]);
 
   useEffect(() => {
     if (!projectId || !activeSessionId || loadingSessionData || deletingSessionId) {
@@ -1081,8 +1356,28 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
     projectId,
   ]);
 
+  useEffect(() => {
+    const handlePageHide = () => {
+      void flushCurrentSessionNow({
+        syncSummary: false,
+        keepalive: true,
+        silent: true,
+      });
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      void flushCurrentSessionNow({
+        syncSummary: false,
+        keepalive: true,
+        silent: true,
+      });
+    };
+  }, [flushCurrentSessionNow]);
+
   const handleCreateSession = useCallback(async () => {
-    if (!projectId || loadingSessionData) {
+    if (!projectId || loadingSessionData || hasBackgroundRun) {
       return;
     }
 
@@ -1104,11 +1399,23 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
       const message = reasonUnknown instanceof Error ? reasonUnknown.message : "创建会话失败";
       setSessionError(message);
     }
-  }, [applySessionToUi, createSessionOnServer, loadingSessionData, persistSession, projectId]);
+  }, [
+    applySessionToUi,
+    createSessionOnServer,
+    hasBackgroundRun,
+    loadingSessionData,
+    persistSession,
+    projectId,
+  ]);
 
   const handleRestoreSession = useCallback(
     async (sessionId: string) => {
-      if (!projectId || loadingSessionData || sessionId === activeSessionIdRef.current) {
+      if (
+        !projectId ||
+        loadingSessionData ||
+        hasBackgroundRun ||
+        sessionId === activeSessionIdRef.current
+      ) {
         setShowHistoryPanel(false);
         return;
       }
@@ -1138,12 +1445,12 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
         setRestoringSessionId(null);
       }
     },
-    [applySessionToUi, fetchSessionById, loadingSessionData, persistSession, projectId],
+    [applySessionToUi, fetchSessionById, hasBackgroundRun, loadingSessionData, persistSession, projectId],
   );
 
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
-      if (!projectId || deletingSessionId || loadingSessionData) {
+      if (!projectId || deletingSessionId || loadingSessionData || hasBackgroundRun) {
         return;
       }
 
@@ -1187,6 +1494,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
       deletingSessionId,
       fetchSessionById,
       fetchSessionList,
+      hasBackgroundRun,
       loadingSessionData,
       projectId,
     ],
@@ -1197,6 +1505,45 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, []);
+
+  const handleStopActiveRun = useCallback(async () => {
+    let runId = activeRunIdRef.current;
+    if (!runId && activeSessionIdRef.current) {
+      try {
+        const activeRun = await fetchActiveRunBySession(activeSessionIdRef.current);
+        runId = activeRun?.id ?? null;
+        if (runId) {
+          setActiveRunId(runId);
+          setActiveRunStatus(activeRun?.status ?? null);
+        }
+      } catch {
+        // 忽略补偿查询错误，继续执行本地 stop。
+      }
+    }
+
+    if (!runId) {
+      stop();
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/ai/runs/${runId}/stop`, {
+        method: "POST",
+      });
+      await parseApiData<{
+        id: string;
+        status: string;
+        stopRequested: boolean;
+        stopped: boolean;
+      }>(response);
+      setSessionError(null);
+    } catch (reasonUnknown) {
+      const message = reasonUnknown instanceof Error ? reasonUnknown.message : "停止会话失败";
+      setSessionError(message);
+    } finally {
+      stop();
+    }
+  }, [fetchActiveRunBySession, stop]);
 
   const submitPrompt = useCallback(async () => {
     if (!canSend) {
@@ -1451,16 +1798,18 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
             type="button"
             className="text-[10px] px-2 py-0.5 font-bold uppercase tracking-tighter"
             onClick={() => setShowHistoryPanel((current) => !current)}
-            disabled={!projectId || loadingSessionData}
+            disabled={!projectId || loadingSessionData || hasBackgroundRun}
           >
             History
           </button>
-          {isStreaming && (
+          {(isStreaming || hasBackgroundRun) && (
             <button
               className="text-[10px] px-2 py-0.5 text-red-600 hover:bg-red-50 transition-colors font-bold uppercase tracking-tighter"
-              onClick={stop}
+              onClick={() => {
+                void handleStopActiveRun();
+              }}
             >
-              Stop
+              {hasBackgroundRun ? "Stop Run" : "Stop"}
             </button>
           )}
         </div>
@@ -1477,7 +1826,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
                 onClick={() => {
                   void handleCreateSession();
                 }}
-                disabled={!projectId || loadingSessionData}
+                disabled={!projectId || loadingSessionData || hasBackgroundRun}
               >
                 New
               </button>
@@ -1510,7 +1859,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
                           onClick={() => {
                             void handleRestoreSession(session.id);
                           }}
-                          disabled={restoring || deleting || loadingSessionData}
+                          disabled={restoring || deleting || loadingSessionData || hasBackgroundRun}
                         >
                           <div className="truncate text-[11px] font-medium">
                             {session.title || DEFAULT_CHAT_SESSION_TITLE}
@@ -1525,7 +1874,7 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
                           onClick={() => {
                             void handleDeleteSession(session.id);
                           }}
-                          disabled={deleting || loadingSessionData}
+                          disabled={deleting || loadingSessionData || hasBackgroundRun}
                           title="删除会话"
                           aria-label="删除会话"
                         >
@@ -1550,6 +1899,12 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
       {chatTerminated ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
           当前对话已终止（你拒绝了写入工具调用）。
+        </div>
+      ) : null}
+
+      {hasBackgroundRun ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-700">
+          后台回复进行中（{activeRunStatus === "queued" ? "队列中" : "生成中"}），切换页面不会中断。可点击 Stop Run 手动终止。
         </div>
       ) : null}
 
@@ -1988,13 +2343,22 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
           placeholder={
             loadingSessionData
               ? "会话加载中..."
+              : hasBackgroundRun
+                ? "后台回复进行中..."
               : chatTerminated
                 ? "当前对话已终止"
                 : "Message AI Assistant..."
           }
           rows={3}
           className="w-full pr-12 resize-none bg-muted/20 focus:bg-background transition-all rounded-2xl border border-border p-4 outline-none focus:ring-4 ring-accent/5 text-sm leading-relaxed"
-          disabled={!projectId || !activeSessionId || isStreaming || chatTerminated || loadingSessionData}
+          disabled={
+            !projectId ||
+            !activeSessionId ||
+            isStreaming ||
+            hasBackgroundRun ||
+            chatTerminated ||
+            loadingSessionData
+          }
         />
         <div className="absolute right-3 bottom-3 flex items-center gap-3">
           <kbd className="hidden md:inline-flex opacity-0 group-focus-within:opacity-30 transition-opacity bg-transparent border-none shadow-none text-[9px] font-black">ENTER</kbd>

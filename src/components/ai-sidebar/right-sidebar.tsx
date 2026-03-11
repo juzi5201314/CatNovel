@@ -24,6 +24,7 @@ type RightSidebarProps = {
   creatingSnapshot: boolean;
   loadingSnapshotDiff: boolean;
   restoringSnapshotId: string | null;
+  chatExpanded: boolean;
   onAcceptGhost: (ghostText: string) => Promise<void>;
   onRefreshSnapshots: () => Promise<void>;
   onCreateSnapshot: (reason?: string) => Promise<void>;
@@ -31,6 +32,7 @@ type RightSidebarProps = {
   onLoadSnapshotDiff: (snapshotId: string) => Promise<void>;
   onClearSnapshotDiff: () => void;
   onExpandChat: () => void;
+  onCollapseChat: () => void;
 };
 
 type AITab = "chat" | "ghost" | "history";
@@ -45,6 +47,7 @@ export function RightSidebar({
   creatingSnapshot,
   loadingSnapshotDiff,
   restoringSnapshotId,
+  chatExpanded,
   onAcceptGhost,
   onRefreshSnapshots,
   onCreateSnapshot,
@@ -52,19 +55,40 @@ export function RightSidebar({
   onLoadSnapshotDiff,
   onClearSnapshotDiff,
   onExpandChat,
+  onCollapseChat,
 }: RightSidebarProps) {
   const [activeTab, setActiveTab] = useState<AITab>("chat");
 
   return (
-    <aside className="flex flex-col h-full border-l border-border bg-background w-[var(--cn-sidebar-right)] fixed right-0 top-0 overflow-hidden">
+    <aside
+      className={`fixed top-0 overflow-hidden border-l border-border bg-background flex h-full flex-col ${
+        chatExpanded
+          ? "left-[var(--cn-sidebar-left)] right-0 z-30 w-auto shadow-2xl"
+          : "right-0 w-[var(--cn-sidebar-right)]"
+      }`}
+    >
       <div className="flex flex-col h-full">
         {/* Header / Context */}
         <div className="p-6 border-bottom border-border bg-muted/30">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Assistant</h2>
-            <div className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-[10px] font-medium text-muted-foreground">Connected</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[10px] font-medium text-muted-foreground">Connected</span>
+              </div>
+              {chatExpanded ? (
+                <button
+                  type="button"
+                  onClick={onCollapseChat}
+                  className="h-7 w-7 p-0 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
+                  title="缩小返回侧栏"
+                  aria-label="缩小返回侧栏"
+                  style={{ padding: 0, gap: 0 }}
+                >
+                  <ChatZoomIcon mode="collapse" />
+                </button>
+              ) : null}
             </div>
           </div>
           
@@ -103,11 +127,9 @@ export function RightSidebar({
         </div>
 
         {/* Content Area */}
-        <div
-          className={`flex-1 min-h-0 p-4 ${activeTab === "chat" ? "" : "overflow-y-auto custom-scrollbar"}`}
-        >
-          {activeTab === "chat" && (
-            <div className="relative h-full animate-in fade-in duration-300">
+        <div className="flex-1 min-h-0 p-4">
+          <div className={`relative h-full ${activeTab === "chat" ? "animate-in fade-in duration-300" : "hidden"}`}>
+            {!chatExpanded ? (
               <button
                 type="button"
                 onClick={onExpandChat}
@@ -118,38 +140,38 @@ export function RightSidebar({
               >
                 <ChatZoomIcon mode="expand" />
               </button>
-              <div className="h-full">
-                <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
-              </div>
+            ) : null}
+            <div className="h-full">
+              <ChatPanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
             </div>
-          )}
+          </div>
 
-          {activeTab === "ghost" && (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              <GhostActions projectId={project?.id ?? null} chapter={chapter} onAcceptGhost={onAcceptGhost} />
-            </div>
-          )}
+          <div
+            className={`h-full overflow-y-auto custom-scrollbar ${activeTab === "ghost" ? "space-y-6 animate-in fade-in duration-300" : "hidden"}`}
+          >
+            <GhostActions projectId={project?.id ?? null} chapter={chapter} onAcceptGhost={onAcceptGhost} />
+          </div>
 
-          {activeTab === "history" && (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              <TimelinePanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
-              <SnapshotPanel
-                projectId={project?.id ?? null}
-                snapshots={snapshots}
-                snapshotDiff={snapshotDiff}
-                snapshotRestoreResult={snapshotRestoreResult}
-                loadingSnapshots={loadingSnapshots}
-                creatingSnapshot={creatingSnapshot}
-                loadingSnapshotDiff={loadingSnapshotDiff}
-                restoringSnapshotId={restoringSnapshotId}
-                onRefresh={onRefreshSnapshots}
-                onCreate={onCreateSnapshot}
-                onRestore={onRestoreSnapshot}
-                onLoadDiff={onLoadSnapshotDiff}
-                onClearDiff={onClearSnapshotDiff}
-              />
-            </div>
-          )}
+          <div
+            className={`h-full overflow-y-auto custom-scrollbar ${activeTab === "history" ? "space-y-6 animate-in fade-in duration-300" : "hidden"}`}
+          >
+            <TimelinePanel projectId={project?.id ?? null} chapterId={chapter?.id ?? null} />
+            <SnapshotPanel
+              projectId={project?.id ?? null}
+              snapshots={snapshots}
+              snapshotDiff={snapshotDiff}
+              snapshotRestoreResult={snapshotRestoreResult}
+              loadingSnapshots={loadingSnapshots}
+              creatingSnapshot={creatingSnapshot}
+              loadingSnapshotDiff={loadingSnapshotDiff}
+              restoringSnapshotId={restoringSnapshotId}
+              onRefresh={onRefreshSnapshots}
+              onCreate={onCreateSnapshot}
+              onRestore={onRestoreSnapshot}
+              onLoadDiff={onLoadSnapshotDiff}
+              onClearDiff={onClearSnapshotDiff}
+            />
+          </div>
         </div>
       </div>
     </aside>

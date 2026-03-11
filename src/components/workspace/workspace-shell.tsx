@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ChatZoomIcon } from "@/components/ai-sidebar/chat-zoom-icon";
-import { ChatPanel } from "@/components/ai-sidebar/chat-panel";
 import { RightSidebar } from "@/components/ai-sidebar/right-sidebar";
 import { LoreEditorShell } from "@/components/lore/lore-editor-shell";
 import { LeftSidebar } from "@/components/sidebar/left-sidebar";
@@ -166,56 +164,38 @@ export function WorkspaceShell() {
           chatExpanded ? "mr-0" : "mr-[var(--cn-sidebar-right)]"
         }`}
       >
-        {chatExpanded ? (
-          <section className="h-full min-h-0 bg-muted/5 p-6 animate-in fade-in duration-300">
-            <div className="relative h-full min-h-0 rounded-xl border border-border bg-background p-5 shadow-sm">
-              <button
-                type="button"
-                onClick={handleCollapseChat}
-                className="absolute right-3 top-16 z-10 h-8 w-8 p-0 rounded-full border border-border bg-background text-foreground shadow-sm transition-all hover:shadow-md"
-                title="缩小并返回编辑区"
-                aria-label="缩小并返回编辑区"
-                style={{ padding: 0, gap: 0 }}
-              >
-                <ChatZoomIcon mode="collapse" />
-              </button>
-              <div className="h-full min-h-0">
-                <ChatPanel projectId={selectedProject?.id ?? null} chapterId={selectedChapter?.id ?? null} />
-              </div>
-            </div>
-          </section>
-        ) : activeCenterView === "chapter" ? (
+        {activeCenterView === "chapter" ? (
           <EditorShell chapter={selectedChapter} onSave={handleSave} />
         ) : (
           <LoreEditorShell projectId={selectedProject?.id ?? null} />
         )}
       </main>
 
-      {!chatExpanded ? (
-        <RightSidebar
-          project={selectedProject}
-          chapter={selectedChapter}
-          snapshots={snapshots}
-          snapshotDiff={snapshotDiff}
-          snapshotRestoreResult={snapshotRestoreResult}
-          loadingSnapshots={loadingSnapshots}
-          creatingSnapshot={creatingSnapshot}
-          loadingSnapshotDiff={loadingSnapshotDiff}
-          restoringSnapshotId={restoringSnapshotId}
-          onAcceptGhost={handleAcceptGhost}
-          onRefreshSnapshots={async () => {
-            if (!selectedProject?.id) {
-              return;
-            }
-            await fetchSnapshots(selectedProject.id);
-          }}
-          onCreateSnapshot={createManualSnapshot}
-          onRestoreSnapshot={restoreSnapshot}
-          onLoadSnapshotDiff={loadSnapshotDiff}
-          onClearSnapshotDiff={clearSnapshotDiff}
-          onExpandChat={handleExpandChat}
-        />
-      ) : null}
+      <RightSidebar
+        project={selectedProject}
+        chapter={selectedChapter}
+        snapshots={snapshots}
+        snapshotDiff={snapshotDiff}
+        snapshotRestoreResult={snapshotRestoreResult}
+        loadingSnapshots={loadingSnapshots}
+        creatingSnapshot={creatingSnapshot}
+        loadingSnapshotDiff={loadingSnapshotDiff}
+        restoringSnapshotId={restoringSnapshotId}
+        chatExpanded={chatExpanded}
+        onAcceptGhost={handleAcceptGhost}
+        onRefreshSnapshots={async () => {
+          if (!selectedProject?.id) {
+            return;
+          }
+          await fetchSnapshots(selectedProject.id);
+        }}
+        onCreateSnapshot={createManualSnapshot}
+        onRestoreSnapshot={restoreSnapshot}
+        onLoadSnapshotDiff={loadSnapshotDiff}
+        onClearSnapshotDiff={clearSnapshotDiff}
+        onExpandChat={handleExpandChat}
+        onCollapseChat={handleCollapseChat}
+      />
     </div>
   );
 }
