@@ -26,6 +26,82 @@ async function expectStructuredImportFailure() {
   assert.ok(Array.isArray(payload.error.details.issues), "import error should expose issues");
 }
 
+async function validateWorldbuildingContract(projectId) {
+  const created = await api("POST", `/api/projects/${projectId}/worldbuilding`, {
+    name: "  世界设定根节点  ",
+    description: "最初描述",
+  });
+
+  assert.equal(created.projectId, projectId, "worldbuilding node should belong to project");
+  assert.equal(created.name, "世界设定根节点", "worldbuilding create should trim name");
+  assert.equal(created.parentId, null, "root worldbuilding node should have null parentId");
+
+  const updated = await api("PATCH", `/api/projects/${projectId}/worldbuilding/${created.id}`, {
+    name: "世界设定根节点（已更新）",
+    description: "更新后的描述",
+  });
+
+  assert.equal(updated.id, created.id, "worldbuilding patch should keep node id");
+  assert.equal(updated.name, "世界设定根节点（已更新）", "worldbuilding patch should update name");
+  assert.equal(updated.description, "更新后的描述", "worldbuilding patch should update description");
+
+  const listed = await api("GET", `/api/projects/${projectId}/worldbuilding`);
+  assert.ok(Array.isArray(listed.nodes), "worldbuilding list should return nodes array");
+  const persisted = listed.nodes.find((node) => node.id === created.id);
+  assert.ok(persisted, "worldbuilding list should include created node");
+  assert.equal(persisted.name, "世界设定根节点（已更新）", "worldbuilding list should persist updated name");
+}
+
+async function validateChatSessionContract(projectId, chapterId) {
+  const created = await api("POST", "/api/ai/sessions", {
+    projectId,
+    chapterId,
+    title: "Contract Chat Session",
+    messages: [
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        parts: [{ type: "text", text: "测试会话创建" }],
+      },
+    ],
+    chatTerminated: false,
+  });
+
+  const listed = await api("GET", `/api/ai/sessions?projectId=${encodeURIComponent(projectId)}`);
+  assert.ok(Array.isArray(listed), "chat sessions list should return array");
+  assert.ok(listed.some((session) => session.id === created.id), "chat session list should include created session");
+
+  const updated = await api("PATCH", `/api/ai/sessions/${created.id}`, {
+    title: "Contract Chat Session Updated",
+    messages: [
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        parts: [{ type: "text", text: "用户消息" }],
+      },
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        parts: [{ type: "text", text: "助手回复" }],
+      },
+    ],
+    chatTerminated: true,
+  });
+
+  assert.equal(updated.title, "Contract Chat Session Updated", "chat session patch should update title");
+  assert.equal(updated.chatTerminated, true, "chat session patch should persist termination flag");
+  assert.equal(updated.messages.length, 2, "chat session patch should persist messages");
+  assert.equal(updated.messageCount, 2, "chat session patch should update messageCount");
+
+  const detail = await api("GET", `/api/ai/sessions/${created.id}`);
+  assert.equal(detail.id, created.id, "chat session detail should return same session");
+  assert.equal(detail.chatTerminated, true, "chat session detail should keep termination flag");
+  assert.equal(detail.messageCount, 2, "chat session detail should keep messageCount");
+
+  const activeRun = await api("GET", `/api/ai/sessions/${created.id}/active-run`);
+  assert.equal(activeRun, null, "active-run route should return null when no run exists");
+}
+
 async function main() {
   applyMigrations();
 
@@ -105,6 +181,8 @@ async function main() {
   );
 
   await expectStructuredImportFailure();
+  await validateWorldbuildingContract(project.id);
+  await validateChatSessionContract(project.id, chapter.id);
 
   console.log("w7_contract_ok=true");
 }
