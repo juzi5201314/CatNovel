@@ -4,6 +4,12 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  buildActiveRunSyncPlan,
+  shouldIgnoreActiveRunSyncResult,
+  shouldProbeActiveRun,
+  shouldRetryEventProbe,
+} from "@/components/ai-sidebar/chat-run-sync";
+import {
   getToolCatalogItem,
   getToolNameByAlias,
   type ToolCatalogItem,
@@ -862,9 +868,30 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
   const latestChatTerminatedRef = useRef(false);
   const activeSessionIdRef = useRef<string | null>(null);
   const activeRunIdRef = useRef<string | null>(null);
+  const activeRunStatusRef = useRef<"queued" | "running" | null>(null);
+  const activeRunSyncingRef = useRef(false);
+  const eventProbeRetryTimerRef = useRef<number | null>(null);
+  const eventProbeRetryCountRef = useRef(0);
+  const latestProjectIdRef = useRef<string | null>(projectId);
   const previousProjectIdRef = useRef<string | null>(projectId);
   const lastStableProjectIdRef = useRef<string | null>(projectId);
   const latestSessionsRef = useRef<ChatSessionSummary[]>([]);
+
+  useEffect(() => {
+    activeRunStatusRef.current = activeRunStatus;
+  }, [activeRunStatus]);
+
+  useEffect(() => {
+    latestProjectIdRef.current = projectId;
+  }, [projectId]);
+
+  const clearEventProbeRetry = useCallback(() => {
+    if (eventProbeRetryTimerRef.current !== null) {
+      window.clearTimeout(eventProbeRetryTimerRef.current);
+      eventProbeRetryTimerRef.current = null;
+    }
+    eventProbeRetryCountRef.current = 0;
+  }, []);
 
   const resetApprovalUi = useCallback(() => {
     setBusyApprovalId(null);
@@ -997,6 +1024,145 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
       };
     },
     [],
+  );
+
+  const syncActiveRunState = useCallback(
+    async (
+      sessionId: string,
+      mode: "initial" | "active-poll" | "event-probe" = "initial",
+    ): Promise<void> => {
+      const projectScope = latestProjectIdRef.current;
+      const hadTrackedActiveRun = activeRunIdRef.current !== null;
+      if (
+        shouldIgnoreActiveRunSyncResult({
+          requestedSessionId: sessionId,
+          currentSessionId: activeSessionIdRef.current,
+          requestedProjectId: projectScope,
+          currentProjectId: latestProjectIdRef.current,
+        })
+      ) {
+        return;
+      }
+      if (activeRunSyncingRef.current) {
+        return;
+      }
+      activeRunSyncingRef.current = true;
+
+      try {
+        const run = await fetchActiveRunBySession(sessionId);
+        if (
+          shouldIgnoreActiveRunSyncResult({
+            requestedSessionId: sessionId,
+            currentSessionId: activeSessionIdRef.current,
+            requestedProjectId: projectScope,
+            currentProjectId: latestProjectIdRef.current,
+          })
+        ) {
+          return;
+        }
+
+        const probePlan = buildActiveRunSyncPlan({
+          mode,
+          run,
+          hadTrackedActiveRun,
+          localMessages: latestMessagesRef.current,
+          localChatTerminated: latestChatTerminatedRef.current,
+        });
+
+        if (probePlan.type === "set-active-run") {
+          clearEventProbeRetry();
+          setActiveRunId(probePlan.run.id);
+          setActiveRunStatus(probePlan.run.status);
+          return;
+        }
+
+        if (probePlan.type === "clear-run") {
+          if (
+            shouldRetryEventProbe({
+              mode,
+              run,
+              hadTrackedActiveRun,
+              retryCount: eventProbeRetryCountRef.current,
+            })
+          ) {
+            const nextRetryCount = eventProbeRetryCountRef.current + 1;
+            eventProbeRetryCountRef.current = nextRetryCount;
+            if (eventProbeRetryTimerRef.current !== null) {
+              window.clearTimeout(eventProbeRetryTimerRef.current);
+            }
+            eventProbeRetryTimerRef.current = window.setTimeout(() => {
+              eventProbeRetryTimerRef.current = null;
+              void syncActiveRunState(sessionId, "event-probe");
+            }, 1200);
+          } else {
+            clearEventProbeRetry();
+          }
+          setActiveRunId(null);
+          setActiveRunStatus(null);
+          return;
+        }
+
+        clearEventProbeRetry();
+
+        const restored = await fetchSessionById(sessionId);
+        if (
+          shouldIgnoreActiveRunSyncResult({
+            requestedSessionId: sessionId,
+            currentSessionId: activeSessionIdRef.current,
+            requestedProjectId: projectScope,
+            currentProjectId: latestProjectIdRef.current,
+          })
+        ) {
+          return;
+        }
+
+        const restoredMessages = normalizeSessionMessages(restored.messages);
+        const restorePlan = buildActiveRunSyncPlan({
+          mode,
+          run: null,
+          hadTrackedActiveRun,
+          restoredSession: {
+            id: restored.id,
+            messages: restoredMessages,
+            chatTerminated: restored.chatTerminated,
+          },
+          localMessages: latestMessagesRef.current,
+          localChatTerminated: latestChatTerminatedRef.current,
+        });
+
+        setActiveRunId(null);
+        setActiveRunStatus(null);
+
+        setSessions((current) => {
+          const next = current.filter((session) => session.id !== restored.id);
+          return sortSessions([toSessionSummary(restored), ...next]);
+        });
+
+        if (restorePlan.type === "restore-session" && activeSessionIdRef.current === restored.id) {
+          if (restorePlan.replaceMessages) {
+            setMessages(restorePlan.session.messages);
+          }
+          if (restorePlan.replaceChatTerminated) {
+            setChatTerminated(restorePlan.session.chatTerminated);
+          }
+        }
+      } catch (reasonUnknown) {
+        if (
+          !shouldIgnoreActiveRunSyncResult({
+            requestedSessionId: sessionId,
+            currentSessionId: activeSessionIdRef.current,
+            requestedProjectId: projectScope,
+            currentProjectId: latestProjectIdRef.current,
+          })
+        ) {
+          const message = reasonUnknown instanceof Error ? reasonUnknown.message : "同步会话运行状态失败";
+          setSessionError(message);
+        }
+      } finally {
+        activeRunSyncingRef.current = false;
+      }
+    },
+    [clearEventProbeRetry, fetchActiveRunBySession, fetchSessionById, setMessages],
   );
 
   const createSessionOnServer = useCallback(async (): Promise<ChatSessionRecord> => {
@@ -1232,102 +1398,52 @@ export function ChatPanel({ projectId, chapterId }: ChatPanelProps) {
 
   useEffect(() => {
     if (!projectId || !activeSessionId) {
+      clearEventProbeRetry();
       setActiveRunId(null);
       setActiveRunStatus(null);
       return;
     }
 
-    const sessionId = activeSessionId;
-    let cancelled = false;
-    let syncing = false;
+    void syncActiveRunState(activeSessionId, "initial");
 
-    async function syncActiveRunState() {
-      if (syncing) {
+    const activeRunTimer = window.setInterval(() => {
+      if (activeRunStatusRef.current !== "queued" && activeRunStatusRef.current !== "running") {
         return;
       }
-      syncing = true;
-
-      try {
-        const run = await fetchActiveRunBySession(sessionId);
-        if (cancelled) {
-          return;
-        }
-
-        if (run) {
-          setActiveRunId(run.id);
-          setActiveRunStatus(run.status);
-          return;
-        }
-
-        if (activeRunIdRef.current) {
-          setActiveRunId(null);
-          setActiveRunStatus(null);
-          const restored = await fetchSessionById(sessionId);
-          if (cancelled) {
-            return;
-          }
-
-          setSessions((current) => {
-            const next = current.filter((session) => session.id !== restored.id);
-            return sortSessions([toSessionSummary(restored), ...next]);
-          });
-          if (activeSessionIdRef.current === restored.id) {
-            setMessages(normalizeSessionMessages(restored.messages));
-            setChatTerminated(restored.chatTerminated);
-          }
-        } else {
-          setActiveRunId(null);
-          setActiveRunStatus(null);
-
-          // 即使当前无活跃 run，也需要回源一次会话详情，修复“run 在首次轮询前结束”导致的陈旧快照。
-          const restored = await fetchSessionById(sessionId);
-          if (cancelled) {
-            return;
-          }
-
-          setSessions((current) => {
-            const next = current.filter((session) => session.id !== restored.id);
-            return sortSessions([toSessionSummary(restored), ...next]);
-          });
-
-          if (activeSessionIdRef.current === restored.id) {
-            const normalized = normalizeSessionMessages(restored.messages);
-            const localSnapshot = JSON.stringify(latestMessagesRef.current);
-            const serverSnapshot = JSON.stringify(normalized);
-            if (localSnapshot !== serverSnapshot) {
-              setMessages(normalized);
-            }
-            if (latestChatTerminatedRef.current !== restored.chatTerminated) {
-              setChatTerminated(restored.chatTerminated);
-            }
-          }
-        }
-      } catch (reasonUnknown) {
-        if (!cancelled) {
-          const message = reasonUnknown instanceof Error ? reasonUnknown.message : "同步会话运行状态失败";
-          setSessionError(message);
-        }
-      } finally {
-        syncing = false;
+      const sessionId = activeSessionIdRef.current;
+      if (!sessionId) {
+        return;
       }
-    }
-
-    void syncActiveRunState();
-    const timer = window.setInterval(() => {
-      void syncActiveRunState();
+      void syncActiveRunState(sessionId, "active-poll");
     }, 1500);
 
     return () => {
-      cancelled = true;
-      window.clearInterval(timer);
+      clearEventProbeRetry();
+      window.clearInterval(activeRunTimer);
     };
   }, [
     activeSessionId,
-    fetchActiveRunBySession,
-    fetchSessionById,
+    clearEventProbeRetry,
     projectId,
-    setMessages,
+    syncActiveRunState,
   ]);
+
+  useEffect(() => {
+    return () => {
+      clearEventProbeRetry();
+    };
+  }, [clearEventProbeRetry]);
+
+  useEffect(() => {
+    if (!shouldProbeActiveRun({ projectId, activeSessionId, status })) {
+      return;
+    }
+    const sessionId = activeSessionId;
+    if (!sessionId) {
+      return;
+    }
+    void syncActiveRunState(sessionId, "event-probe");
+  }, [activeSessionId, projectId, status, syncActiveRunState]);
 
   useEffect(() => {
     if (!projectId || !activeSessionId || loadingSessionData || deletingSessionId) {
