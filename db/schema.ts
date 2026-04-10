@@ -127,7 +127,9 @@ export const schemaMigrations = [
         label TEXT NOT NULL,
         endpoint TEXT NOT NULL,
         model TEXT NOT NULL,
+        model_ids_json TEXT NOT NULL DEFAULT '[]',
         api_key_env TEXT NOT NULL,
+        api_key TEXT NOT NULL DEFAULT '',
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -163,8 +165,11 @@ export const schemaMigrations = [
         id TEXT PRIMARY KEY,
         work_id TEXT NOT NULL,
         provider_profile_id TEXT NOT NULL,
+        model_id TEXT NOT NULL DEFAULT '',
+        task_class TEXT NOT NULL DEFAULT '',
         prompt_tokens INTEGER NOT NULL DEFAULT 0,
         completion_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
       )`,
@@ -242,6 +247,31 @@ export const schemaMigrations = [
          FROM chapters`,
     ],
   },
+  {
+    id: "0003_ai_profile_and_usage_fields",
+    statements: [
+      `ALTER TABLE ai_provider_profiles ADD COLUMN model_ids_json TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE ai_provider_profiles ADD COLUMN api_key TEXT NOT NULL DEFAULT ''`,
+      `UPDATE ai_provider_profiles
+         SET model_ids_json = CASE
+           WHEN model_ids_json = '[]' THEN json_array(model)
+           ELSE model_ids_json
+         END`,
+      `UPDATE ai_provider_profiles
+         SET api_key = CASE
+           WHEN api_key = '' THEN api_key_env
+           ELSE api_key
+         END`,
+      `ALTER TABLE token_usage_records ADD COLUMN model_id TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE token_usage_records ADD COLUMN task_class TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE token_usage_records ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0`,
+      `UPDATE token_usage_records
+         SET total_tokens = CASE
+           WHEN total_tokens = 0 THEN prompt_tokens + completion_tokens
+           ELSE total_tokens
+         END`,
+    ],
+  },
 ] as const;
 
 export const seedStatements = [
@@ -257,10 +287,23 @@ export const seedStatements = [
    VALUES ('work-default', 'chapter-1', 0), ('work-default', 'chapter-2', 1)`,
   `INSERT OR IGNORE INTO book_metadata (work_id, author_name, premise, target_readers, serialized_status, tags_json, updated_at)
    VALUES ('work-default', 'CatNovel', '一个围绕都市异闻与创作现场展开的长篇网文项目。', 'webnovel-core', 'ongoing', '["都市","悬疑","成长"]', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO ai_provider_profiles (id, work_id, family, label, endpoint, model, api_key_env, enabled, created_at, updated_at)
+  `INSERT OR IGNORE INTO ai_provider_profiles (id, work_id, family, label, endpoint, model, model_ids_json, api_key_env, api_key, enabled, created_at, updated_at)
    VALUES
-    ('provider-openai', 'work-default', 'openai-compatible', 'OpenAI Compatible', 'https://api.openai.com/v1', 'gpt-4.1', 'OPENAI_API_KEY', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('provider-gemini', 'work-default', 'gemini-native', 'Gemini Native', 'https://generativelanguage.googleapis.com', 'gemini-2.5-pro', 'GEMINI_API_KEY', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('provider-claude', 'work-default', 'claude-native', 'Claude Native', 'https://api.anthropic.com', 'claude-sonnet-4-0', 'ANTHROPIC_API_KEY', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('provider-custom', 'work-default', 'custom-endpoint', 'Custom Endpoint', 'https://llm.example.com/v1', 'custom-model', 'CUSTOM_LLM_API_KEY', 0, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+    ('openai-default', 'work-default', 'openai-compatible', 'OpenAI Compatible', 'https://api.openai.com/v1', 'gpt-4.1', '["gpt-4.1","gpt-4o-mini"]', 'OPENAI_API_KEY', 'openai-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('gemini-default', 'work-default', 'gemini-native', 'Gemini Native', 'https://generativelanguage.googleapis.com', 'gemini-2.5-pro', '["gemini-2.5-pro","gemini-2.5-flash"]', 'GEMINI_API_KEY', 'gemini-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('claude-default', 'work-default', 'claude-native', 'Claude Native', 'https://api.anthropic.com', 'claude-sonnet-4-0', '["claude-sonnet-4","claude-haiku-4"]', 'ANTHROPIC_API_KEY', 'claude-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('custom-default', 'work-default', 'custom-endpoint', 'Custom Endpoint', 'https://llm.example.com/v1', 'custom-model', '["custom-model"]', 'CUSTOM_LLM_API_KEY', 'custom-test-key', 0, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+  `INSERT OR IGNORE INTO settings_nodes (id, work_id, parent_id, node_type, title, payload_json, created_at, updated_at)
+   VALUES
+    ('setting-character-root', 'work-default', NULL, 'character', '主角团', '{"summary":"主角、盟友与反派的动机。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-location-root', 'work-default', NULL, 'location', '迷雾城', '{"summary":"旧城、桥区与禁区入口。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-item-root', 'work-default', NULL, 'item', '旧印', '{"summary":"会重写因果的旧印。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-world-root', 'work-default', NULL, 'world', '世界规则', '{"summary":"力量体系与禁忌条款。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-plot-root', 'work-default', NULL, 'plot', '主线冲突', '{"summary":"主角追索旧印真相。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-rule-root', 'work-default', NULL, 'rule', '连载规则', '{"summary":"章节节奏、高潮与伏笔回收。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+  `INSERT OR IGNORE INTO chat_sessions (id, work_id, title, created_at, updated_at)
+   VALUES ('chat-session-default', 'work-default', '自由对话', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+  `INSERT OR IGNORE INTO chat_messages (id, session_id, role, body, token_count, created_at)
+   VALUES
+    ('chat-message-seed-1', 'chat-session-default', 'assistant', '这里是当前章节的自由对话侧栏。你可以先问设定、节奏，或者直接请求 ghost text。', 0, '2026-04-10T00:00:00.000Z')`,
 ] as const;

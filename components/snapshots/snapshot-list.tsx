@@ -1,59 +1,48 @@
-import type { SupportedLocale } from '../../lib/i18n/messages';
+import type { WorkspaceLocale } from '@/lib/contracts/workspace';
 
+import { Button } from '../ui/button';
 import { SectionLabel } from '../ui/section-label';
-import { type LocaleText, t } from '../workspace/workspace-data';
 
-const snapshots = [
-  {
-    title: {
-      zh: '导入前保护点',
-      en: 'Pre-import safeguard',
-      ru: 'Контрольная точка перед импортом',
-    } satisfies LocaleText,
-    meta: {
-      zh: 'TXT / EPUB 导入前',
-      en: 'Before TXT / EPUB ingest',
-      ru: 'Перед TXT / EPUB импортом',
-    } satisfies LocaleText,
-  },
-  {
-    title: {
-      zh: '章节回滚检查点',
-      en: 'Chapter rollback checkpoint',
-      ru: 'Контрольная точка отката главы',
-    } satisfies LocaleText,
-    meta: {
-      zh: '破坏性改写前',
-      en: 'Before destructive rewrite',
-      ru: 'Перед разрушительным переписыванием',
-    } satisfies LocaleText,
-  },
-  {
-    title: {
-      zh: '发布演练快照',
-      en: 'Release rehearsal',
-      ru: 'Снимок перед релизной репетицией',
-    } satisfies LocaleText,
-    meta: {
-      zh: '备份 / 恢复演练前',
-      en: 'Before backup / restore drill',
-      ru: 'Перед прогоном backup / restore',
-    } satisfies LocaleText,
-  },
-];
-
-export function SnapshotList({ locale, chapterTitle }: { locale: SupportedLocale; chapterTitle: string }) {
+export function SnapshotList({
+  locale,
+  snapshots,
+  auditLog,
+  onRestore,
+  onDelete,
+}: {
+  locale: WorkspaceLocale;
+  snapshots: Array<{ id: string; label: string; createdAt: string }>;
+  auditLog: string[];
+  onRestore: (snapshotId: string) => void;
+  onDelete: (snapshotId: string) => void;
+}) {
   return (
     <div className="snapshot-list">
       {snapshots.map((snapshot) => (
-        <article key={t(locale, snapshot.title)} className="snapshot-card">
-          <SectionLabel>{t(locale, snapshot.meta)}</SectionLabel>
-          <strong>{t(locale, snapshot.title)}</strong>
-          <p>
-            当前与 {chapterTitle} 绑定；后续将接入 create / list / restore / delete 与审计记录。
-          </p>
+        <article key={snapshot.id} className="snapshot-card">
+          <SectionLabel>{snapshot.createdAt}</SectionLabel>
+          <strong>{snapshot.label}</strong>
+          <div className="snapshot-actions">
+            <Button variant="ghost" onClick={() => onRestore(snapshot.id)}>
+              {locale === 'zh' ? '恢复' : locale === 'en' ? 'Restore' : 'Восстановить'}
+            </Button>
+            <Button variant="ghost" onClick={() => onDelete(snapshot.id)}>
+              {locale === 'zh' ? '删除' : locale === 'en' ? 'Delete' : 'Удалить'}
+            </Button>
+          </div>
         </article>
       ))}
+
+      <article className="snapshot-card">
+        <SectionLabel>
+          {locale === 'zh' ? '导入 / 导出审计' : locale === 'en' ? 'Import/export audit' : 'Аудит импорта/экспорта'}
+        </SectionLabel>
+        <div className="task-stack">
+          {auditLog.map((entry) => (
+            <p key={entry}>{entry}</p>
+          ))}
+        </div>
+      </article>
     </div>
   );
 }

@@ -1,20 +1,14 @@
-import type { AppMessages, SupportedLocale } from '../../lib/i18n/messages';
+import type { ChapterRecord, WorkspaceLocale } from '@/lib/contracts/workspace';
+import type { AppMessages } from '@/lib/i18n/messages';
 
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Input } from '../ui/input';
 import { Panel } from '../ui/panel';
 import { Separator } from '../ui/separator';
-import { t, type ChapterItem, slashCommands } from '../workspace/workspace-data';
-
-const toolbarChips: Array<{
-  key: keyof EditorModes;
-  label: string;
-}> = [
-  { key: 'slash', label: 'Slash commands' },
-  { key: 'bubble', label: 'Bubble menu' },
-  { key: 'highlight', label: 'Search highlight' },
-  { key: 'pageBreak', label: 'Page-break style' },
-];
+import { Textarea } from '../ui/textarea';
+import { slashCommands, t } from '../workspace/workspace-data';
 
 export type EditorModes = {
   slash: boolean;
@@ -27,82 +21,126 @@ export function EditorPanel({
   locale,
   copy,
   chapter,
+  body,
+  draftTitle,
   editorModes,
+  saveState,
+  pendingGhostText,
+  onTitleChange,
+  onBodyChange,
   onToggleMode,
+  onRunTask,
+  onAcceptGhostText,
+  onRejectGhostText,
 }: {
-  locale: SupportedLocale;
+  locale: WorkspaceLocale;
   copy: AppMessages;
-  chapter: ChapterItem;
+  chapter: ChapterRecord | null;
+  body: string;
+  draftTitle: string;
   editorModes: EditorModes;
+  saveState: string;
+  pendingGhostText: string;
+  onTitleChange: (value: string) => void;
+  onBodyChange: (value: string) => void;
   onToggleMode: (mode: keyof EditorModes) => void;
+  onRunTask: (taskClass: '续写' | '改写' | '润色' | '扩写' | 'ghost-text') => void;
+  onAcceptGhostText: () => void;
+  onRejectGhostText: () => void;
 }) {
   return (
     <Panel
       id="editor-panel"
       title="Primary writing stage"
-      subtitle="中栏维持最高视觉权重，承接章节正文、slash/bubble/highlight/page-break 等交互表面。"
+      subtitle="中栏直接连接 SQLite autosave、slash tasks、ghost text 与章节指标。"
       badge={<Badge tone="neutral">Editor</Badge>}
     >
       <div className="editor-stage">
         <div className="editor-toolbar">
-          {toolbarChips.map((chip) => (
+          {(
+            [
+              ['slash', 'Slash commands'],
+              ['bubble', 'Bubble menu'],
+              ['highlight', 'Search highlight'],
+              ['pageBreak', 'Page-break style'],
+            ] as Array<[keyof EditorModes, string]>
+          ).map(([key, label]) => (
             <button
-              key={chip.key}
+              key={key}
               className={[
                 'toolbar-chip',
-                editorModes[chip.key] ? 'toolbar-chip--active' : '',
+                editorModes[key] ? 'toolbar-chip--active' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => onToggleMode(chip.key)}
+              onClick={() => onToggleMode(key)}
               type="button"
             >
-              {chip.label}
+              {label}
             </button>
           ))}
+          <Badge tone="neutral">{saveState}</Badge>
         </div>
 
         <div className="editor-prose">
           <div className="editor-meta">
-            <div>
+            <div className="task-stack">
               <span className="section-label">
                 <span aria-hidden="true" className="section-label__dot" />
                 {copy.editorTools}
               </span>
-              <h2>{t(locale, chapter.title)}</h2>
+              <Input value={draftTitle} onChange={(event) => onTitleChange(event.target.value)} />
             </div>
             <div className="chapter-stat-grid">
               <Card className="stat-card">
                 <CardHeader className="stat-card__header">
                   <CardTitle className="stat-card__title">Words</CardTitle>
                 </CardHeader>
-                <CardContent className="stat-card__content">{chapter.words}</CardContent>
+                <CardContent className="stat-card__content">{chapter?.wordCount ?? 0}</CardContent>
               </Card>
               <Card className="stat-card">
                 <CardHeader className="stat-card__header">
-                  <CardTitle className="stat-card__title">Updated</CardTitle>
+                  <CardTitle className="stat-card__title">Chars</CardTitle>
                 </CardHeader>
-                <CardContent className="stat-card__content">{chapter.updatedAt}</CardContent>
+                <CardContent className="stat-card__content">
+                  {chapter?.characterCount ?? 0}
+                </CardContent>
+              </Card>
+              <Card className="stat-card">
+                <CardHeader className="stat-card__header">
+                  <CardTitle className="stat-card__title">Read</CardTitle>
+                </CardHeader>
+                <CardContent className="stat-card__content">
+                  {chapter?.readingMinutes ?? 0}m
+                </CardContent>
+              </Card>
+              <Card className="stat-card">
+                <CardHeader className="stat-card__header">
+                  <CardTitle className="stat-card__title">Autosave</CardTitle>
+                </CardHeader>
+                <CardContent className="stat-card__content">
+                  {chapter?.lastAutosavedAt ?? '—'}
+                </CardContent>
               </Card>
             </div>
           </div>
-          <p>
-            {t(locale, chapter.excerpt)}
-          </p>
-          <p>
-            她把设定树里最后一条
-            <span className="editor-highlight"> 世界规则 </span>
-            拖进上下文槽后，右栏的提示词突然安静下来。所有多余的模式开关都被拿掉，
-            页面只剩下写作本身：左边是结构，中间是正文，右边是推理与帮助。
-          </p>
-          <p>
-            这就是 lane-2 的职责——先把容器和节奏做对，再让章节、AI、快照沿着同一套
-            shadow-border 语言长出来，而不是让功能在 dashboard 化的碎片里互相争抢。
-          </p>
-          <p>
-            当后续 lane 接入真正的数据与交互时，这块区域仍然应该维持同样的排版密度、
-            视觉节奏与专注感。
-          </p>
+
+          <Textarea
+            rows={18}
+            value={body}
+            onChange={(event) => onBodyChange(event.target.value)}
+          />
+
+          {editorModes.highlight ? (
+            <p>
+              {locale === 'zh'
+                ? '高亮模式已开启：当前章节中的设定引用会在 AI 上下文与正文之间保持可见。'
+                : locale === 'en'
+                  ? 'Highlight mode is on: setting references stay visible between the editor and AI context.'
+                  : 'Режим подсветки включён: ссылки на сеттинг видны и в редакторе, и в AI-контексте.'}
+            </p>
+          ) : null}
+
           {editorModes.pageBreak ? <div className="page-break-rule" /> : null}
         </div>
 
@@ -117,7 +155,14 @@ export function EditorPanel({
               {slashCommands.map((command) => (
                 <div key={command.id} className="command-row">
                   <strong>{t(locale, command.label)}</strong>
-                  <p>{t(locale, command.hint)}</p>
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      onRunTask(command.id as '续写' | '改写' | '润色' | '扩写' | 'ghost-text')
+                    }
+                  >
+                    {locale === 'zh' ? '执行' : locale === 'en' ? 'Run' : 'Запустить'}
+                  </Button>
                 </div>
               ))}
             </CardContent>
@@ -125,24 +170,18 @@ export function EditorPanel({
 
           <Card className="command-card">
             <CardHeader>
-              <CardTitle className="command-card__title">Bubble & preview</CardTitle>
+              <CardTitle className="command-card__title">Ghost text</CardTitle>
             </CardHeader>
             <CardContent className="command-card__content">
-              <div className="bubble-preview">
-                <Badge tone={editorModes.bubble ? 'default' : 'neutral'}>
-                  {editorModes.bubble ? 'Bubble menu on' : 'Bubble menu off'}
-                </Badge>
-                <Badge tone={editorModes.highlight ? 'default' : 'neutral'}>
-                  {editorModes.highlight ? 'Highlight on' : 'Highlight off'}
-                </Badge>
+              <p>{pendingGhostText || '—'}</p>
+              <div className="snapshot-actions">
+                <Button variant="ghost" onClick={onAcceptGhostText}>
+                  {locale === 'zh' ? '接受' : locale === 'en' ? 'Accept' : 'Принять'}
+                </Button>
+                <Button variant="ghost" onClick={onRejectGhostText}>
+                  {locale === 'zh' ? '拒绝' : locale === 'en' ? 'Reject' : 'Отклонить'}
+                </Button>
               </div>
-              <p>
-                当前表面为 worker-2 / worker-4 后续接入真正编辑器动作预留交互位置，
-                但所有按钮已经在当前 route 内连成一条连续工作流。
-              </p>
-              <a className="button button--ghost button--anchor" href="#settings-panel">
-                {copy.bookInfo}
-              </a>
             </CardContent>
           </Card>
         </div>

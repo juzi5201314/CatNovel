@@ -3,7 +3,7 @@ import {
   listModelsByProvider,
   listProviderProfiles,
   type ProviderFamily,
-} from '../../../../lib/server/ai/provider-registry';
+} from '../../../../lib/server/ai/provider-registry.ts';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

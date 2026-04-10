@@ -1,15 +1,15 @@
-import { getDatabaseStatus } from "../../../db/client.ts";
-import { bootstrapPayloadSchema } from "../../contracts/bootstrap.ts";
-import { listProviderProfiles } from "../repositories/provider-repository.ts";
+import { getDatabaseStatus } from '../../../db/client.ts';
+import { bootstrapPayloadSchema } from '../../contracts/bootstrap.ts';
+import { listProviderProfiles } from '../repositories/provider-repository.ts';
 import {
   getWorkspaceOverview,
   listWorkspaceChapters,
   listWorkspaceVolumes,
-} from "../repositories/workspace-repository.ts";
-import { getPersistenceSnapshot } from "./workspace-data-service.ts";
+} from '../repositories/workspace-repository.ts';
+import { getPersistenceSnapshot } from './workspace-data-service.ts';
 
-export function getBootstrapPayload() {
-  const workspace = getWorkspaceOverview();
+export function getBootstrapPayload(workId?: string) {
+  const workspace = getWorkspaceOverview(workId);
   const chapters = listWorkspaceChapters(workspace.workId);
   const volumes = listWorkspaceVolumes(workspace.workId);
   const providers = listProviderProfiles(workspace.workId).map((provider) => ({
@@ -41,6 +41,6 @@ export function getBootstrapPayload() {
   });
 }
 
-export function getBootstrapCollections() {
-  return getPersistenceSnapshot();
+export function getBootstrapCollections(workId?: string, sessionId?: string) {
+  return getPersistenceSnapshot({ workId, sessionId });
 }

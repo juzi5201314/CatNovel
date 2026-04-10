@@ -24,12 +24,13 @@ export function WorkspaceHeader({
   return (
     <header className="workspace-header">
       <div className="workspace-brand">
-        <div className="eyebrow">Author replica / lane 2 shell</div>
+        <div className="eyebrow">Author replica / production cutover</div>
         <h1 className="workspace-title">CatNovel workspace</h1>
         <p className="workspace-copy">
           {activeWorkLabel} · {activeChapterTitle}
-          。用 Vercel-like restraint 重建网文工作台：三栏连续布局、单主题设计系统、
-          onboarding/help/settings 容器，以及可继续接入 editor / AI / snapshots 的交互锚点。
+          。三栏连续布局、单主题设计系统、SQLite 单一事实源、AI /
+          snapshots / settings / help 共用同一路由，不保留 theme、
+          layout mode 或云同步旁路。
         </p>
       </div>
 

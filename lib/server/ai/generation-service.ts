@@ -1,15 +1,15 @@
 import {
   buildContextPacket,
   type ContextSelection,
-} from './context-engine';
+} from './context-engine.ts';
 import {
   findProviderProfile,
   listModelsByProvider,
-} from './provider-registry';
+} from './provider-registry.ts';
 import {
   archiveTokenUsage,
   type TokenUsageRecord,
-} from './token-usage-archive';
+} from './token-usage-archive.ts';
 
 export type AiTaskClass =
   | '续写'

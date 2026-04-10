@@ -1,4 +1,4 @@
-import { getDatabase } from "../../../db/client.ts";
+import { getDatabase } from '../../../db/client.ts';
 
 export type WorkspaceOverview = {
   workId: string;
@@ -13,8 +13,29 @@ export type WorkspaceOverview = {
   lastAutosavedAt: string | null;
 };
 
-export function getWorkspaceOverview(): WorkspaceOverview {
+export function getWorkspaceOverview(workId?: string): WorkspaceOverview {
   const db = getDatabase();
+
+  if (workId) {
+    return db.prepare(
+      `SELECT
+        w.id AS workId,
+        w.title AS title,
+        w.locale AS locale,
+        w.synopsis AS synopsis,
+        COUNT(DISTINCT v.id) AS volumeCount,
+        COUNT(c.id) AS chapterCount,
+        COALESCE(SUM(c.word_count), 0) AS totalWords,
+        COALESCE(SUM(c.character_count), 0) AS totalCharacters,
+        COALESCE(SUM(c.reading_minutes), 0) AS totalReadingMinutes,
+        MAX(c.last_autosaved_at) AS lastAutosavedAt
+      FROM works w
+      LEFT JOIN volumes v ON v.work_id = w.id
+      LEFT JOIN chapters c ON c.work_id = w.id
+      WHERE w.id = ?
+      GROUP BY w.id, w.title, w.locale, w.synopsis`,
+    ).get(workId) as WorkspaceOverview;
+  }
 
   return db.prepare(
     `SELECT

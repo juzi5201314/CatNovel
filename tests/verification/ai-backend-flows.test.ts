@@ -1,12 +1,13 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { beforeEach, describe, test } from 'node:test';
 
 import {
   DELETE,
   GET as getAiRoute,
   PATCH,
   POST,
-} from '../../app/api/ai/route';
-import { GET as getModelRoute } from '../../app/api/ai/models/route';
+} from '../../app/api/ai/route.ts';
+import { GET as getModelRoute } from '../../app/api/ai/models/route.ts';
 
 async function readStream(response: Response) {
   const reader = response.body?.getReader();
@@ -56,9 +57,9 @@ describe('AI backend flows', () => {
       }),
     );
 
-    expect(createdResponse.status).toBe(201);
+    assert.equal(createdResponse.status, 201);
     const createdPayload = await createdResponse.json();
-    expect(createdPayload.profile.label).toBe('Local custom provider');
+    assert.equal(createdPayload.profile.label, 'Local custom provider');
 
     const updatedResponse = await PATCH(
       new Request('http://localhost/api/ai', {
@@ -73,18 +74,19 @@ describe('AI backend flows', () => {
     );
 
     const updatedPayload = await updatedResponse.json();
-    expect(updatedPayload.profile.label).toBe('Updated local provider');
-    expect(updatedPayload.profile.modelIds).toContain('ghost-model');
+    assert.equal(updatedPayload.profile.label, 'Updated local provider');
+    assert.ok(updatedPayload.profile.modelIds.includes('ghost-model'));
 
     const profilesResponse = await getAiRoute(
       new Request('http://localhost/api/ai?resource=profiles'),
     );
     const profilesPayload = await profilesResponse.json();
-    expect(
+    assert.equal(
       profilesPayload.profiles.some(
         (profile: { id: string }) => profile.id === createdPayload.profile.id,
       ),
-    ).toBe(true);
+      true,
+    );
 
     const deleteResponse = await DELETE(
       new Request(
@@ -93,9 +95,9 @@ describe('AI backend flows', () => {
       ),
     );
 
-    expect(deleteResponse.status).toBe(200);
+    assert.equal(deleteResponse.status, 200);
     const deletedPayload = await deleteResponse.json();
-    expect(deletedPayload.removedProfile.id).toBe(createdPayload.profile.id);
+    assert.equal(deletedPayload.removedProfile.id, createdPayload.profile.id);
   });
 
   test('model discovery covers OpenAI/Gemini/Claude/custom provider families', async () => {
@@ -112,8 +114,8 @@ describe('AI backend flows', () => {
       );
 
       const payload = await response.json();
-      expect(payload.family).toBe(family);
-      expect(payload.models.length).toBeGreaterThan(0);
+      assert.equal(payload.family, family);
+      assert.ok(payload.models.length > 0);
     }
   });
 
@@ -137,18 +139,18 @@ describe('AI backend flows', () => {
       }),
     );
 
-    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/);
     const streamText = await readStream(response);
-    expect(streamText).toContain('event: token');
-    expect(streamText).toContain('event: done');
-    expect(streamText).toContain('ghostText');
+    assert.match(streamText, /event: token/);
+    assert.match(streamText, /event: done/);
+    assert.match(streamText, /ghostText/);
 
     const tokenUsageResponse = await getAiRoute(
       new Request('http://localhost/api/ai?resource=token-usage'),
     );
     const tokenUsagePayload = await tokenUsageResponse.json();
-    expect(tokenUsagePayload.records.length).toBeGreaterThan(0);
-    expect(tokenUsagePayload.records[0].taskClass).toBe('ghost-text');
+    assert.ok(tokenUsagePayload.records.length > 0);
+    assert.equal(tokenUsagePayload.records[0].taskClass, 'ghost-text');
 
     const contextPreviewResponse = await POST(
       new Request('http://localhost/api/ai', {
@@ -165,11 +167,12 @@ describe('AI backend flows', () => {
     );
 
     const contextPreviewPayload = await contextPreviewResponse.json();
-    expect(contextPreviewPayload.contextPacket.settingsCount).toBe(1);
-    expect(contextPreviewPayload.contextPacket.summaryCount).toBe(1);
-    expect(contextPreviewPayload.contextPacket.manualSelectionCount).toBe(1);
-    expect(contextPreviewPayload.contextPacket.combinedContext).toContain(
-      '强调悬疑氛围',
+    assert.equal(contextPreviewPayload.contextPacket.settingsCount, 1);
+    assert.equal(contextPreviewPayload.contextPacket.summaryCount, 1);
+    assert.equal(contextPreviewPayload.contextPacket.manualSelectionCount, 1);
+    assert.match(
+      contextPreviewPayload.contextPacket.combinedContext,
+      /强调悬疑氛围/,
     );
   });
 
@@ -210,9 +213,9 @@ describe('AI backend flows', () => {
       }),
     );
 
-    expect(generationFailureResponse.status).toBe(400);
+    assert.equal(generationFailureResponse.status, 400);
     const generationFailurePayload = await generationFailureResponse.json();
-    expect(generationFailurePayload.error).toContain('Missing API key');
+    assert.match(generationFailurePayload.error, /Missing API key/);
 
     const modelFailureResponse = await getModelRoute(
       new Request(
@@ -220,8 +223,8 @@ describe('AI backend flows', () => {
       ),
     );
 
-    expect(modelFailureResponse.status).toBe(502);
+    assert.equal(modelFailureResponse.status, 502);
     const modelFailurePayload = await modelFailureResponse.json();
-    expect(modelFailurePayload.error).toContain('Model list fetch failure');
+    assert.match(modelFailurePayload.error, /Model list fetch failure/);
   });
 });

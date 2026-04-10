@@ -1,64 +1,82 @@
-import type { SupportedLocale } from '../../lib/i18n/messages';
+import type { ProviderProfileRecord, WorkspaceLocale } from '@/lib/contracts/workspace';
 
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import { SectionLabel } from '../ui/section-label';
-import { type LocaleText, t } from '../workspace/workspace-data';
+import { providerFamilyLabels, t } from '../workspace/workspace-data';
 
-const modelGroups = [
-  {
-    name: {
-      zh: 'OpenAI-compatible',
-      en: 'OpenAI-compatible',
-      ru: 'OpenAI-compatible',
-    } satisfies LocaleText,
-    description: {
-      zh: '为 OpenAI-compatible、Moonshot、SiliconFlow 等 provider 预留统一模型选择 surface。',
-      en: 'A shared picker surface for OpenAI-compatible, Moonshot, and SiliconFlow-style providers.',
-      ru: 'Общая поверхность выбора модели для OpenAI-compatible, Moonshot и SiliconFlow-подобных провайдеров.',
-    } satisfies LocaleText,
-    tone: 'neutral' as const,
-  },
-  {
-    name: {
-      zh: 'Gemini-native',
-      en: 'Gemini-native',
-      ru: 'Gemini-native',
-    } satisfies LocaleText,
-    description: {
-      zh: '保留 Gemini 原生拉模与 embed-only 列表位，但不把 provider 逻辑塞进组件本身。',
-      en: 'Keeps native Gemini discovery and embed-only slots visible without pushing provider logic into the component.',
-      ru: 'Оставляет видимыми native Gemini discovery и embed-only слоты, не таща логику провайдера внутрь компонента.',
-    } satisfies LocaleText,
-    tone: 'default' as const,
-  },
-  {
-    name: {
-      zh: 'Claude-native',
-      en: 'Claude-native',
-      ru: 'Claude-native',
-    } satisfies LocaleText,
-    description: {
-      zh: 'Anthropic / Claude 模型能力单列，方便后续 worker-2 对接真实 provider 数据。',
-      en: 'Separates Anthropic / Claude capability rows so worker-2 can wire real provider data later.',
-      ru: 'Выносит возможности Anthropic / Claude в отдельные строки, чтобы worker-2 позже подключил реальные данные.',
-    } satisfies LocaleText,
-    tone: 'red' as const,
-  },
-];
-
-export function ModelPicker({ locale }: { locale: SupportedLocale }) {
+export function ModelPicker({
+  locale,
+  providers,
+  activeProfileId,
+  draftLabel,
+  draftEndpoint,
+  draftModels,
+  onSelectProfile,
+  onDraftFieldChange,
+  onCreateProfile,
+}: {
+  locale: WorkspaceLocale;
+  providers: ProviderProfileRecord[];
+  activeProfileId: string | null;
+  draftLabel: string;
+  draftEndpoint: string;
+  draftModels: string;
+  onSelectProfile: (profileId: string) => void;
+  onDraftFieldChange: (field: 'label' | 'endpoint' | 'models', value: string) => void;
+  onCreateProfile: () => void;
+}) {
   return (
     <div className="model-picker-grid" id="ai-models">
-      {modelGroups.map((group) => (
-        <article key={group.tone} className="model-card">
-          <SectionLabel>Model picker</SectionLabel>
+      {providers.map((provider) => (
+        <article
+          key={provider.id}
+          className={[
+            'model-card',
+            provider.id === activeProfileId ? 'work-card--active' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <SectionLabel>{t(locale, providerFamilyLabels[provider.family])}</SectionLabel>
           <div className="meta-row">
-            <strong>{t(locale, group.name)}</strong>
-            <Badge tone={group.tone}>{group.tone === 'red' ? 'native' : 'ready'}</Badge>
+            <strong>{provider.label}</strong>
+            <Badge tone={provider.enabled ? 'default' : 'neutral'}>
+              {provider.enabled ? 'enabled' : 'standby'}
+            </Badge>
           </div>
-          <p>{t(locale, group.description)}</p>
+          <p>{provider.endpoint}</p>
+          <p>{provider.modelIds.join(', ')}</p>
+          <Button variant="ghost" onClick={() => onSelectProfile(provider.id)}>
+            {locale === 'zh' ? '选中模型源' : locale === 'en' ? 'Use profile' : 'Выбрать профиль'}
+          </Button>
         </article>
       ))}
+
+      <article className="model-card">
+        <SectionLabel>
+          {locale === 'zh' ? '新增 Provider' : locale === 'en' ? 'New provider' : 'Новый провайдер'}
+        </SectionLabel>
+        <Input
+          value={draftLabel}
+          onChange={(event) => onDraftFieldChange('label', event.target.value)}
+          placeholder={locale === 'zh' ? 'Provider 名称' : locale === 'en' ? 'Provider label' : 'Название'}
+        />
+        <Input
+          value={draftEndpoint}
+          onChange={(event) => onDraftFieldChange('endpoint', event.target.value)}
+          placeholder="https://..."
+        />
+        <Input
+          value={draftModels}
+          onChange={(event) => onDraftFieldChange('models', event.target.value)}
+          placeholder={locale === 'zh' ? '模型列表，用逗号分隔' : locale === 'en' ? 'Model ids, comma-separated' : 'Модели через запятую'}
+        />
+        <Button variant="ghost" onClick={onCreateProfile}>
+          {locale === 'zh' ? '创建自定义端点' : locale === 'en' ? 'Create custom endpoint' : 'Создать custom endpoint'}
+        </Button>
+      </article>
     </div>
   );
 }

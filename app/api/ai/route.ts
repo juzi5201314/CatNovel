@@ -1,19 +1,19 @@
-import { buildContextPacket } from '../../../lib/server/ai/context-engine';
+import { buildContextPacket } from '../../../lib/server/ai/context-engine.ts';
 import {
   createGenerationStream,
   generateText,
-} from '../../../lib/server/ai/generation-service';
+} from '../../../lib/server/ai/generation-service.ts';
 import {
   createProviderProfile,
   deleteProviderProfile,
   listProviderProfiles,
   resetProviderProfilesForTests,
   updateProviderProfile,
-} from '../../../lib/server/ai/provider-registry';
+} from '../../../lib/server/ai/provider-registry.ts';
 import {
   listTokenUsageRecords,
   resetTokenUsageArchiveForTests,
-} from '../../../lib/server/ai/token-usage-archive';
+} from '../../../lib/server/ai/token-usage-archive.ts';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
