@@ -1,23 +1,64 @@
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
+import type { AppMessages, SupportedLocale } from '../../lib/i18n/messages';
 
-export function WorkspaceHeader() {
+import { Badge } from '../ui/badge';
+
+const localeLabels: Record<SupportedLocale, string> = {
+  zh: '简体中文',
+  en: 'English',
+  ru: 'Русский',
+};
+
+export function WorkspaceHeader({
+  locale,
+  copy,
+  activeWorkLabel,
+  activeChapterTitle,
+  onLocaleChange,
+}: {
+  locale: SupportedLocale;
+  copy: AppMessages;
+  activeWorkLabel: string;
+  activeChapterTitle: string;
+  onLocaleChange: (locale: SupportedLocale) => void;
+}) {
   return (
     <header className="workspace-header">
       <div className="workspace-brand">
         <div className="eyebrow">Author replica / lane 2 shell</div>
         <h1 className="workspace-title">CatNovel workspace</h1>
         <p className="workspace-copy">
-          用 Vercel-like restraint 重建网文工作台：三栏连续布局、单主题设计系统、
-          onboarding/help/settings 容器与后续 lane 的稳定挂载点。
+          {activeWorkLabel} · {activeChapterTitle}
+          。用 Vercel-like restraint 重建网文工作台：三栏连续布局、单主题设计系统、
+          onboarding/help/settings 容器，以及可继续接入 editor / AI / snapshots 的交互锚点。
         </p>
       </div>
 
       <div className="workspace-actions">
-        <Badge>zh / en / ru</Badge>
+        <div className="locale-switcher" aria-label={copy.localeSwitcher}>
+          {(['zh', 'en', 'ru'] as SupportedLocale[]).map((entry) => (
+            <button
+              key={entry}
+              className={[
+                'locale-button',
+                entry === locale ? 'locale-button--active' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => onLocaleChange(entry)}
+              type="button"
+            >
+              {localeLabels[entry]}
+            </button>
+          ))}
+        </div>
+        <Badge>{copy.localeSwitcher}</Badge>
         <Badge tone="neutral">SQLite is source of truth</Badge>
-        <Button variant="ghost">Open help</Button>
-        <Button variant="primary">Resume writing</Button>
+        <a className="button button--ghost button--anchor" href="#help-panel">
+          Open help
+        </a>
+        <a className="button button--primary button--anchor" href="#editor-panel">
+          {copy.launchWriting}
+        </a>
       </div>
     </header>
   );

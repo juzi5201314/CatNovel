@@ -1,19 +1,25 @@
 import type { ReactNode } from 'react';
 
 export function Panel({
+  id,
   title,
   subtitle,
   badge,
+  className,
+  bodyClassName,
   children,
 }: {
+  id?: string;
   title: string;
   subtitle: string;
   badge?: ReactNode;
+  className?: string;
+  bodyClassName?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="surface">
-      <div className="surface__body">
+    <section className={["surface", className].filter(Boolean).join(" ")} id={id}>
+      <div className={["surface__body", bodyClassName].filter(Boolean).join(" ")}>
         <header className="surface__head">
           <div>
             <h2 className="surface__title">{title}</h2>

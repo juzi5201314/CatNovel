@@ -144,6 +144,32 @@ textarea:focus-visible {
   justify-content: flex-end;
 }
 
+.locale-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--cn-light-ring-shadow);
+}
+
+.locale-button {
+  border: 0;
+  background: transparent;
+  color: var(--cn-text-muted);
+  padding: 8px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.locale-button--active {
+  background: var(--cn-text);
+  color: var(--cn-bg);
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -177,6 +203,10 @@ textarea:focus-visible {
 .button--ghost {
   background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(12px);
+}
+
+.button--anchor {
+  text-decoration: none;
 }
 
 .button--badge {
@@ -305,6 +335,12 @@ textarea:focus-visible {
   gap: 10px;
 }
 
+.assistant-link-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .nav-item,
 .metric-card,
 .task-card,
@@ -322,6 +358,31 @@ textarea:focus-visible {
 .nav-item {
   display: grid;
   gap: 8px;
+}
+
+.nav-section,
+.work-list,
+.chapter-list,
+.settings-layout,
+.tree-nav,
+.book-info-form,
+.editor-command-grid,
+.chapter-stat-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-layout {
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.editor-command-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chapter-stat-grid {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
 }
 
 .nav-item strong,
@@ -342,6 +403,47 @@ textarea:focus-visible {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.work-card,
+.chapter-item,
+.tree-node {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  cursor: pointer;
+  padding: 14px 16px;
+  border-radius: var(--cn-radius-md);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: var(--cn-light-ring-shadow);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.work-card:hover,
+.chapter-item:hover,
+.tree-node:hover {
+  transform: translateY(-1px);
+}
+
+.work-card--active,
+.chapter-item--active,
+.tree-node--active,
+.toolbar-chip--active {
+  background: var(--cn-text);
+  color: var(--cn-bg);
+  box-shadow: var(--cn-ring-shadow);
+}
+
+.work-card--active p,
+.chapter-item--active p,
+.tree-node--active p,
+.work-card--active .section-label,
+.chapter-item--active .section-label,
+.tree-node--active .section-label {
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .mono-text {
@@ -411,12 +513,22 @@ textarea:focus-visible {
 }
 
 .toolbar-chip {
+  border: 0;
+  cursor: pointer;
   padding: 8px 10px;
   border-radius: 999px;
   background: var(--cn-bg-soft);
   color: var(--cn-text-muted);
   box-shadow: inset 0 0 0 1px var(--cn-line-strong);
   font-size: 0.84rem;
+}
+
+.editor-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .editor-prose {
@@ -466,6 +578,78 @@ textarea:focus-visible {
 .settings-grid {
   display: grid;
   gap: 10px;
+}
+
+.field-group {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cn-text-muted);
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.command-card,
+.stat-card {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.command-card__title,
+.stat-card__title {
+  font-size: 0.9rem;
+  letter-spacing: -0.02em;
+}
+
+.stat-card__header {
+  padding-bottom: 0;
+}
+
+.stat-card__content {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 1.1rem;
+  color: var(--cn-text);
+}
+
+.command-card__content {
+  display: grid;
+  gap: 12px;
+}
+
+.command-row {
+  display: grid;
+  gap: 6px;
+}
+
+.command-row p {
+  margin: 0;
+  color: var(--cn-text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.bubble-preview {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.page-break-rule {
+  height: 1px;
+  width: 100%;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0,
+      rgba(10, 114, 239, 0.4) 18%,
+      rgba(222, 29, 141, 0.45) 50%,
+      rgba(255, 91, 79, 0.4) 82%,
+      transparent 100%
+    );
 }
 
 .locale-card {
@@ -536,6 +720,11 @@ textarea:focus-visible {
 
   .workspace-actions {
     justify-content: flex-start;
+  }
+
+  .settings-layout,
+  .editor-command-grid {
+    grid-template-columns: 1fr;
   }
 }
 
