@@ -1,5 +1,14 @@
 # Signoff Checklist — author-replica
 
+> 可在仓库根目录运行：
+>
+> - `bash scripts/verification/check-signoff-readiness.sh`
+> - `bash scripts/verification/check-signoff-readiness.sh --final`
+>
+> 前者检查结构完整性与验收资产是否齐全；后者额外要求
+> `docs/feature-matrix.md` 已全部收敛到最终状态。
+> 在实现尚未完成前，`--final` 失败是预期行为。
+
 ## Capability gate
 
 - [ ] `docs/feature-matrix.md` 所有 capability 已收敛为 `implemented` 或 `explicitly removed by requirement`

@@ -73,7 +73,9 @@ section_name != "" {
   if ($0 ~ /^- \*\*Target owner:\*\*/) owner_seen = 1
   if ($0 ~ /^- \*\*Status:\*\*/) {
     status_seen = 1
-    status_value = trim(substr($0, index($0, ":") + 1))
+    status_value = $0
+    sub(/^- \*\*Status:\*\*[[:space:]]*/, "", status_value)
+    status_value = trim(status_value)
   }
   if ($0 ~ /^- \*\*Verification evidence:\*\*/) verification_seen = 1
 }
