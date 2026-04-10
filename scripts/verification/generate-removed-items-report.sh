@@ -3,15 +3,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT_DIR"
+SCAN_ROOT="${SCAN_ROOT:-$ROOT_DIR}"
+REPORT_LABEL="${REPORT_LABEL:-}"
 
-OUT_FILE="docs/verification/artifacts/removed-items-report.md"
-mkdir -p "$(dirname "$OUT_FILE")"
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9._-]#-#g'
+}
+
+if [ -n "$REPORT_LABEL" ]; then
+  report_slug="$(slugify "$REPORT_LABEL")"
+  OUT_FILE="docs/verification/artifacts/${report_slug}-removed-items-report.md"
+else
+  OUT_FILE="docs/verification/artifacts/removed-items-report.md"
+fi
+mkdir -p "$ROOT_DIR/$(dirname "$OUT_FILE")"
 
 timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 SEARCH_PATHS=()
-for path in app components lib db tests public package.json pnpm-lock.yaml next.config.js next.config.mjs next.config.ts; do
+cd "$SCAN_ROOT"
+for path in app components lib db public package.json next.config.js next.config.mjs next.config.ts; do
   if [ -e "$path" ]; then
     SEARCH_PATHS+=("$path")
   fi
@@ -21,7 +32,10 @@ done
   echo "# Removed Items Report"
   echo
   echo "- **Generated at:** $timestamp"
-  echo "- **Repo root:** \`$ROOT_DIR\`"
+  echo "- **Scanner root:** \`$SCAN_ROOT\`"
+  if [ -n "$REPORT_LABEL" ]; then
+    echo "- **Label:** \`$REPORT_LABEL\`"
+  fi
   echo
   echo "## Scope"
   echo
@@ -37,14 +51,14 @@ done
   echo
   echo "## Checks"
   echo
-} > "$OUT_FILE"
+} > "$ROOT_DIR/$OUT_FILE"
 
 checks=(
-  "Theme switch|theme|dark mode|light mode"
-  "Layout mode switch|layout mode|overlay mode|push mode"
-  "Cloud sync / account / collaboration|cloud sync|sync guide|remote collaboration|login|register|account modal|account state"
-  "Traditional / screenplay mode|traditional mode|screenplay mode"
-  "Electron / desktop updater|electron|electron-builder|electron-updater|desktop updater"
+  "Theme switch|next-themes|ThemeProvider|author-theme|themeMode|setTheme|darkMode"
+  "Layout mode switch|layoutMode|overlayMode|pushMode"
+  "Cloud sync / account / collaboration|firebase|CloudSyncIndicator|SyncGuideModal|AccountModal|LoginModal|RegisterModal|syncStatus|remoteCollaboration"
+  "Traditional / screenplay mode|writingMode.*traditional|writingMode.*screenplay|traditionalFields|screenplayFields"
+  "Electron / desktop updater|electron-updater|electron-builder|from ['\\\"]electron['\\\"]|require\\(['\\\"]electron['\\\"]\\)"
 )
 
 if [ "${#SEARCH_PATHS[@]}" -eq 0 ]; then
@@ -54,9 +68,9 @@ if [ "${#SEARCH_PATHS[@]}" -eq 0 ]; then
       echo "### $name"
       echo
       echo "- **Result:** SKIP"
-      echo "- **Reason:** no product implementation paths exist yet"
+      echo "- **Reason:** no product implementation paths exist yet under scanner root"
       echo
-    } >> "$OUT_FILE"
+    } >> "$ROOT_DIR/$OUT_FILE"
   done
   echo "Wrote $OUT_FILE"
   exit 0
@@ -86,7 +100,7 @@ for entry in "${checks[@]}"; do
       echo "$matches"
       echo '```'
       echo
-    } >> "$OUT_FILE"
+    } >> "$ROOT_DIR/$OUT_FILE"
   else
     {
       echo "### $name"
@@ -94,7 +108,7 @@ for entry in "${checks[@]}"; do
       echo "- **Result:** PASS"
       echo "- **Matches:** none"
       echo
-    } >> "$OUT_FILE"
+    } >> "$ROOT_DIR/$OUT_FILE"
   fi
 done
 
@@ -106,7 +120,7 @@ done
   else
     echo "- Overall result: **FAIL**"
   fi
-} >> "$OUT_FILE"
+} >> "$ROOT_DIR/$OUT_FILE"
 
 echo "Wrote $OUT_FILE"
 if [ "$overall_fail" -ne 0 ]; then

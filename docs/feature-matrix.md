@@ -315,35 +315,35 @@
 - **Source evidence:** `../author/README.zh.md:64-67`, `../author/app/page.js:180-220`
 - **Target owner:** global hard constraint
 - **Status:** explicitly removed by requirement
-- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `scripts/verification/check-removed-items.sh`
+- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `docs/verification/artifacts/worker-1-removed-items-report.md`, `docs/verification/artifacts/worker-2-removed-items-report.md`, `scripts/verification/check-removed-items.sh`
 
 ### RM-02 — Layout mode switch
 
 - **Source evidence:** `../author/README.zh.md:64-67`, `prd-author-replica.md:699-700`
 - **Target owner:** global hard constraint
 - **Status:** explicitly removed by requirement
-- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `scripts/verification/check-removed-items.sh`
+- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `docs/verification/artifacts/worker-1-removed-items-report.md`, `docs/verification/artifacts/worker-2-removed-items-report.md`, `scripts/verification/check-removed-items.sh`
 
 ### RM-03 — Cloud sync / account / login / register / collaboration
 
 - **Source evidence:** `../author/app/page.js:28-49`, `../author/app/api/storage/route.js:1-214`
 - **Target owner:** global hard constraint
 - **Status:** explicitly removed by requirement
-- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `scripts/verification/check-removed-items.sh`
+- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `docs/verification/artifacts/worker-1-removed-items-report.md`, `docs/verification/artifacts/worker-2-removed-items-report.md`, `scripts/verification/check-removed-items.sh`
 
 ### RM-04 — Traditional mode / screenplay mode
 
 - **Source evidence:** `../author/README.zh.md:49-53`
 - **Target owner:** global hard constraint
 - **Status:** explicitly removed by requirement
-- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `scripts/verification/check-removed-items.sh`
+- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `docs/verification/artifacts/worker-1-removed-items-report.md`, `docs/verification/artifacts/worker-2-removed-items-report.md`, `scripts/verification/check-removed-items.sh`
 
 ### RM-05 — Electron shell / updater / desktop packaging
 
 - **Source evidence:** `../author/package.json:11-13`, `/home/soeur/project/author/electron/*`
 - **Target owner:** global hard constraint
 - **Status:** explicitly removed by requirement
-- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `scripts/verification/check-removed-items.sh`
+- **Verification evidence:** `docs/verification/feature-gap-report.md#removed-items-absence-proof`, `docs/verification/artifacts/worker-1-removed-items-report.md`, `docs/verification/artifacts/worker-2-removed-items-report.md`, `scripts/verification/check-removed-items.sh`
 
 ## Current execution snapshot
 

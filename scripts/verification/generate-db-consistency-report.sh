@@ -3,16 +3,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT_DIR"
+SCAN_ROOT="${SCAN_ROOT:-$ROOT_DIR}"
+REPORT_LABEL="${REPORT_LABEL:-}"
 
-OUT_FILE="docs/verification/artifacts/database-consistency-report.md"
-mkdir -p "$(dirname "$OUT_FILE")"
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9._-]#-#g'
+}
+
+if [ -n "$REPORT_LABEL" ]; then
+  report_slug="$(slugify "$REPORT_LABEL")"
+  OUT_FILE="docs/verification/artifacts/${report_slug}-database-consistency-report.md"
+else
+  OUT_FILE="docs/verification/artifacts/database-consistency-report.md"
+fi
+mkdir -p "$ROOT_DIR/$(dirname "$OUT_FILE")"
 
 timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 check_path() {
   local path="$1"
-  if [ -e "$path" ]; then
+  if [ -e "$SCAN_ROOT/$path" ]; then
     echo "present"
   else
     echo "missing"
@@ -51,18 +61,21 @@ missing_count=0
   echo "# Database Consistency Report"
   echo
   echo "- **Generated at:** $timestamp"
-  echo "- **Repo root:** \`$ROOT_DIR\`"
+  echo "- **Scanner root:** \`$SCAN_ROOT\`"
+  if [ -n "$REPORT_LABEL" ]; then
+    echo "- **Label:** \`$REPORT_LABEL\`"
+  fi
   echo
   echo "## Runtime surface presence"
   echo
-} > "$OUT_FILE"
+} > "$ROOT_DIR/$OUT_FILE"
 
 for target in "${schema_targets[@]}"; do
   state="$(check_path "$target")"
   if [ "$state" = "missing" ]; then
     missing_count=$((missing_count + 1))
   fi
-  echo "- \`$target\`: **$state**" >> "$OUT_FILE"
+  echo "- \`$target\`: **$state**" >> "$ROOT_DIR/$OUT_FILE"
 done
 
 {
@@ -71,24 +84,24 @@ done
   echo
   echo "The following domains must eventually be backed by canonical SQLite schema + repository/service code:"
   echo
-} >> "$OUT_FILE"
+} >> "$ROOT_DIR/$OUT_FILE"
 
 for target in "${truth_targets[@]}"; do
-  echo "- $target" >> "$OUT_FILE"
+  echo "- $target" >> "$ROOT_DIR/$OUT_FILE"
 done
 
 {
   echo
   echo "## Current repo-state assessment"
   echo
-} >> "$OUT_FILE"
+} >> "$ROOT_DIR/$OUT_FILE"
 
 if [ "$missing_count" -eq "${#schema_targets[@]}" ]; then
   {
     echo "- **Result:** BLOCKED"
     echo "- **Reason:** none of the expected DB/runtime surfaces exist yet in this worktree."
     echo "- **Interpretation:** canonical schema / migration / repository evidence cannot be proven until implementation lands."
-  } >> "$OUT_FILE"
+  } >> "$ROOT_DIR/$OUT_FILE"
 else
   {
     echo "- **Result:** PARTIAL"
@@ -96,20 +109,20 @@ else
     echo
     echo "### Present paths"
     for target in "${schema_targets[@]}"; do
-      if [ -e "$target" ]; then
+      if [ -e "$SCAN_ROOT/$target" ]; then
         echo "- \`$target\`"
       fi
     done
-  } >> "$OUT_FILE"
+  } >> "$ROOT_DIR/$OUT_FILE"
 fi
 
-echo >> "$OUT_FILE"
-echo "## Next evidence to attach" >> "$OUT_FILE"
-echo >> "$OUT_FILE"
-echo "- migration output" >> "$OUT_FILE"
-echo "- repository/service integration test output" >> "$OUT_FILE"
-echo "- snapshot restore before/after proof" >> "$OUT_FILE"
-echo "- import rollback proof" >> "$OUT_FILE"
-echo "- token usage / generation archive samples" >> "$OUT_FILE"
+echo >> "$ROOT_DIR/$OUT_FILE"
+echo "## Next evidence to attach" >> "$ROOT_DIR/$OUT_FILE"
+echo >> "$ROOT_DIR/$OUT_FILE"
+echo "- migration output" >> "$ROOT_DIR/$OUT_FILE"
+echo "- repository/service integration test output" >> "$ROOT_DIR/$OUT_FILE"
+echo "- snapshot restore before/after proof" >> "$ROOT_DIR/$OUT_FILE"
+echo "- import rollback proof" >> "$ROOT_DIR/$OUT_FILE"
+echo "- token usage / generation archive samples" >> "$ROOT_DIR/$OUT_FILE"
 
 echo "Wrote $OUT_FILE"

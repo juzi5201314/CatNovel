@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+SCAN_ROOT="${SCAN_ROOT:-$ROOT_DIR}"
 
 FINAL_MODE="${1:-}"
 
@@ -55,7 +56,7 @@ fi
 
 echo
 echo "== check forbidden removed features =="
-bash scripts/verification/check-removed-items.sh
+SCAN_ROOT="$SCAN_ROOT" bash scripts/verification/check-removed-items.sh
 
 echo
 if [ "$FINAL_MODE" = "--final" ]; then

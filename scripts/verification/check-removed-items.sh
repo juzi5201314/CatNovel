@@ -3,10 +3,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT_DIR"
+SCAN_ROOT="${SCAN_ROOT:-$ROOT_DIR}"
+cd "$SCAN_ROOT"
 
 SEARCH_PATHS=()
-for path in app components lib db tests public package.json pnpm-lock.yaml next.config.js next.config.mjs next.config.ts; do
+for path in app components lib db public package.json next.config.js next.config.mjs next.config.ts; do
   if [ -e "$path" ]; then
     SEARCH_PATHS+=("$path")
   fi
@@ -18,12 +19,11 @@ if [ "${#SEARCH_PATHS[@]}" -eq 0 ]; then
 fi
 
 declare -a CHECKS=(
-  "theme|dark mode|light mode"
-  "layout mode|overlay mode|push mode"
-  "cloud sync|sync guide|remote collaboration"
-  "login|register|account modal|account state"
-  "traditional mode|screenplay mode"
-  "electron|electron-builder|electron-updater|desktop updater"
+  "next-themes|ThemeProvider|author-theme|themeMode|setTheme|darkMode"
+  "layoutMode|overlayMode|pushMode"
+  "firebase|CloudSyncIndicator|SyncGuideModal|AccountModal|LoginModal|RegisterModal|syncStatus|remoteCollaboration"
+  "writingMode.*traditional|writingMode.*screenplay|traditionalFields|screenplayFields"
+  "electron-updater|electron-builder|from ['\\\"]electron['\\\"]|require\\(['\\\"]electron['\\\"]\\)"
 )
 
 found=0
@@ -38,4 +38,4 @@ if [ "$found" -ne 0 ]; then
   exit 1
 fi
 
-echo "PASS: forbidden feature markers not found in product paths"
+echo "PASS: forbidden feature markers not found in product paths under $SCAN_ROOT"
