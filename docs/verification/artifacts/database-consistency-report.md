@@ -1,18 +1,18 @@
 # Database Consistency Report
 
-- **Generated at:** 2026-04-10T08:04:20Z
-- **Repo root:** `/home/soeur/project/CatNovel/.omx/team/omx-plans-prd-author-replica-m/worktrees/worker-4`
+- **Generated at:** 2026-04-10T14:48:55Z
+- **Scanner root:** `/home/soeur/project/CatNovel`
 
 ## Runtime surface presence
 
-- `db/schema.ts`: **missing**
-- `db/migrations`: **missing**
-- `db/client.ts`: **missing**
-- `lib/server/repositories`: **missing**
-- `app/api/bootstrap`: **missing**
-- `app/api/import`: **missing**
-- `app/api/export`: **missing**
-- `app/api/snapshots`: **missing**
+- `db/schema.ts`: **present**
+- `db/migrations`: **present**
+- `db/client.ts`: **present**
+- `lib/server/repositories`: **present**
+- `app/api/bootstrap`: **present**
+- `app/api/import`: **present**
+- `app/api/export`: **present**
+- `app/api/snapshots`: **present**
 
 ## Canonical truth expectations
 
@@ -33,9 +33,18 @@ The following domains must eventually be backed by canonical SQLite schema + rep
 
 ## Current repo-state assessment
 
-- **Result:** BLOCKED
-- **Reason:** none of the expected DB/runtime surfaces exist yet in this worktree.
-- **Interpretation:** canonical schema / migration / repository evidence cannot be proven until implementation lands.
+- **Result:** PARTIAL
+- **Reason:** some runtime surfaces exist; this report should be regenerated after each schema/persistence change.
+
+### Present paths
+- `db/schema.ts`
+- `db/migrations`
+- `db/client.ts`
+- `lib/server/repositories`
+- `app/api/bootstrap`
+- `app/api/import`
+- `app/api/export`
+- `app/api/snapshots`
 
 ## Next evidence to attach
 

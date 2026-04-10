@@ -1,37 +1,46 @@
 # Removed Items Report
 
-- **Generated at:** 2026-04-10T08:04:20Z
-- **Repo root:** `/home/soeur/project/CatNovel/.omx/team/omx-plans-prd-author-replica-m/worktrees/worker-4`
+- **Generated at:** 2026-04-10T14:48:55Z
+- **Scanner root:** `/home/soeur/project/CatNovel`
 
 ## Scope
 
-- No product implementation paths exist yet.
-- Current evidence status: **blocked by missing runtime surfaces**.
+- Searched paths:
+  - `app`
+  - `components`
+  - `lib`
+  - `db`
+  - `public`
+  - `package.json`
+  - `next.config.ts`
 
 ## Checks
 
 ### Theme switch
 
-- **Result:** SKIP
-- **Reason:** no product implementation paths exist yet
+- **Result:** PASS
+- **Matches:** none
 
 ### Layout mode switch
 
-- **Result:** SKIP
-- **Reason:** no product implementation paths exist yet
+- **Result:** PASS
+- **Matches:** none
 
 ### Cloud sync / account / collaboration
 
-- **Result:** SKIP
-- **Reason:** no product implementation paths exist yet
+- **Result:** PASS
+- **Matches:** none
 
 ### Traditional / screenplay mode
 
-- **Result:** SKIP
-- **Reason:** no product implementation paths exist yet
+- **Result:** PASS
+- **Matches:** none
 
 ### Electron / desktop updater
 
-- **Result:** SKIP
-- **Reason:** no product implementation paths exist yet
+- **Result:** PASS
+- **Matches:** none
 
+## Summary
+
+- Overall result: **PASS**

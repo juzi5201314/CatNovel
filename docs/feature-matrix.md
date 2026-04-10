@@ -15,35 +15,35 @@
 
 - **Source evidence:** `../author/app/page.js:28-49`, `../author/README.zh.md:64-67`
 - **Target owner:** Lane B — Design system & workspace shell
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#1-workspace-shell`
 
 ### WS-02 — Three-panel writing layout
 
 - **Source evidence:** `../author/app/page.js:28-49`, `../author/app/page.js:180-220`
 - **Target owner:** Lane B — Design system & workspace shell
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#1-workspace-shell`
 
 ### WS-03 — Sidebar collapse / expand
 
 - **Source evidence:** `../author/app/page.js:28-49`
 - **Target owner:** Lane B — Design system & workspace shell
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#1-workspace-shell`
 
 ### WS-04 — Help panel / shortcuts
 
 - **Source evidence:** `../author/app/page.js:28-49`, `../author/README.zh.md:66-67`
 - **Target owner:** Lane B / Phase 8
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#6-i18n--onboarding--help`
 
 ### WS-05 — Onboarding / tour overlay
 
 - **Source evidence:** `../author/app/page.js:28-49`, `../author/README.zh.md:66-67`
 - **Target owner:** Lane B / Phase 8
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#6-i18n--onboarding--help`
 
 ## Writing domain
@@ -52,28 +52,28 @@
 
 - **Source evidence:** `../author/app/page.js:9-49`, `../author/app/store/useAppStore.js:27-109`
 - **Target owner:** Lane C — Writing & settings domain
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#2-writing-domain`
 
 ### WD-02 — Autosave to canonical persistence
 
 - **Source evidence:** `../author/app/lib/persistence.js:126-220`, `../author/app/lib/storage.js:98-165`
 - **Target owner:** Lane A + Lane C
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/database-consistency.md#save--reload-proof`
 
 ### WD-03 — Chapter stats / reading metrics
 
 - **Source evidence:** `../author/app/page.js:180-220`
 - **Target owner:** Lane C — Writing & settings domain
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#2-writing-domain`
 
 ### WD-04 — Rich text editor / slash / bubble menu / highlight / page-break
 
 - **Source evidence:** `../author/README.zh.md:40-67`, `DESIGN.md:63-145`, `prd-author-replica.md:316`
 - **Target owner:** Lane C — Writing & settings domain
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#2-writing-domain`
 
 ## Webnovel settings system
@@ -82,28 +82,28 @@
 
 - **Source evidence:** `../author/README.zh.md:49-53`, `../author/app/lib/settings.js:32-205`
 - **Target owner:** Lane C — Writing & settings domain
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#3-webnovel-settings-system`
 
 ### ST-02 — Node CRUD for 角色 / 地点 / 物品 / 世界观 / 剧情 / 规则
 
 - **Source evidence:** `../author/app/lib/settings.js:32-205`, `prd-author-replica.md:571-576`
 - **Target owner:** Lane C — Writing & settings domain
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#3-webnovel-settings-system`
 
 ### ST-03 — Book info panel
 
 - **Source evidence:** `../author/app/page.js:28-49`, `../author/app/lib/settings.js:32-205`
 - **Target owner:** Lane C — Writing & settings domain
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#3-webnovel-settings-system`
 
 ### ST-04 — Settings injected into AI context
 
 - **Source evidence:** `../author/README.zh.md:49-53`, `../author/app/lib/context-engine.js`, `prd-author-replica.md:596-602`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ## AI platform
@@ -112,77 +112,77 @@
 
 - **Source evidence:** `../author/README.zh.md:40-47`, `../author/app/api/ai/models/route.js:1-220`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-02 — Model discovery (OpenAI-compatible)
 
 - **Source evidence:** `../author/app/api/ai/models/route.js:1-220`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-03 — Model discovery (Gemini-native)
 
 - **Source evidence:** `../author/app/api/ai/models/route.js:1-120`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-04 — Model discovery (Claude-native)
 
 - **Source evidence:** `../author/app/api/ai/models/route.js:18-34`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-05 — Custom endpoint support
 
 - **Source evidence:** `../author/README.zh.md:40-47`, `../author/app/api/ai/models/route.js:1-220`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-06 — Streaming generation
 
 - **Source evidence:** `../author/app/api/ai/route.js:1-220`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-07 — Inline generation tasks（续写 / 改写 / 润色 / 扩写）
 
 - **Source evidence:** `../author/README.zh.md:40-47`, `prd-author-replica.md:596-602`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-08 — Ghost text accept / reject
 
 - **Source evidence:** `../author/README.zh.md:40-47`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-09 — Free chat sessions
 
 - **Source evidence:** `../author/README.zh.md:40-47`, `../author/app/store/useAppStore.js:27-109`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-10 — Context engine（chapter / settings / summaries / manual selection）
 
 - **Source evidence:** `../author/README.zh.md:40-47`, `../author/app/api/ai/route.js:1-220`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#4-ai-platform`
 
 ### AI-11 — Token usage archive
 
 - **Source evidence:** `../author/app/page.js:9-49`, `prd-author-replica.md:596-602`
 - **Target owner:** Lane D — AI platform
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/database-consistency.md#ai--archive-invariants`
 
 ## Import / export / snapshot
@@ -205,77 +205,77 @@
 
 - **Source evidence:** `prd-author-replica.md:617-619`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-04 — MD import
 
 - **Source evidence:** `prd-author-replica.md:617-619`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-05 — EPUB import
 
 - **Source evidence:** `prd-author-replica.md:617-619`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-06 — DOCX import
 
 - **Source evidence:** `prd-author-replica.md:617-619`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-07 — DOC import
 
 - **Source evidence:** `../author/app/api/parse-file/route.js:1-55`, `prd-author-replica.md:617-619`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-08 — PDF import
 
 - **Source evidence:** `../author/app/api/parse-file/route.js:1-55`, `prd-author-replica.md:617-619`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-09 — TXT export
 
 - **Source evidence:** `prd-author-replica.md:619`, `../author/README.zh.md:55-59`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-10 — MD export
 
 - **Source evidence:** `../author/app/page.js:9-17`, `../author/README.zh.md:55-59`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-11 — DOCX export
 
 - **Source evidence:** `prd-author-replica.md:619`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-12 — EPUB export
 
 - **Source evidence:** `prd-author-replica.md:619`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-13 — PDF export
 
 - **Source evidence:** `prd-author-replica.md:619`, `../author/README.zh.md:55-59`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
 
 ### IO-14 — Immutable snapshot create / list / restore / delete
@@ -298,14 +298,14 @@
 
 - **Source evidence:** `../author/README.zh.md:60-63`
 - **Target owner:** Phase 8
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#6-i18n--onboarding--help`
 
 ### UX-02 — No untranslated core workspace strings
 
 - **Source evidence:** `../author/README.zh.md:60-67`
 - **Target owner:** Phase 8
-- **Status:** planned
+- **Status:** implemented
 - **Verification evidence:** `docs/verification/manual-test-script.md#6-i18n--onboarding--help`
 
 ## Explicitly removed by requirement
@@ -348,5 +348,5 @@
 ## Current execution snapshot
 
 - **Timestamp:** 2026-04-10
-- **Observed repo state:** 当前仓库仅包含 `DESIGN.md` 与 `.omx/` 计划/状态文件，产品实现尚未落地。
-- **Immediate consequence:** lane 级实现尚未开始，所有正向能力暂以 `planned` 标记；所有删项已先标记为 `explicitly removed by requirement`，后续必须由自动化扫描与人工 walkthrough 双重证明。
+- **Observed repo state:** Next.js + React + shadcn 前端工作台、SQLite 持久化、AI 路由、导入导出、快照与校验脚本均已在 leader 根目录落地，并通过 lint / test / build / verification suites。
+- **Immediate consequence:** 正向能力已从并行执行态收敛为 `implemented`；删项继续保持 `explicitly removed by requirement`，并由自动化扫描、DB 一致性报告与 signoff 闸门持续证明。
