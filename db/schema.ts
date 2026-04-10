@@ -1,5 +1,6 @@
 export const canonicalTables = [
   "works",
+  "volumes",
   "chapters",
   "chapter_order",
   "settings_nodes",
@@ -28,8 +29,18 @@ export const schemaMigrations = [
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
         locale TEXT NOT NULL DEFAULT 'zh',
+        synopsis TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS volumes (
+        id TEXT PRIMARY KEY,
+        work_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        sort_index INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
       )`,
       `CREATE TABLE IF NOT EXISTS chapters (
         id TEXT PRIMARY KEY,
@@ -37,9 +48,13 @@ export const schemaMigrations = [
         volume_id TEXT NOT NULL,
         title TEXT NOT NULL,
         body_json TEXT NOT NULL,
+        plaintext TEXT NOT NULL DEFAULT '',
         excerpt TEXT NOT NULL DEFAULT '',
         word_count INTEGER NOT NULL DEFAULT 0,
+        character_count INTEGER NOT NULL DEFAULT 0,
+        reading_minutes INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'draft',
+        last_autosaved_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
@@ -184,15 +199,60 @@ export const schemaMigrations = [
       )`,
     ],
   },
+  {
+    id: "0002_workspace_metrics",
+    statements: [
+      `ALTER TABLE works ADD COLUMN synopsis TEXT NOT NULL DEFAULT ''`,
+      `CREATE TABLE IF NOT EXISTS volumes (
+        id TEXT PRIMARY KEY,
+        work_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        sort_index INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+      )`,
+      `ALTER TABLE chapters ADD COLUMN plaintext TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE chapters ADD COLUMN character_count INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE chapters ADD COLUMN reading_minutes INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE chapters ADD COLUMN last_autosaved_at TEXT`,
+      `UPDATE chapters
+         SET plaintext = CASE
+             WHEN plaintext = '' THEN excerpt
+             ELSE plaintext
+           END,
+             character_count = CASE
+               WHEN character_count = 0 THEN length(CASE WHEN plaintext = '' THEN excerpt ELSE plaintext END)
+               ELSE character_count
+             END,
+             reading_minutes = CASE
+               WHEN reading_minutes = 0 THEN CASE
+                 WHEN word_count <= 0 THEN 1
+                 ELSE CAST((word_count + 199) / 200 AS INTEGER)
+               END
+               ELSE reading_minutes
+             END,
+             last_autosaved_at = COALESCE(last_autosaved_at, updated_at)`,
+      `INSERT OR IGNORE INTO volumes (id, work_id, title, sort_index, created_at, updated_at)
+         SELECT DISTINCT volume_id, work_id,
+           CASE volume_id WHEN 'volume-1' THEN '第一卷 迷雾城' ELSE volume_id END,
+           0,
+           created_at,
+           updated_at
+         FROM chapters`,
+    ],
+  },
 ] as const;
 
 export const seedStatements = [
-  `INSERT OR IGNORE INTO works (id, title, locale, created_at, updated_at)
-   VALUES ('work-default', 'CatNovel Demo', 'zh', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO chapters (id, work_id, volume_id, title, body_json, excerpt, word_count, status, created_at, updated_at)
+  `INSERT OR IGNORE INTO works (id, title, locale, synopsis, created_at, updated_at)
+   VALUES ('work-default', 'CatNovel Demo', 'zh', '一个围绕都市异闻与写作现场展开的长篇网文工作区。', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+  `INSERT OR IGNORE INTO volumes (id, work_id, title, sort_index, created_at, updated_at)
+   VALUES ('volume-1', 'work-default', '第一卷 迷雾城', 0, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+  `INSERT OR IGNORE INTO chapters (id, work_id, volume_id, title, body_json, plaintext, excerpt, word_count, character_count, reading_minutes, status, last_autosaved_at, created_at, updated_at)
    VALUES
-    ('chapter-1', 'work-default', 'volume-1', '第一章 雨夜开篇', '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"雨落在旧城的玻璃顶棚上，像一场迟到的开场白。"}]}]}', '雨夜、旧城、主角初登场。', 23, 'draft', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('chapter-2', 'work-default', 'volume-1', '第二章 误入禁区', '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"她推开那扇不该打开的门，于是故事终于开始向深处滑去。"}]}]}', '推进冲突，进入主线区域。', 29, 'draft', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+    ('chapter-1', 'work-default', 'volume-1', '第一章 雨夜开篇', '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"雨落在旧城的玻璃顶棚上，像一场迟到的开场白。"}]}]}', '雨落在旧城的玻璃顶棚上，像一场迟到的开场白。', '雨夜、旧城、主角初登场。', 23, 24, 1, 'draft', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('chapter-2', 'work-default', 'volume-1', '第二章 误入禁区', '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"她推开那扇不该打开的门，于是故事终于开始向深处滑去。"}]}]}', '她推开那扇不该打开的门，于是故事终于开始向深处滑去。', '推进冲突，进入主线区域。', 29, 30, 1, 'draft', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
   `INSERT OR IGNORE INTO chapter_order (work_id, chapter_id, sort_index)
    VALUES ('work-default', 'chapter-1', 0), ('work-default', 'chapter-2', 1)`,
   `INSERT OR IGNORE INTO book_metadata (work_id, author_name, premise, target_readers, serialized_status, tags_json, updated_at)

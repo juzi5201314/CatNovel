@@ -29,6 +29,18 @@ function runStatement(db: DatabaseSync, statement: string) {
   db.prepare(statement).run();
 }
 
+function shouldIgnoreMigrationError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes("duplicate column name") ||
+    error.message.includes("no such column") ||
+    error.message.includes("already exists")
+  );
+}
+
 function bootstrapDatabase(db: DatabaseSync) {
   runStatement(db, "PRAGMA journal_mode = WAL");
   runStatement(db, "PRAGMA foreign_keys = ON");
@@ -60,7 +72,13 @@ function bootstrapDatabase(db: DatabaseSync) {
     db.exec("BEGIN IMMEDIATE");
     try {
       for (const statement of migration.statements) {
-        runStatement(db, statement);
+        try {
+          runStatement(db, statement);
+        } catch (error) {
+          if (!shouldIgnoreMigrationError(error)) {
+            throw error;
+          }
+        }
       }
       insertMigration.run(migration.id, now);
       db.exec("COMMIT");

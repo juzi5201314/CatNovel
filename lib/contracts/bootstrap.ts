@@ -4,6 +4,7 @@ export const volumeSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
   chapterCount: z.number().int().nonnegative(),
+  totalWords: z.number().int().nonnegative(),
 });
 
 export const chapterSummarySchema = z.object({
@@ -13,6 +14,9 @@ export const chapterSummarySchema = z.object({
   excerpt: z.string(),
   updatedAt: z.string(),
   wordCount: z.number().int().nonnegative(),
+  characterCount: z.number().int().nonnegative(),
+  readingMinutes: z.number().int().nonnegative(),
+  lastAutosavedAt: z.string().nullable(),
 });
 
 export const providerSummarySchema = z.object({
@@ -32,6 +36,15 @@ export const bootstrapPayloadSchema = z.object({
     workId: z.string(),
     workTitle: z.string(),
     locale: z.enum(["zh", "en", "ru"]),
+    synopsis: z.string(),
+    stats: z.object({
+      volumeCount: z.number().int().nonnegative(),
+      chapterCount: z.number().int().nonnegative(),
+      totalWords: z.number().int().nonnegative(),
+      totalCharacters: z.number().int().nonnegative(),
+      totalReadingMinutes: z.number().int().nonnegative(),
+      lastAutosavedAt: z.string().nullable(),
+    }),
     volumes: z.array(volumeSummarySchema),
     chapters: z.array(chapterSummarySchema),
     providers: z.array(providerSummarySchema),

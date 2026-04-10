@@ -1,5 +1,5 @@
-import type { BootstrapPayload } from "@/lib/contracts/bootstrap";
-import { getBootstrapPayload } from "@/lib/server/services/bootstrap-service";
+import type { BootstrapPayload } from "../contracts/bootstrap.ts";
+import { getBootstrapPayload } from "./services/bootstrap-service.ts";
 
 export function loadBootstrapPayload(): BootstrapPayload {
   return getBootstrapPayload();

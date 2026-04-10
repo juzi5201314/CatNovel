@@ -1,4 +1,4 @@
-import { getDatabase } from "@/db/client";
+import { getDatabase } from "../../../db/client.ts";
 
 export type ProviderProfile = {
   id: string;

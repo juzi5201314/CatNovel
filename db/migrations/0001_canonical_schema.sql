@@ -2,8 +2,19 @@ CREATE TABLE IF NOT EXISTS works (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   locale TEXT NOT NULL DEFAULT 'zh',
+  synopsis TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS volumes (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  sort_index INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS chapters (
@@ -12,9 +23,13 @@ CREATE TABLE IF NOT EXISTS chapters (
   volume_id TEXT NOT NULL,
   title TEXT NOT NULL,
   body_json TEXT NOT NULL,
+  plaintext TEXT NOT NULL DEFAULT '',
   excerpt TEXT NOT NULL DEFAULT '',
   word_count INTEGER NOT NULL DEFAULT 0,
+  character_count INTEGER NOT NULL DEFAULT 0,
+  reading_minutes INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'draft',
+  last_autosaved_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE

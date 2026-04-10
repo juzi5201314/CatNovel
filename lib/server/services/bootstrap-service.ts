@@ -1,11 +1,12 @@
-import { getDatabaseStatus } from "@/db/client";
-import { bootstrapPayloadSchema } from "@/lib/contracts/bootstrap";
-import { listProviderProfiles } from "@/lib/server/repositories/provider-repository";
+import { getDatabaseStatus } from "../../../db/client.ts";
+import { bootstrapPayloadSchema } from "../../contracts/bootstrap.ts";
+import { listProviderProfiles } from "../repositories/provider-repository.ts";
 import {
   getWorkspaceOverview,
   listWorkspaceChapters,
   listWorkspaceVolumes,
-} from "@/lib/server/repositories/workspace-repository";
+} from "../repositories/workspace-repository.ts";
+import { getPersistenceSnapshot } from "./workspace-data-service.ts";
 
 export function getBootstrapPayload() {
   const workspace = getWorkspaceOverview();
@@ -24,9 +25,22 @@ export function getBootstrapPayload() {
       workId: workspace.workId,
       workTitle: workspace.title,
       locale: workspace.locale,
+      synopsis: workspace.synopsis,
+      stats: {
+        volumeCount: workspace.volumeCount,
+        chapterCount: workspace.chapterCount,
+        totalWords: workspace.totalWords,
+        totalCharacters: workspace.totalCharacters,
+        totalReadingMinutes: workspace.totalReadingMinutes,
+        lastAutosavedAt: workspace.lastAutosavedAt,
+      },
       volumes,
       chapters,
       providers,
     },
   });
+}
+
+export function getBootstrapCollections() {
+  return getPersistenceSnapshot();
 }
