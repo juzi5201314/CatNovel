@@ -1,18 +1,15 @@
-import * as React from "react";
+import type { ReactNode } from 'react';
 
-import { cn } from "@/lib/utils";
+import { cx } from '../../lib/design/cx';
+
+type BadgeTone = 'default' | 'neutral' | 'red';
 
 export function Badge({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLSpanElement>) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-[var(--radius-pill)] bg-[var(--color-badge-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-badge-text)]",
-        className,
-      )}
-      {...props}
-    />
-  );
+  children,
+  tone = 'default',
+}: {
+  children: ReactNode;
+  tone?: BadgeTone;
+}) {
+  return <span className={cx('badge', tone !== 'default' && `badge--${tone}`)}>{children}</span>;
 }
