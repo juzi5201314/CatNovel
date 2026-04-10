@@ -7,6 +7,7 @@
 >   - `implemented`
 >   - `explicitly removed by requirement`
 > - 当前文档允许使用执行态状态（如 `planned` / `in_progress`），用于并行 lane 协作。
+> - 结构完整性可用 `scripts/verification/check-feature-matrix.sh` 验证。
 
 ## Workspace shell
 
