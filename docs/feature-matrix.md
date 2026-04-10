@@ -191,15 +191,15 @@
 
 - **Source evidence:** `../author/app/lib/project-io.js:1-178`, `../author/README.zh.md:55-59`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
-- **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
+- **Status:** implemented
+- **Verification evidence:** `docs/verification/artifacts/import-export-backup-proof.md#project-json-importexport`, `tests/project-transfer.test.ts`, `app/api/export/project/route.ts`
 
 ### IO-02 — Project JSON import
 
 - **Source evidence:** `../author/app/lib/project-io.js:1-178`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
-- **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
+- **Status:** implemented
+- **Verification evidence:** `docs/verification/artifacts/import-export-backup-proof.md#project-json-importexport`, `tests/project-transfer.test.ts`, `app/api/import/project/route.ts`
 
 ### IO-03 — TXT import
 
@@ -289,8 +289,8 @@
 
 - **Source evidence:** `prd-author-replica.md:620`, `prd-author-replica.md:649-650`
 - **Target owner:** Lane E + Phase 9
-- **Status:** planned
-- **Verification evidence:** `docs/verification/deployment-readiness.md#backup--restore--migration`
+- **Status:** implemented
+- **Verification evidence:** `docs/verification/artifacts/import-export-backup-proof.md#backuprestorecorruption-recovery`, `tests/project-transfer.test.ts`, `scripts/backup-database.ts`, `scripts/restore-database.ts`, `scripts/recover-database.ts`
 
 ## Internationalization / support
 
