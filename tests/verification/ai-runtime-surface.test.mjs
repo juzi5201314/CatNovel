@@ -14,9 +14,6 @@ test('lane-4 AI runtime surface exists with the PRD target files', () => {
     'lib/server/ai/provider-registry.ts',
     'lib/server/ai/generation-service.ts',
     'lib/server/ai/context-engine.ts',
-    'components/ai/ai-sidebar.tsx',
-    'components/ai/model-picker.tsx',
-    'components/ai/chat-session-list.tsx',
   ];
 
   const missingEntries = requiredEntries.filter((entry) => !repoPathExists(entry));

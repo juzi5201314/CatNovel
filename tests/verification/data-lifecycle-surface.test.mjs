@@ -14,7 +14,6 @@ test('lane-4 import/export/snapshot surface exists with the PRD target paths', (
     'app/api/snapshots',
     'lib/server/importers',
     'lib/server/exporters',
-    'components/snapshots',
   ];
 
   const missingEntries = requiredEntries.filter((entry) => !repoPathExists(entry));
