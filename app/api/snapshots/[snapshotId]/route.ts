@@ -1,3 +1,5 @@
+import { deleteSnapshot } from "../../../../lib/server/snapshots";
+
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ snapshotId: string }> },
@@ -5,8 +7,8 @@ export async function DELETE(
   const { snapshotId } = await context.params;
 
   return Response.json({
-    route: 'snapshots-delete',
-    action: 'delete',
-    snapshotId,
+    route: "snapshots-delete",
+    action: "delete",
+    snapshot: deleteSnapshot(snapshotId),
   });
 }

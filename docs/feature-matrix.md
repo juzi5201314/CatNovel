@@ -282,8 +282,8 @@
 
 - **Source evidence:** `../author/app/page.js:9-17`, `../author/README.zh.md:55-59`
 - **Target owner:** Lane E — Import / export / snapshot
-- **Status:** planned
-- **Verification evidence:** `docs/verification/manual-test-script.md#5-import--export--snapshot`
+- **Status:** implemented
+- **Verification evidence:** `docs/verification/artifacts/import-export-backup-proof.md#snapshot-create-list-restore-delete`, `tests/snapshot-service.test.ts`, `app/api/snapshots/route.ts`
 
 ### IO-15 — Backup / restore / corruption recovery
 

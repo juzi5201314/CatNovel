@@ -44,8 +44,31 @@
 - `pnpm typecheck` → pass
 - `pnpm lint` → pass
 
+## Snapshot create / list / restore / delete
+
+### Implemented paths
+
+- `lib/server/snapshots.ts`
+- `app/api/snapshots/route.ts`
+- `app/api/snapshots/[snapshotId]/route.ts`
+- `app/api/snapshots/[snapshotId]/restore/route.ts`
+- `tests/snapshot-service.test.ts`
+
+### Proven behavior
+
+- create snapshot stores database-backed snapshot items
+- list snapshots returns persisted snapshot metadata
+- restore snapshot rolls chapter state back after destructive edits
+- delete snapshot removes snapshot records cleanly
+
+### Verification
+
+- `pnpm test` → `✔ snapshot service creates, restores, lists, and deletes database-backed snapshots`
+- `pnpm typecheck` → pass
+- `pnpm lint` → pass
+
 ## Remaining lifecycle blockers
 
 - `app/api/import/parse-file/route.ts` only proves format-surface parsing, not format-specific document extraction fidelity
 - `app/api/export/chapters/route.ts` proves batch export wiring, but not full file serializer fidelity per format
-- snapshot routes exist, but there is still no database-backed snapshot audit proof in the integrated branch
+- format-level txt/md/docx/epub/pdf serializer fidelity still lacks end-to-end proof
