@@ -3,8 +3,7 @@ import type { ProviderProfileRecord, WorkspaceLocale } from '@/lib/contracts/wor
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { SectionLabel } from '../ui/section-label';
-import { providerFamilyLabels, t } from '../workspace/workspace-data';
+import { cx } from '@/lib/design/cx';
 
 export function ModelPicker({
   locale,
@@ -28,55 +27,55 @@ export function ModelPicker({
   onCreateProfile: () => void;
 }) {
   return (
-    <div className="model-picker-grid" id="ai-models">
-      {providers.map((provider) => (
-        <article
-          key={provider.id}
-          className={[
-            'model-card',
-            provider.id === activeProfileId ? 'work-card--active' : '',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-        >
-          <SectionLabel>{t(locale, providerFamilyLabels[provider.family])}</SectionLabel>
-          <div className="meta-row">
-            <strong>{provider.label}</strong>
-            <Badge tone={provider.enabled ? 'default' : 'neutral'}>
-              {provider.enabled ? 'enabled' : 'standby'}
-            </Badge>
-          </div>
-          <p>{provider.endpoint}</p>
-          <p>{provider.modelIds.join(', ')}</p>
-          <Button variant="ghost" onClick={() => onSelectProfile(provider.id)}>
-            {locale === 'zh' ? '选中模型源' : locale === 'en' ? 'Use profile' : 'Выбрать профиль'}
-          </Button>
-        </article>
-      ))}
+    <div className="p-4 space-y-4" id="ai-models">
+      <span className="text-mono-label px-2">Models</span>
+      <div className="grid grid-cols-1 gap-2">
+        {providers.map((provider) => (
+          <button
+            key={provider.id}
+            onClick={() => onSelectProfile(provider.id)}
+            className={cx(
+              "w-full text-left p-3 rounded-lg border transition-all",
+              provider.id === activeProfileId
+                ? "bg-background shadow-sm border-primary ring-1 ring-primary"
+                : "bg-muted/30 text-muted-foreground hover:bg-muted/50 border-transparent"
+            )}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-semibold text-foreground">{provider.label}</span>
+              <Badge tone={provider.enabled ? 'blue' : 'neutral'} className="text-[10px] px-1.5 py-0">
+                {provider.enabled ? 'Active' : 'Standby'}
+              </Badge>
+            </div>
+            <p className="text-[10px] truncate opacity-60">{provider.endpoint}</p>
+            <div className="flex flex-wrap gap-1 mt-2">
+               {provider.modelIds.slice(0, 3).map(m => (
+                 <Badge key={m} tone="neutral" className="text-[9px] px-1 py-0">{m}</Badge>
+               ))}
+               {provider.modelIds.length > 3 && <span className="text-[9px] opacity-50">+{provider.modelIds.length - 3}</span>}
+            </div>
+          </button>
+        ))}
+      </div>
 
-      <article className="model-card">
-        <SectionLabel>
-          {locale === 'zh' ? '新增 Provider' : locale === 'en' ? 'New provider' : 'Новый провайдер'}
-        </SectionLabel>
+      <div className="pt-4 border-t space-y-2">
+        <span className="text-[10px] uppercase font-semibold text-muted-foreground px-2">Add Custom Provider</span>
         <Input
           value={draftLabel}
-          onChange={(event) => onDraftFieldChange('label', event.target.value)}
-          placeholder={locale === 'zh' ? 'Provider 名称' : locale === 'en' ? 'Provider label' : 'Название'}
+          onChange={(e) => onDraftFieldChange('label', e.target.value)}
+          placeholder="Provider Name"
+          className="h-8 text-xs"
         />
         <Input
           value={draftEndpoint}
-          onChange={(event) => onDraftFieldChange('endpoint', event.target.value)}
-          placeholder="https://..."
+          onChange={(e) => onDraftFieldChange('endpoint', e.target.value)}
+          placeholder="Endpoint URL"
+          className="h-8 text-xs"
         />
-        <Input
-          value={draftModels}
-          onChange={(event) => onDraftFieldChange('models', event.target.value)}
-          placeholder={locale === 'zh' ? '模型列表，用逗号分隔' : locale === 'en' ? 'Model ids, comma-separated' : 'Модели через запятую'}
-        />
-        <Button variant="ghost" onClick={onCreateProfile}>
-          {locale === 'zh' ? '创建自定义端点' : locale === 'en' ? 'Create custom endpoint' : 'Создать custom endpoint'}
+        <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={onCreateProfile}>
+          Add Provider
         </Button>
-      </article>
+      </div>
     </div>
   );
 }

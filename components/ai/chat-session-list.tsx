@@ -7,8 +7,8 @@ import type {
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { SectionLabel } from '../ui/section-label';
 import { Textarea } from '../ui/textarea';
+import { cx } from '@/lib/design/cx';
 
 export function ChatSessionList({
   locale,
@@ -36,69 +36,74 @@ export function ChatSessionList({
   onSendPrompt: () => void;
 }) {
   return (
-    <div className="chat-session-list" id="ai-sessions">
-      <article className="chat-session-card">
-        <SectionLabel>
-          {locale === 'zh' ? '新会话' : locale === 'en' ? 'New session' : 'Новая сессия'}
-        </SectionLabel>
-        <Input
-          value={draftTitle}
-          onChange={(event) => onDraftTitleChange(event.target.value)}
-          placeholder={locale === 'zh' ? '自由对话标题' : locale === 'en' ? 'Session title' : 'Название сессии'}
-        />
-        <Button variant="ghost" onClick={onCreateSession}>
-          {locale === 'zh' ? '创建会话' : locale === 'en' ? 'Create session' : 'Создать сессию'}
-        </Button>
-      </article>
-
-      {sessions.map((session, index) => (
-        <article key={session.id} className="chat-session-card">
-          <div className="meta-row">
-            <SectionLabel>{`Session 0${index + 1}`}</SectionLabel>
-            <Badge tone="neutral">{session.updatedAt}</Badge>
+    <div className="flex flex-col h-full bg-background" id="ai-sessions">
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-2">
+            <span className="text-mono-label">Sessions</span>
           </div>
-          <strong>{session.title}</strong>
-          <Button variant="ghost" onClick={() => onSessionChange(session.id)}>
-            {session.id === activeSessionId
-              ? locale === 'zh'
-                ? '当前会话'
-                : locale === 'en'
-                  ? 'Active'
-                  : 'Активно'
-              : locale === 'zh'
-                ? '切换'
-                : locale === 'en'
-                  ? 'Open'
-                  : 'Открыть'}
-          </Button>
-        </article>
-      ))}
-
-      <article className="chat-session-card">
-        <SectionLabel>
-          {locale === 'zh' ? '自由对话' : locale === 'en' ? 'Free chat' : 'Свободный чат'}
-        </SectionLabel>
-        <div className="task-stack">
-          {messages.map((message) => (
-            <div key={message.id} className="nav-item">
-              <div className="meta-row">
-                <strong>{message.role}</strong>
-                <Badge tone="neutral">{message.tokenCount}</Badge>
-              </div>
-              <p>{message.body}</p>
-            </div>
-          ))}
+          <div className="space-y-1">
+            {sessions.map((session) => (
+              <button
+                key={session.id}
+                onClick={() => onSessionChange(session.id)}
+                className={cx(
+                  "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
+                  session.id === activeSessionId
+                    ? "bg-muted font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50"
+                )}
+              >
+                {session.title}
+              </button>
+            ))}
+          </div>
         </div>
+
+        <div className="space-y-4 pt-4 border-t">
+          <div className="space-y-4">
+            {messages.map((message) => (
+              <div key={message.id} className={cx(
+                "flex flex-col gap-1 max-w-[90%]",
+                message.role === 'user' ? "ml-auto items-end" : "items-start"
+              )}>
+                <div className={cx(
+                  "px-3 py-2 rounded-2xl text-sm",
+                  message.role === 'user' 
+                    ? "bg-primary text-primary-foreground rounded-tr-none" 
+                    : "bg-muted text-foreground rounded-tl-none"
+                )}>
+                  {message.body}
+                </div>
+                <span className="text-[10px] text-muted-foreground px-1 uppercase tracking-tighter">
+                  {message.role} • {message.tokenCount}t
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 border-t bg-muted/30 space-y-3">
         <Textarea
-          rows={4}
           value={draftPrompt}
-          onChange={(event) => onDraftPromptChange(event.target.value)}
-          placeholder={locale === 'zh' ? '问 AI 一个问题…' : locale === 'en' ? 'Ask the AI…' : 'Спросите AI…'}
+          onChange={(e) => onDraftPromptChange(e.target.value)}
+          placeholder="Message AI..."
+          className="min-h-[80px] text-sm bg-background"
         />
-        <Button variant="ghost" onClick={onSendPrompt}>
-          {locale === 'zh' ? '发送自由对话' : locale === 'en' ? 'Send free chat' : 'Отправить'}
+        <div className="flex gap-2">
+          <Input 
+            value={draftTitle}
+            onChange={(e) => onDraftTitleChange(e.target.value)}
+            placeholder="New session title..."
+            className="h-8 text-xs flex-1"
+          />
+          <Button variant="primary" size="sm" className="h-8" onClick={onSendPrompt}>Send</Button>
+        </div>
+        <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={onCreateSession}>
+          New Session
         </Button>
-      </article>
+      </div>
     </div>
   );
 }

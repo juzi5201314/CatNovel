@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type {
   ChapterRecord,
   VolumeRecord,
@@ -9,9 +10,7 @@ import type { AppMessages } from '@/lib/i18n/messages';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Panel } from '../ui/panel';
-import { SectionLabel } from '../ui/section-label';
-import { parseChapterText } from './workspace-data';
+import { cx } from '@/lib/design/cx';
 
 export function SidebarNav({
   copy,
@@ -52,107 +51,99 @@ export function SidebarNav({
   onCreateVolume: () => void;
   onCreateChapter: () => void;
 }) {
+  const [collapsedVolumes, setCollapsedVolumes] = useState<Record<string, boolean>>({});
+
+  const toggleVolume = (volumeId: string) => {
+    setCollapsedVolumes(prev => ({ ...prev, [volumeId]: !prev[volumeId] }));
+  };
+
   return (
-    <Panel
-      id="work-panel"
-      title={copy.workManager}
-      subtitle="作品 / 分卷 / 章节都从 SQLite 读取并在当前工作台内直接维护。"
-      badge={<Badge tone="neutral">{copy.chapterSidebar}</Badge>}
-    >
-      <div className="nav-section">
-        <SectionLabel>{copy.workManager}</SectionLabel>
-        <div className="work-list">
-          {works.map((work) => {
-            const selected = work.id === activeWorkId;
-            return (
+    <div className="flex flex-col h-full bg-muted/30">
+      <div className="p-4 space-y-4">
+        <div className="space-y-2">
+          <span className="text-mono-label px-2 opacity-50">{copy.workManager}</span>
+          <div className="space-y-1">
+            {works.map((work) => (
               <button
                 key={work.id}
-                className={['work-card', selected ? 'work-card--active' : '']
-                  .filter(Boolean)
-                  .join(' ')}
                 onClick={() => onWorkChange(work.id)}
-                type="button"
+                className={cx(
+                  "w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 active:scale-[0.98]",
+                  work.id === activeWorkId 
+                    ? "bg-background shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.04)] text-foreground" 
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                )}
               >
-                <strong>{work.title}</strong>
-                <p>{work.synopsis || (locale === 'zh' ? '暂无简介' : locale === 'en' ? 'No synopsis yet' : 'Пока без синопсиса')}</p>
+                {work.title}
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
-        <div className="task-stack">
-          <Input
-            value={draftWorkTitle}
-            onChange={(event) => onWorkTitleChange(event.target.value)}
-            placeholder={locale === 'zh' ? '新作品标题' : locale === 'en' ? 'New work title' : 'Новое название проекта'}
-          />
-          <Button variant="ghost" onClick={onCreateWork}>
-            {locale === 'zh' ? '创建作品' : locale === 'en' ? 'Create work' : 'Создать проект'}
-          </Button>
+
+        <div className="space-y-4 pt-4 border-t border-muted-foreground/10">
+          <span className="text-mono-label px-2 opacity-50">{copy.chapterManager}</span>
+          
+          <div className="space-y-4">
+            {volumes.map((volume) => {
+              const isCollapsed = collapsedVolumes[volume.id];
+              const volumeChapters = chapters.filter((c) => c.volumeId === volume.id);
+              
+              return (
+                <div key={volume.id} className="space-y-1">
+                  <button 
+                    onClick={() => toggleVolume(volume.id)}
+                    className="w-full px-2 flex items-center justify-between group cursor-pointer"
+                  >
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.1em] group-hover:text-foreground transition-colors">
+                      {volume.title}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/40 group-hover:text-muted-foreground transition-all">
+                      {isCollapsed ? '+' : '−'}
+                    </span>
+                  </button>
+                  
+                  {!isCollapsed && (
+                    <div className="space-y-0.5 mt-1 animate-fade-in">
+                      {volumeChapters.map((chapter) => (
+                          <button
+                            key={chapter.id}
+                            onClick={() => onChapterChange(chapter.id)}
+                            className={cx(
+                              "w-full text-left px-3 py-1.5 rounded-md text-sm transition-all duration-200 active:scale-[0.98] group",
+                              chapter.id === activeChapterId
+                                ? "bg-background shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] text-foreground font-medium"
+                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate">{chapter.title}</span>
+                              <span className="text-[9px] font-mono opacity-40 group-hover:opacity-100 transition-opacity">
+                                {chapter.wordCount}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      <div className="nav-section">
-        <SectionLabel>{copy.chapterManager}</SectionLabel>
-        <div className="task-stack">
-          <Input
-            value={draftVolumeTitle}
-            onChange={(event) => onVolumeTitleChange(event.target.value)}
-            placeholder={locale === 'zh' ? '新分卷标题' : locale === 'en' ? 'New volume title' : 'Новый том'}
-          />
-          <Button variant="ghost" onClick={onCreateVolume}>
-            {locale === 'zh' ? '新增分卷' : locale === 'en' ? 'Add volume' : 'Добавить том'}
-          </Button>
-        </div>
-        <div className="chapter-list">
-          {volumes.map((volume) => (
-            <article key={volume.id} className="nav-item">
-              <div className="meta-row">
-                <strong>{volume.title}</strong>
-                <Badge tone="neutral">{volume.sortIndex + 1}</Badge>
-              </div>
-              <div className="task-stack">
-                {chapters
-                  .filter((chapter) => chapter.volumeId === volume.id)
-                  .map((chapter) => {
-                    const selected = chapter.id === activeChapterId;
-                    return (
-                      <button
-                        key={chapter.id}
-                        className={[
-                          'chapter-item',
-                          selected ? 'chapter-item--active' : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        onClick={() => onChapterChange(chapter.id)}
-                        type="button"
-                      >
-                        <div className="meta-row">
-                          <strong>{chapter.title}</strong>
-                          <Badge tone="neutral">{chapter.wordCount}w</Badge>
-                        </div>
-                        <p>{chapter.excerpt || parseChapterText(chapter.bodyJson).slice(0, 96)}</p>
-                        <span className="mono-text">
-                          {chapter.lastAutosavedAt ?? chapter.updatedAt}
-                        </span>
-                      </button>
-                    );
-                  })}
-              </div>
-            </article>
-          ))}
-        </div>
-        <div className="task-stack">
-          <Input
-            value={draftChapterTitle}
-            onChange={(event) => onChapterTitleChange(event.target.value)}
-            placeholder={locale === 'zh' ? '新章节标题' : locale === 'en' ? 'New chapter title' : 'Новая глава'}
-          />
-          <Button variant="ghost" onClick={onCreateChapter}>
-            {locale === 'zh' ? '新增章节' : locale === 'en' ? 'Add chapter' : 'Добавить главу'}
-          </Button>
-        </div>
+      <div className="mt-auto p-4 border-t border-muted-foreground/10 bg-background/50 backdrop-blur-sm space-y-2">
+         <Input 
+           size={1}
+           value={draftChapterTitle} 
+           onChange={(e) => onChapterTitleChange(e.target.value)}
+           placeholder="New chapter..."
+           className="h-8 text-xs bg-background/50"
+         />
+         <Button variant="outline" size="sm" className="w-full h-8 text-xs shadow-none border-muted-foreground/10 hover:border-muted-foreground/30 active:scale-[0.98]" onClick={onCreateChapter}>
+            Add Chapter
+         </Button>
       </div>
-    </Panel>
+    </div>
   );
 }

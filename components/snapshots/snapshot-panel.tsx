@@ -1,7 +1,6 @@
 import type { AppMessages, SupportedLocale } from '@/lib/i18n/messages';
 
 import { Badge } from '../ui/badge';
-import { Panel } from '../ui/panel';
 import { SnapshotActionBar } from './snapshot-action-bar';
 import { SnapshotList } from './snapshot-list';
 
@@ -35,29 +34,31 @@ export function SnapshotPanel({
   onParseImportFile: (format: 'txt' | 'md' | 'epub' | 'docx' | 'doc' | 'pdf') => void;
 }) {
   return (
-    <Panel
-      id="snapshot-panel"
-      title={copy.snapshots}
-      subtitle="快照、导入、导出与恢复演练都直接挂在当前路由。"
-      badge={<Badge tone="neutral">Snapshots</Badge>}
-    >
-      <SnapshotActionBar
-        copy={copy}
-        draftLabel={draftLabel}
-        onDraftLabelChange={onDraftLabelChange}
-        onCreateSnapshot={onCreateSnapshot}
-        onExportProject={onExportProject}
-        onImportProject={onImportProject}
-        onExportChapters={onExportChapters}
-        onParseImportFile={onParseImportFile}
-      />
-      <SnapshotList
-        locale={locale}
-        snapshots={snapshots}
-        auditLog={auditLog}
-        onRestore={onRestoreSnapshot}
-        onDelete={onDeleteSnapshot}
-      />
-    </Panel>
+    <div className="flex flex-col h-full animate-fade-in p-4 space-y-6" id="snapshot-panel">
+      <div className="space-y-4">
+        <span className="text-mono-label px-2">Snapshot Actions</span>
+        <SnapshotActionBar
+          copy={copy}
+          draftLabel={draftLabel}
+          onDraftLabelChange={onDraftLabelChange}
+          onCreateSnapshot={onCreateSnapshot}
+          onExportProject={onExportProject}
+          onImportProject={onImportProject}
+          onExportChapters={onExportChapters}
+          onParseImportFile={onParseImportFile}
+        />
+      </div>
+      
+      <div className="flex-1 overflow-y-auto space-y-4">
+        <span className="text-mono-label px-2">History</span>
+        <SnapshotList
+          locale={locale}
+          snapshots={snapshots}
+          auditLog={auditLog}
+          onRestore={onRestoreSnapshot}
+          onDelete={onDeleteSnapshot}
+        />
+      </div>
+    </div>
   );
 }

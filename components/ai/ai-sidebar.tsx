@@ -7,9 +7,9 @@ import type {
 import type { AppMessages } from '@/lib/i18n/messages';
 
 import { Badge } from '../ui/badge';
-import { Panel } from '../ui/panel';
 import { ChatSessionList } from './chat-session-list';
 import { ModelPicker } from './model-picker';
+import { Button } from '../ui/button';
 
 export function AiSidebar({
   locale,
@@ -62,47 +62,43 @@ export function AiSidebar({
   onSendFreeChat: () => void;
 }) {
   return (
-    <Panel
-      id="ai-panel"
-      title={copy.aiSidebar}
-      subtitle={`${workLabel} · ${chapterTitle} 的 AI sidecar：模型、会话、token usage 都落在 SQLite。`}
-      badge={<Badge tone="red">AI</Badge>}
-    >
-      <div className="assistant-link-grid">
-        <a className="button button--ghost button--anchor" href="#ai-models">
-          Model picker
-        </a>
-        <a className="button button--ghost button--anchor" href="#ai-sessions">
-          Chat sessions
-        </a>
-        <a className="button button--ghost button--anchor" href="#snapshot-panel">
-          {copy.snapshots}
-        </a>
+    <div className="flex flex-col h-full animate-fade-in" id="ai-panel">
+      <div className="border-b px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+           <span className="text-mono-label">{copy.aiSidebar}</span>
+           <Badge tone="red" className="text-[10px] px-1.5 py-0">LIVE</Badge>
+        </div>
       </div>
-      <ModelPicker
-        locale={locale}
-        providers={providers}
-        activeProfileId={activeProfileId}
-        draftLabel={modelDraft.label}
-        draftEndpoint={modelDraft.endpoint}
-        draftModels={modelDraft.models}
-        onSelectProfile={onSelectProfile}
-        onDraftFieldChange={onModelDraftChange}
-        onCreateProfile={onCreateProfile}
-      />
-      <ChatSessionList
-        locale={locale}
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        messages={messages}
-        draftTitle={sessionDraftTitle}
-        draftPrompt={freeChatPrompt}
-        onCreateSession={onCreateSession}
-        onDraftTitleChange={onSessionDraftTitleChange}
-        onDraftPromptChange={onFreeChatPromptChange}
-        onSessionChange={onSessionChange}
-        onSendPrompt={onSendFreeChat}
-      />
-    </Panel>
+      
+      <div className="flex-1 overflow-y-auto">
+        <ChatSessionList
+          locale={locale}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          messages={messages}
+          draftTitle={sessionDraftTitle}
+          draftPrompt={freeChatPrompt}
+          onCreateSession={onCreateSession}
+          onDraftTitleChange={onSessionDraftTitleChange}
+          onDraftPromptChange={onFreeChatPromptChange}
+          onSessionChange={onSessionChange}
+          onSendPrompt={onSendFreeChat}
+        />
+        
+        <div className="border-t">
+          <ModelPicker
+            locale={locale}
+            providers={providers}
+            activeProfileId={activeProfileId}
+            draftLabel={modelDraft.label}
+            draftEndpoint={modelDraft.endpoint}
+            draftModels={modelDraft.models}
+            onSelectProfile={onSelectProfile}
+            onDraftFieldChange={onModelDraftChange}
+            onCreateProfile={onCreateProfile}
+          />
+        </div>
+      </div>
+    </div>
   );
 }

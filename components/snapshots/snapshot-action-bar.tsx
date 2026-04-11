@@ -1,5 +1,4 @@
 import type { AppMessages } from '@/lib/i18n/messages';
-
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
@@ -23,61 +22,46 @@ export function SnapshotActionBar({
   onParseImportFile: (format: 'txt' | 'md' | 'epub' | 'docx' | 'doc' | 'pdf') => void;
 }) {
   return (
-    <div className="task-stack">
-      <Input value={draftLabel} onChange={(event) => onDraftLabelChange(event.target.value)} />
-      <div className="snapshot-actions">
-        <Button variant="primary" onClick={onCreateSnapshot}>
-          Create snapshot
-        </Button>
-        <Button variant="ghost" onClick={() => onExportProject('json')}>
-          Export JSON
-        </Button>
-        <Button variant="ghost" onClick={onImportProject}>
-          Import JSON
-        </Button>
-      </div>
-      <div className="snapshot-actions">
-        <Button variant="ghost" onClick={() => onParseImportFile('txt')}>
-          TXT import
-        </Button>
-        <Button variant="ghost" onClick={() => onParseImportFile('md')}>
-          MD import
-        </Button>
-        <Button variant="ghost" onClick={() => onParseImportFile('epub')}>
-          EPUB import
+    <div className="space-y-4 bg-muted/30 p-4 rounded-lg border">
+      <div className="space-y-2">
+        <span className="text-[10px] uppercase text-muted-foreground font-semibold">Label</span>
+        <Input 
+          value={draftLabel} 
+          onChange={(event) => onDraftLabelChange(event.target.value)} 
+          className="h-8 text-xs"
+        />
+        <Button variant="primary" size="sm" className="w-full h-8" onClick={onCreateSnapshot}>
+          Create Snapshot
         </Button>
       </div>
-      <div className="snapshot-actions">
-        <Button variant="ghost" onClick={() => onParseImportFile('docx')}>
-          DOCX import
-        </Button>
-        <Button variant="ghost" onClick={() => onParseImportFile('doc')}>
-          DOC import
-        </Button>
-        <Button variant="ghost" onClick={() => onParseImportFile('pdf')}>
-          PDF import
-        </Button>
+
+      <div className="grid grid-cols-2 gap-2 pt-2 border-t">
+        <div className="space-y-1">
+          <span className="text-[10px] uppercase text-muted-foreground font-semibold">Export</span>
+          <div className="flex flex-wrap gap-1">
+            {['md', 'docx', 'epub', 'pdf'].map(fmt => (
+              <Button key={fmt} variant="outline" size="sm" className="h-6 text-[10px] uppercase px-1.5" onClick={() => onExportChapters(fmt as any)}>
+                {fmt}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <span className="text-[10px] uppercase text-muted-foreground font-semibold">Import</span>
+          <div className="flex flex-wrap gap-1">
+            {['md', 'docx', 'pdf'].map(fmt => (
+              <Button key={fmt} variant="outline" size="sm" className="h-6 text-[10px] uppercase px-1.5" onClick={() => onParseImportFile(fmt as any)}>
+                {fmt}
+              </Button>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="snapshot-actions">
-        <Button variant="ghost" onClick={() => onExportChapters('txt')}>
-          TXT export
-        </Button>
-        <Button variant="ghost" onClick={() => onExportChapters('md')}>
-          MD export
-        </Button>
-        <Button variant="ghost" onClick={() => onExportChapters('docx')}>
-          DOCX export
-        </Button>
-        <Button variant="ghost" onClick={() => onExportChapters('epub')}>
-          EPUB export
-        </Button>
-        <Button variant="ghost" onClick={() => onExportChapters('pdf')}>
-          PDF export
-        </Button>
+      
+      <div className="flex gap-2 pt-2 border-t">
+        <Button variant="ghost" size="sm" className="flex-1 h-7 text-[10px]" onClick={() => onExportProject('json')}>Export Project</Button>
+        <Button variant="ghost" size="sm" className="flex-1 h-7 text-[10px]" onClick={onImportProject}>Import Project</Button>
       </div>
-      <a className="button button--ghost button--anchor" href="#ai-panel">
-        {copy.aiSidebar}
-      </a>
     </div>
   );
 }

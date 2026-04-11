@@ -1,17 +1,15 @@
-import * as React from "react";
-
-import { cn } from "@/lib/utils";
+import type { InputHTMLAttributes } from 'react';
+import { cx } from '../../lib/design/cx';
 
 export function Input({
   className,
+  type = 'text',
   ...props
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+}: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={cn(
-        "h-10 w-full rounded-[var(--radius-sm)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text)] shadow-[var(--shadow-light-ring)] outline-none transition-shadow placeholder:text-[var(--color-muted-text)] focus-visible:shadow-[var(--shadow-focus)]",
-        className,
-      )}
+      className={cx('input', className)}
+      type={type}
       {...props}
     />
   );

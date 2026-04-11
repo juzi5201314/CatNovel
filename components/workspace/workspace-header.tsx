@@ -1,6 +1,6 @@
 import type { AppMessages, SupportedLocale } from '../../lib/i18n/messages';
-
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 
 const localeLabels: Record<SupportedLocale, string> = {
   zh: '简体中文',
@@ -22,26 +22,30 @@ export function WorkspaceHeader({
   onLocaleChange: (locale: SupportedLocale) => void;
 }) {
   return (
-    <header className="workspace-header">
-      <div className="workspace-brand">
-        <div className="eyebrow">Author replica / production cutover</div>
-        <h1 className="workspace-title">CatNovel workspace</h1>
-        <p className="workspace-copy">
-          {activeWorkLabel} · {activeChapterTitle}
-          。三栏连续布局、单主题设计系统、SQLite 单一事实源、AI /
-          snapshots / settings / help 共用同一路由，不保留 theme、
-          layout mode 或云同步旁路。
-        </p>
+    <header className="app-header">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10 0L20 20H0L10 0Z" fill="currentColor"/>
+          </svg>
+          <span className="font-semibold text-sm">CatNovel</span>
+        </div>
+        <div className="h-4 w-[1px] bg-border mx-2" />
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">{activeWorkLabel}</span>
+          <span className="text-muted-foreground text-sm">/</span>
+          <span className="text-sm text-muted-foreground">{activeChapterTitle}</span>
+        </div>
       </div>
 
-      <div className="workspace-actions">
-        <div className="locale-switcher" aria-label={copy.localeSwitcher}>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1 bg-muted p-1 rounded-md">
           {(['zh', 'en', 'ru'] as SupportedLocale[]).map((entry) => (
             <button
               key={entry}
               className={[
-                'locale-button',
-                entry === locale ? 'locale-button--active' : '',
+                'px-2 py-1 text-xs rounded-sm transition-colors',
+                entry === locale ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -52,14 +56,9 @@ export function WorkspaceHeader({
             </button>
           ))}
         </div>
-        <Badge>{copy.localeSwitcher}</Badge>
-        <Badge tone="neutral">SQLite is source of truth</Badge>
-        <a className="button button--ghost button--anchor" href="#help-panel">
-          Open help
-        </a>
-        <a className="button button--primary button--anchor" href="#editor-panel">
+        <Button variant="primary" size="sm">
           {copy.launchWriting}
-        </a>
+        </Button>
       </div>
     </header>
   );

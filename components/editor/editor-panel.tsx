@@ -5,10 +5,9 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
-import { Panel } from '../ui/panel';
-import { Separator } from '../ui/separator';
 import { Textarea } from '../ui/textarea';
 import { slashCommands, t } from '../workspace/workspace-data';
+import { cx } from '@/lib/design/cx';
 
 export type EditorModes = {
   slash: boolean;
@@ -49,143 +48,98 @@ export function EditorPanel({
   onRejectGhostText: () => void;
 }) {
   return (
-    <Panel
-      id="editor-panel"
-      title="Primary writing stage"
-      subtitle="中栏直接连接 SQLite autosave、slash tasks、ghost text 与章节指标。"
-      badge={<Badge tone="neutral">Editor</Badge>}
-    >
-      <div className="editor-stage">
-        <div className="editor-toolbar">
-          {(
-            [
-              ['slash', 'Slash commands'],
-              ['bubble', 'Bubble menu'],
-              ['highlight', 'Search highlight'],
-              ['pageBreak', 'Page-break style'],
-            ] as Array<[keyof EditorModes, string]>
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              className={[
-                'toolbar-chip',
-                editorModes[key] ? 'toolbar-chip--active' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onClick={() => onToggleMode(key)}
-              type="button"
-            >
-              {label}
-            </button>
-          ))}
-          <Badge tone="neutral">{saveState}</Badge>
-        </div>
-
-        <div className="editor-prose">
-          <div className="editor-meta">
-            <div className="task-stack">
-              <span className="section-label">
-                <span aria-hidden="true" className="section-label__dot" />
-                {copy.editorTools}
-              </span>
-              <Input value={draftTitle} onChange={(event) => onTitleChange(event.target.value)} />
-            </div>
-            <div className="chapter-stat-grid">
-              <Card className="stat-card">
-                <CardHeader className="stat-card__header">
-                  <CardTitle className="stat-card__title">Words</CardTitle>
-                </CardHeader>
-                <CardContent className="stat-card__content">{chapter?.wordCount ?? 0}</CardContent>
-              </Card>
-              <Card className="stat-card">
-                <CardHeader className="stat-card__header">
-                  <CardTitle className="stat-card__title">Chars</CardTitle>
-                </CardHeader>
-                <CardContent className="stat-card__content">
-                  {chapter?.characterCount ?? 0}
-                </CardContent>
-              </Card>
-              <Card className="stat-card">
-                <CardHeader className="stat-card__header">
-                  <CardTitle className="stat-card__title">Read</CardTitle>
-                </CardHeader>
-                <CardContent className="stat-card__content">
-                  {chapter?.readingMinutes ?? 0}m
-                </CardContent>
-              </Card>
-              <Card className="stat-card">
-                <CardHeader className="stat-card__header">
-                  <CardTitle className="stat-card__title">Autosave</CardTitle>
-                </CardHeader>
-                <CardContent className="stat-card__content">
-                  {chapter?.lastAutosavedAt ?? '—'}
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          <Textarea
-            rows={18}
-            value={body}
-            onChange={(event) => onBodyChange(event.target.value)}
+    <div className="flex flex-col h-full bg-background animate-fade-in" id="editor-panel">
+      <div className="border-b px-6 py-4 flex items-center justify-between bg-background sticky top-0 z-10">
+        <div className="flex-1 max-w-2xl">
+          <Input 
+            value={draftTitle} 
+            onChange={(event) => onTitleChange(event.target.value)} 
+            className="text-card-title bg-transparent shadow-none px-0 focus:shadow-none hover:bg-accent/50 transition-colors border-none"
+            placeholder="Chapter Title"
           />
-
-          {editorModes.highlight ? (
-            <p>
-              {locale === 'zh'
-                ? '高亮模式已开启：当前章节中的设定引用会在 AI 上下文与正文之间保持可见。'
-                : locale === 'en'
-                  ? 'Highlight mode is on: setting references stay visible between the editor and AI context.'
-                  : 'Режим подсветки включён: ссылки на сеттинг видны и в редакторе, и в AI-контексте.'}
-            </p>
-          ) : null}
-
-          {editorModes.pageBreak ? <div className="page-break-rule" /> : null}
         </div>
-
-        <Separator />
-
-        <div className="editor-command-grid">
-          <Card className="command-card">
-            <CardHeader>
-              <CardTitle className="command-card__title">Slash surface</CardTitle>
-            </CardHeader>
-            <CardContent className="command-card__content">
-              {slashCommands.map((command) => (
-                <div key={command.id} className="command-row">
-                  <strong>{t(locale, command.label)}</strong>
-                  <Button
-                    variant="ghost"
-                    onClick={() =>
-                      onRunTask(command.id as '续写' | '改写' | '润色' | '扩写' | 'ghost-text')
-                    }
-                  >
-                    {locale === 'zh' ? '执行' : locale === 'en' ? 'Run' : 'Запустить'}
-                  </Button>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className="command-card">
-            <CardHeader>
-              <CardTitle className="command-card__title">Ghost text</CardTitle>
-            </CardHeader>
-            <CardContent className="command-card__content">
-              <p>{pendingGhostText || '—'}</p>
-              <div className="snapshot-actions">
-                <Button variant="ghost" onClick={onAcceptGhostText}>
-                  {locale === 'zh' ? '接受' : locale === 'en' ? 'Accept' : 'Принять'}
-                </Button>
-                <Button variant="ghost" onClick={onRejectGhostText}>
-                  {locale === 'zh' ? '拒绝' : locale === 'en' ? 'Reject' : 'Отклонить'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="flex items-center gap-4">
+          <Badge tone="neutral" pulse={saveState === 'autosaving' || saveState === 'saving'} className="font-mono text-[10px] uppercase tracking-tighter">
+            {saveState === 'autosaving' ? 'Saving...' : saveState === 'saving' ? 'Saving...' : saveState}
+          </Badge>
+          <div className="flex items-center gap-1">
+             <Button variant="ghost" size="sm" onClick={() => onToggleMode('highlight')} className={cx("h-8 px-2 text-xs", editorModes.highlight ? 'bg-accent text-accent-foreground' : 'text-muted-foreground')}>
+               Highlight
+             </Button>
+          </div>
         </div>
       </div>
-    </Panel>
+
+      <div className="flex-1 p-6 md:p-12 overflow-y-auto">
+        <div className="max-w-3xl mx-auto space-y-12">
+           <div className="grid grid-cols-4 gap-8 border-b pb-8">
+              <div className="space-y-1">
+                <span className="text-mono-label opacity-50">Words</span>
+                <p className="text-2xl font-semibold tracking-tight">{chapter?.wordCount ?? 0}</p>
+              </div>
+              <div className="space-y-1">
+                <span className="text-mono-label opacity-50">Chars</span>
+                <p className="text-2xl font-semibold tracking-tight">{chapter?.characterCount ?? 0}</p>
+              </div>
+              <div className="space-y-1">
+                <span className="text-mono-label opacity-50">Reading</span>
+                <p className="text-2xl font-semibold tracking-tight">{chapter?.readingMinutes ?? 0}m</p>
+              </div>
+              <div className="space-y-1">
+                <span className="text-mono-label opacity-50">Saved</span>
+                <p className="text-[10px] text-muted-foreground font-mono mt-2 truncate">{chapter?.lastAutosavedAt?.split('T')[1].split('.')[0] ?? '—'}</p>
+              </div>
+           </div>
+
+           <div className="relative group">
+            <Textarea
+              className="min-h-[70vh] text-lg leading-relaxed bg-transparent shadow-none border-none p-0 focus:shadow-none resize-none placeholder:text-muted-foreground/30"
+              value={body}
+              onChange={(event) => onBodyChange(event.target.value)}
+              placeholder="Start writing your masterpiece..."
+            />
+            
+            {saveState.startsWith('ai:') && (
+              <div className="absolute inset-0 bg-background/5 pointer-events-none flex items-end py-12">
+                <div className="w-full h-24 bg-accent/20 animate-pulse-subtle rounded-lg border border-accent/30 border-dashed" />
+              </div>
+            )}
+           </div>
+
+           {pendingGhostText && (
+             <Card className="border-accent/30 bg-accent/5 mt-12 shadow-none animate-fade-in">
+               <CardHeader className="py-3 border-b border-accent/20">
+                 <CardTitle className="text-[10px] uppercase tracking-[0.2em] font-bold text-accent-foreground/50">Ghost AI Suggestion</CardTitle>
+               </CardHeader>
+               <CardContent className="py-6 space-y-6">
+                 <p className="text-muted-foreground italic leading-relaxed">{pendingGhostText}</p>
+                 <div className="flex gap-3">
+                   <Button variant="primary" size="sm" className="h-8 px-4 text-xs" onClick={onAcceptGhostText}>Accept Change</Button>
+                   <Button variant="outline" size="sm" className="h-8 px-4 text-xs" onClick={onRejectGhostText}>Discard</Button>
+                 </div>
+               </CardContent>
+             </Card>
+           )}
+        </div>
+      </div>
+
+      <div className="border-t p-4 bg-background/80 backdrop-blur-sm sticky bottom-0">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+             {slashCommands.map((command) => (
+                <Button 
+                  key={command.id} 
+                  variant="outline" 
+                  size="sm"
+                  className="h-8 px-3 text-xs whitespace-nowrap border-muted-foreground/10 hover:border-muted-foreground/30 transition-all"
+                  onClick={() => onRunTask(command.id as any)}
+                >
+                  {t(locale, command.label)}
+                </Button>
+             ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
