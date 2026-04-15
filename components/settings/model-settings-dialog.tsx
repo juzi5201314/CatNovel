@@ -135,9 +135,11 @@ export function ModelSettingsDialog({
               key={selectedProvider.id}
               copy={copy}
               provider={selectedProvider}
+              activeModel={activeModel}
               onFieldChange={handleFieldChange}
               onDelete={handleDeleteProvider}
               onModelsChange={onProvidersChange}
+              onSetAsActive={(modelId) => onActiveModelChange({ profileId: selectedProvider.id, modelId })}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

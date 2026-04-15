@@ -287,12 +287,7 @@ export const seedStatements = [
    VALUES ('work-default', 'chapter-1', 0), ('work-default', 'chapter-2', 1)`,
   `INSERT OR IGNORE INTO book_metadata (work_id, author_name, premise, target_readers, serialized_status, tags_json, updated_at)
    VALUES ('work-default', 'CatNovel', '一个围绕都市异闻与创作现场展开的长篇网文项目。', 'webnovel-core', 'ongoing', '["都市","悬疑","成长"]', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO ai_provider_profiles (id, work_id, family, label, endpoint, model, model_ids_json, api_key_env, api_key, enabled, created_at, updated_at)
-   VALUES
-    ('openai-default', 'work-default', 'openai-compatible', 'OpenAI Compatible', 'https://api.openai.com/v1', 'gpt-4.1', '["gpt-4.1","gpt-4o-mini"]', 'OPENAI_API_KEY', 'openai-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('gemini-default', 'work-default', 'gemini-native', 'Gemini Native', 'https://generativelanguage.googleapis.com', 'gemini-2.5-pro', '["gemini-2.5-pro","gemini-2.5-flash"]', 'GEMINI_API_KEY', 'gemini-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('claude-default', 'work-default', 'claude-native', 'Claude Native', 'https://api.anthropic.com', 'claude-sonnet-4-0', '["claude-sonnet-4","claude-haiku-4"]', 'ANTHROPIC_API_KEY', 'claude-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('ollama-default', 'work-default', 'openai-compatible', 'Ollama', 'http://localhost:11434/v1', 'llama3.2', '["llama3.2"]', 'OLLAMA_API_KEY', 'ollama', 0, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+
   `INSERT OR IGNORE INTO settings_nodes (id, work_id, parent_id, node_type, title, payload_json, created_at, updated_at)
    VALUES
     ('setting-character-root', 'work-default', NULL, 'character', '主角团', '{"summary":"主角、盟友与反派的动机。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),

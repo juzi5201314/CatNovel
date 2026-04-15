@@ -16,6 +16,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     bootstrap: loadBootstrapPayload(workId),
     collections: getPersistenceSnapshot({ workId, sessionId }),
+  }, {
+    headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
   });
 }
 

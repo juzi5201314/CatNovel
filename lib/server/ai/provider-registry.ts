@@ -17,6 +17,7 @@ export interface ProviderProfileInput {
   endpoint: string;
   apiKey: string;
   modelIds: string[];
+  enabled?: boolean;
 }
 
 export interface ProviderProfile extends ProviderProfileInput {

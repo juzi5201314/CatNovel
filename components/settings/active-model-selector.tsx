@@ -57,6 +57,8 @@ export function ActiveModelSelector({
     );
   }, [allModels, searchQuery]);
 
+  const hasAvailableModels = allModels.length > 0;
+
   const activeLabel = activeModel
     ? (() => {
         const profile = providers.find((p) => p.id === activeModel.profileId);
@@ -68,11 +70,18 @@ export function ActiveModelSelector({
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50 hover:bg-muted text-sm font-medium transition-colors"
+        className={cx(
+          "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+          hasAvailableModels
+            ? "bg-muted/50 hover:bg-muted text-foreground"
+            : "bg-red-50 hover:bg-red-100 text-red-600 border border-red-200"
+        )}
       >
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{copy.activeModel}</span>
-        <span className="text-foreground truncate max-w-[280px]">{activeLabel}</span>
-        <svg className="w-3.5 h-3.5 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <span className="text-[10px] uppercase tracking-wider">{copy.activeModel}</span>
+        <span className={cx("truncate max-w-[280px]", !hasAvailableModels && "font-medium")}>
+          {hasAvailableModels ? activeLabel : copy.noAvailableModels}
+        </span>
+        <svg className={cx("w-3.5 h-3.5 shrink-0", hasAvailableModels ? "text-muted-foreground" : "text-red-500")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>

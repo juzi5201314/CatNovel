@@ -225,5 +225,12 @@ describe('AI backend flows', () => {
     assert.equal(modelFailureResponse.status, 502);
     const modelFailurePayload = await modelFailureResponse.json();
     assert.match(modelFailurePayload.error, /Model list fetch failure/);
+
+    await DELETE(
+      new Request(
+        `http://localhost/api/ai?profileId=${brokenProfilePayload.profile.id}`,
+        { method: 'DELETE' },
+      ),
+    );
   });
 });

@@ -22,11 +22,15 @@ export async function GET(request: Request) {
   if (resource === 'token-usage') {
     return Response.json({
       records: listTokenUsageRecords(),
+    }, {
+      headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
     });
   }
 
   return Response.json({
     profiles: listProviderProfiles(),
+  }, {
+    headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
   });
 }
 
@@ -123,6 +127,7 @@ export async function PATCH(request: Request) {
     endpoint: payload.endpoint,
     apiKey: payload.apiKey,
     modelIds: payload.modelIds,
+    enabled: payload.enabled,
   });
 
   return Response.json({

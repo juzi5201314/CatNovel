@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ProviderFamily, ProviderProfileRecord } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
@@ -8,6 +8,17 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { cx } from '@/lib/design/cx';
+
+type HistoryState = {
+  label: string;
+  endpoint: string;
+  apiKey: string;
+  family: ProviderFamily;
+  enabled: boolean;
+  modelIds: string[];
+};
+
+const MAX_HISTORY = 20;
 
 const apiFormatOptions: { value: ProviderFamily; label: string }[] = [
   { value: 'openai-compatible', label: 'OpenAI Compatible (含 Ollama)' },
@@ -56,15 +67,19 @@ const presetProviders: PresetProvider[] = [
 export function ProviderEditor({
   copy,
   provider,
+  activeModel,
   onFieldChange,
   onDelete,
   onModelsChange,
+  onSetAsActive,
 }: {
   copy: AppMessages;
   provider: ProviderProfileRecord;
+  activeModel: { profileId: string; modelId: string } | null;
   onFieldChange: (field: string, value: string | boolean) => void;
   onDelete: () => void;
   onModelsChange: () => void;
+  onSetAsActive?: (modelId: string) => void;
 }) {
   const [showApiKey, setShowApiKey] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -73,18 +88,126 @@ export function ProviderEditor({
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
-  const handlePatch = useCallback(async (field: string, value: string | boolean) => {
+  const [localLabel, setLocalLabel] = useState(provider.label);
+  const [localEndpoint, setLocalEndpoint] = useState(provider.endpoint);
+  const [localApiKey, setLocalApiKey] = useState(provider.apiKey);
+
+  const [history, setHistory] = useState<HistoryState[]>([
+    {
+      label: provider.label,
+      endpoint: provider.endpoint,
+      apiKey: provider.apiKey,
+      family: provider.family,
+      enabled: provider.enabled,
+      modelIds: [...provider.modelIds],
+    },
+  ]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+
+  useEffect(() => {
+    setHistory([
+      {
+        label: provider.label,
+        endpoint: provider.endpoint,
+        apiKey: provider.apiKey,
+        family: provider.family,
+        enabled: provider.enabled,
+        modelIds: [...provider.modelIds],
+      },
+    ]);
+    setHistoryIndex(0);
+    setLocalLabel(provider.label);
+    setLocalEndpoint(provider.endpoint);
+    setLocalApiKey(provider.apiKey);
+  }, [provider.id]);
+
+  const canUndo = historyIndex > 0;
+
+  const saveToHistory = useCallback((state: HistoryState) => {
+    setHistory((prev) => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      newHistory.push(state);
+      if (newHistory.length > MAX_HISTORY) {
+        newHistory.shift();
+      }
+      return newHistory;
+    });
+    setHistoryIndex((prev) => Math.min(prev + 1, MAX_HISTORY - 1));
+  }, [historyIndex]);
+
+  const undo = useCallback(async () => {
+    if (!canUndo) return;
+    const newIndex = historyIndex - 1;
+    const prevState = history[newIndex];
+
+    setHistoryIndex(newIndex);
+    setLocalLabel(prevState.label);
+    setLocalEndpoint(prevState.endpoint);
+    setLocalApiKey(prevState.apiKey);
+
+    await fetch('/api/ai', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profileId: provider.id,
+        label: prevState.label,
+        endpoint: prevState.endpoint,
+        apiKey: prevState.apiKey,
+        family: prevState.family,
+        enabled: prevState.enabled,
+        modelIds: prevState.modelIds,
+      }),
+    });
+
+    onFieldChange('label', prevState.label);
+    onFieldChange('endpoint', prevState.endpoint);
+    onFieldChange('apiKey', prevState.apiKey);
+    onFieldChange('family', prevState.family);
+    onFieldChange('enabled', prevState.enabled);
+    onModelsChange();
+  }, [canUndo, history, historyIndex, provider.id, onFieldChange, onModelsChange]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        undo();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [undo]);
+
+  const handlePatch = useCallback(async (field: string, value: string | boolean | string[]) => {
+    const currentState: HistoryState = {
+      label: localLabel,
+      endpoint: localEndpoint,
+      apiKey: localApiKey,
+      family: provider.family,
+      enabled: provider.enabled,
+      modelIds: [...provider.modelIds],
+    };
+
+    const newState: HistoryState = {
+      ...currentState,
+      [field]: Array.isArray(value) ? [...value] : value,
+    };
+
+    saveToHistory(currentState);
+
     try {
       await fetch('/api/ai', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ profileId: provider.id, [field]: value }),
       });
-      onFieldChange(field, value);
+      if (!Array.isArray(value)) {
+        onFieldChange(field, value);
+      }
     } catch {
       // silent — optimistic update
     }
-  }, [provider.id, onFieldChange]);
+  }, [provider.id, provider.family, provider.enabled, provider.modelIds, localLabel, localEndpoint, localApiKey, onFieldChange, saveToHistory]);
 
   const handleBlur = (field: string, localValue: string) => {
     const current = (provider as any)[field] as string;
@@ -96,6 +219,17 @@ export function ProviderEditor({
   const handleRemoveModel = async (modelId: string) => {
     const newModelIds = provider.modelIds.filter((m) => m !== modelId);
     if (newModelIds.length === 0) return;
+
+    const currentState: HistoryState = {
+      label: localLabel,
+      endpoint: localEndpoint,
+      apiKey: localApiKey,
+      family: provider.family,
+      enabled: provider.enabled,
+      modelIds: [...provider.modelIds],
+    };
+    saveToHistory(currentState);
+
     await fetch('/api/ai', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
@@ -108,6 +242,17 @@ export function ProviderEditor({
     const id = draftModelId.trim();
     if (!id || provider.modelIds.includes(id)) return;
     const newModelIds = [...provider.modelIds, id];
+
+    const currentState: HistoryState = {
+      label: localLabel,
+      endpoint: localEndpoint,
+      apiKey: localApiKey,
+      family: provider.family,
+      enabled: provider.enabled,
+      modelIds: [...provider.modelIds],
+    };
+    saveToHistory(currentState);
+
     await fetch('/api/ai', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
@@ -133,11 +278,31 @@ export function ProviderEditor({
       }
       const fetched = data.models as string[];
       const merged = Array.from(new Set([...provider.modelIds, ...fetched])).sort();
-      await fetch('/api/ai', {
+
+      const currentState: HistoryState = {
+        label: localLabel,
+        endpoint: localEndpoint,
+        apiKey: localApiKey,
+        family: provider.family,
+        enabled: provider.enabled,
+        modelIds: [...provider.modelIds],
+      };
+      saveToHistory(currentState);
+      
+      const patchRes = await fetch('/api/ai', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ profileId: provider.id, modelIds: merged }),
       });
+      
+      if (!patchRes.ok) {
+        const errorData = await patchRes.json().catch(() => ({ error: 'Unknown error' }));
+        setTestStatus('failed');
+        setTestMessage(`${copy.fetchFailed}: ${errorData.error || 'Failed to save models'}`);
+        return;
+      }
+      
+      // 确保数据已保存后再通知父组件刷新
       onModelsChange();
     } catch (error) {
       setTestStatus('failed');
@@ -179,13 +344,34 @@ export function ProviderEditor({
     setConfirmDelete(false);
   };
 
-  const [localLabel, setLocalLabel] = useState(provider.label);
-  const [localEndpoint, setLocalEndpoint] = useState(provider.endpoint);
-  const [localApiKey, setLocalApiKey] = useState(provider.apiKey);
-
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="p-6 space-y-5 max-w-lg">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {canUndo ? `可撤销 ${historyIndex} 步` : '无撤销历史'}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cx(
+              "h-7 px-3 text-xs",
+              canUndo
+                ? "text-primary hover:text-primary hover:bg-primary/10"
+                : "text-muted-foreground opacity-50 cursor-not-allowed"
+            )}
+            onClick={undo}
+            disabled={!canUndo}
+            title="撤销上一步操作 (Cmd/Ctrl + Z)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mr-1.5">
+              <path d="M3 7v6h6" />
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+            </svg>
+            撤销
+          </Button>
+        </div>
+
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{copy.providerLabel}</label>
           <Input
@@ -206,7 +392,9 @@ export function ProviderEditor({
               if (preset) {
                 handlePatch('endpoint', preset.baseUrl);
                 handlePatch('family', preset.family);
+                handlePatch('label', preset.label);
                 setLocalEndpoint(preset.baseUrl);
+                setLocalLabel(preset.label);
               } else {
                 handlePatch('family', value as ProviderFamily);
               }
@@ -305,14 +493,31 @@ export function ProviderEditor({
               <div className="flex gap-2">
                 <select
                   value={provider.modelIds[0]}
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const selectedId = e.target.value;
                     const reorderedIds = [selectedId, ...provider.modelIds.filter(m => m !== selectedId)];
-                    fetch('/api/ai', {
-                      method: 'PATCH',
-                      headers: { 'content-type': 'application/json' },
-                      body: JSON.stringify({ profileId: provider.id, modelIds: reorderedIds }),
-                    }).then(() => onModelsChange());
+
+                    const currentState: HistoryState = {
+                      label: localLabel,
+                      endpoint: localEndpoint,
+                      apiKey: localApiKey,
+                      family: provider.family,
+                      enabled: provider.enabled,
+                      modelIds: [...provider.modelIds],
+                    };
+                    saveToHistory(currentState);
+
+                    try {
+                      const res = await fetch('/api/ai', {
+                        method: 'PATCH',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({ profileId: provider.id, modelIds: reorderedIds }),
+                      });
+                      if (!res.ok) throw new Error('Failed to reorder models');
+                      onModelsChange();
+                    } catch {
+                      // 静默失败，下次刷新会恢复正确顺序
+                    }
                   }}
                   className="input h-9 text-sm w-full appearance-none cursor-pointer"
                 >
@@ -320,18 +525,25 @@ export function ProviderEditor({
                     <option key={modelId} value={modelId}>{modelId}</option>
                   ))}
                 </select>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-9 px-3 text-xs shrink-0 text-muted-foreground hover:text-red-600"
-                  onClick={() => handleRemoveModel(provider.modelIds[0])}
-                  disabled={provider.modelIds.length <= 1}
-                  title={provider.modelIds.length <= 1 ? copy.noModels : `${provider.modelIds.length} models`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M18 6L6 18M6 6l12 12" />
-                  </svg>
-                </Button>
+                {(() => {
+                  const currentModelId = provider.modelIds[0];
+                  const isActive = activeModel?.profileId === provider.id && activeModel?.modelId === currentModelId;
+                  return (
+                    <Button
+                      size="sm"
+                      className={cx(
+                        "h-9 px-3 text-xs shrink-0 transition-colors",
+                        isActive
+                          ? "bg-white border border-green-300 text-green-600 cursor-not-allowed opacity-60"
+                          : "bg-white border border-green-500 text-green-600 hover:bg-green-50"
+                      )}
+                      onClick={() => onSetAsActive?.(currentModelId)}
+                      disabled={isActive || !onSetAsActive}
+                    >
+                      {copy.setAsActive}
+                    </Button>
+                  );
+                })()}
               </div>
               <p className="text-[10px] text-muted-foreground/60">
                 {provider.modelIds.length} models

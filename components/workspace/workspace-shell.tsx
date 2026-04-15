@@ -83,22 +83,21 @@ function deriveSessionSelection(collections: WorkspaceCollections, preferredId?:
 }
 
 function deriveActiveModel(collections: WorkspaceCollections, preferred?: ActiveModelSelection | null): ActiveModelSelection | null {
-  // Use stored preference if valid
+  const availableModels = collections.providerProfiles
+    .filter((p) => p.enabled && p.modelIds.length > 0);
+
+  if (availableModels.length === 0) {
+    return null;
+  }
+
   if (preferred?.profileId && preferred?.modelId) {
     const profile = collections.providerProfiles.find((p) => p.id === preferred.profileId);
-    if (profile && profile.modelIds.includes(preferred.modelId)) return preferred;
+    if (profile && profile.enabled && profile.modelIds.includes(preferred.modelId)) {
+      return preferred;
+    }
   }
-  // Fallback: first enabled provider's first model
-  const enabled = collections.providerProfiles.find((p) => p.enabled);
-  if (enabled && enabled.modelIds.length > 0) {
-    return { profileId: enabled.id, modelId: enabled.modelIds[0] };
-  }
-  // Last resort: any provider's first model
-  const first = collections.providerProfiles[0];
-  if (first && first.modelIds.length > 0) {
-    return { profileId: first.id, modelId: first.modelIds[0] };
-  }
-  return null;
+
+  return { profileId: availableModels[0].id, modelId: availableModels[0].modelIds[0] };
 }
 
 export function WorkspaceShell({
