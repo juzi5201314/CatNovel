@@ -1,4 +1,4 @@
-import type { ProviderFamily } from '../../contracts/workspace.ts';
+import type { ActiveModelSelection, ProviderFamily } from '../../contracts/workspace.ts';
 import {
   createProviderProfile as createProviderProfileRecord,
   deleteProviderProfile as deleteProviderProfileRecord,
@@ -7,6 +7,7 @@ import {
   resetProviderProfilesForTests as resetProviderProfilesInDatabase,
   updateProviderProfile as updateProviderProfileRecord,
 } from '../repositories/provider-repository.ts';
+import { getPreference, setPreference } from '../repositories/preference-repository.ts';
 
 export type { ProviderFamily };
 
@@ -106,4 +107,20 @@ export function listModelsByFamily(family: ProviderFamily) {
 
 export function resetProviderProfilesForTests() {
   resetProviderProfilesInDatabase();
+}
+
+export function getActiveModelPreference(workId = 'work-default'): ActiveModelSelection | null {
+  const raw = getPreference('active_model');
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as ActiveModelSelection;
+    if (parsed.profileId && parsed.modelId) return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveModelPreference(selection: ActiveModelSelection, workId = 'work-default'): void {
+  setPreference('active_model', JSON.stringify(selection));
 }

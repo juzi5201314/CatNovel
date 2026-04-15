@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 
 import type { BootstrapPayload } from '@/lib/contracts/bootstrap';
 import type {
+  ActiveModelSelection,
   BookMetadataRecord,
   SettingNodeType,
   WorkspaceCollections,
@@ -14,6 +15,7 @@ import type { SupportedLocale } from '@/lib/i18n/messages';
 
 import { AiSidebar } from '../ai/ai-sidebar';
 import { EditorPanel } from '../editor/editor-panel';
+import { ModelSettingsDialog } from '../settings/model-settings-dialog';
 import { SettingsPanel } from '../settings/settings-panel';
 import { SnapshotPanel } from '../snapshots/snapshot-panel';
 import { resolveMessages } from '../../lib/i18n/messages';
@@ -80,8 +82,23 @@ function deriveSessionSelection(collections: WorkspaceCollections, preferredId?:
   return collections.chatSessions.find((session) => session.id === preferredId) ?? collections.chatSessions[0] ?? null;
 }
 
-function deriveProfileSelection(collections: WorkspaceCollections, preferredId?: string | null) {
-  return collections.providerProfiles.find((profile) => profile.id === preferredId) ?? collections.providerProfiles.find((profile) => profile.enabled) ?? collections.providerProfiles[0] ?? null;
+function deriveActiveModel(collections: WorkspaceCollections, preferred?: ActiveModelSelection | null): ActiveModelSelection | null {
+  // Use stored preference if valid
+  if (preferred?.profileId && preferred?.modelId) {
+    const profile = collections.providerProfiles.find((p) => p.id === preferred.profileId);
+    if (profile && profile.modelIds.includes(preferred.modelId)) return preferred;
+  }
+  // Fallback: first enabled provider's first model
+  const enabled = collections.providerProfiles.find((p) => p.enabled);
+  if (enabled && enabled.modelIds.length > 0) {
+    return { profileId: enabled.id, modelId: enabled.modelIds[0] };
+  }
+  // Last resort: any provider's first model
+  const first = collections.providerProfiles[0];
+  if (first && first.modelIds.length > 0) {
+    return { profileId: first.id, modelId: first.modelIds[0] };
+  }
+  return null;
 }
 
 export function WorkspaceShell({
@@ -96,7 +113,7 @@ export function WorkspaceShell({
   const initialChapter = deriveChapterSelection(initialCollections);
   const initialNode = deriveNodeSelection(initialCollections);
   const initialSession = deriveSessionSelection(initialCollections);
-  const initialProfile = deriveProfileSelection(initialCollections);
+  const initialActiveModel = deriveActiveModel(initialCollections, initialCollections.activeModel);
 
   const [collections, setCollections] = useState(initialCollections);
   const [locale, setLocale] = useState<SupportedLocale>(initialBootstrap.workspace.locale);
@@ -104,11 +121,12 @@ export function WorkspaceShell({
   const [activeChapterId, setActiveChapterId] = useState(initialChapter?.id ?? null);
   const [activeNodeId, setActiveNodeId] = useState(initialNode?.id ?? null);
   const [activeSessionId, setActiveSessionId] = useState(initialSession?.id ?? null);
-  const [selectedProfileId, setSelectedProfileId] = useState(initialProfile?.id ?? null);
+  const [activeModel, setActiveModel] = useState<ActiveModelSelection | null>(initialActiveModel);
   const [rightSidebarTab, setRightSidebarTab] = useState<'ai' | 'settings' | 'snapshots'>('ai');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isFocusActive, setIsFocusActive] = useState(false);
-  
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const [editorModes, setEditorModes] = useState({ slash: true, bubble: true, highlight: true, pageBreak: false });
   const [workDraftTitle, setWorkDraftTitle] = useState('');
   const [volumeDraftTitle, setVolumeDraftTitle] = useState('');
@@ -121,7 +139,6 @@ export function WorkspaceShell({
   const [draftNodeType, setDraftNodeType] = useState<SettingNodeType>('character');
   const [activeNodeTitle, setActiveNodeTitle] = useState(initialNode?.title ?? '');
   const [activeNodeSummary, setActiveNodeSummary] = useState(initialNode ? parseSettingSummary(initialNode.payloadJson) : '');
-  const [modelDraft, setModelDraft] = useState({ label: '', endpoint: '', models: '' });
   const [sessionDraftTitle, setSessionDraftTitle] = useState('');
   const [freeChatPrompt, setFreeChatPrompt] = useState('');
   const [pendingGhostText, setPendingGhostText] = useState('');
@@ -133,7 +150,11 @@ export function WorkspaceShell({
   const activeWork = collections.works.find((work) => work.id === activeWorkId) ?? collections.works[0] ?? null;
   const activeChapter = deriveChapterSelection(collections, activeChapterId);
   const activeNode = deriveNodeSelection(collections, activeNodeId);
-  const activeProfile = deriveProfileSelection(collections, selectedProfileId);
+
+  // Resolve the active profile from activeModel for backward compat
+  const activeProfile = activeModel
+    ? collections.providerProfiles.find((p) => p.id === activeModel.profileId) ?? null
+    : null;
 
   const aiContextSettings = useMemo(
     () => collections.settingsNodes.map((node) => `${node.title}\n${parseSettingSummary(node.payloadJson)}`),
@@ -173,7 +194,8 @@ export function WorkspaceShell({
       const tabs: Array<'ai' | 'settings' | 'snapshots'> = ['ai', 'settings', 'snapshots'];
       const nextIndex = (tabs.indexOf(rightSidebarTab) + 1) % tabs.length;
       setRightSidebarTab(tabs[nextIndex]);
-    }
+    },
+    'mod+,': () => setIsSettingsOpen(true),
   });
 
   async function refreshWorkspace(nextWorkId?: string, nextSessionId?: string) {
@@ -186,7 +208,6 @@ export function WorkspaceShell({
     const resolvedChapter = deriveChapterSelection(payload.collections, activeChapterId);
     const resolvedNode = deriveNodeSelection(payload.collections, activeNodeId);
     const resolvedSession = deriveSessionSelection(payload.collections, nextSessionId ?? activeSessionId);
-    const resolvedProfile = deriveProfileSelection(payload.collections, selectedProfileId);
 
     setCollections(payload.collections);
     setLocale(payload.bootstrap.workspace.locale);
@@ -194,7 +215,7 @@ export function WorkspaceShell({
     setActiveChapterId(resolvedChapter?.id ?? null);
     setActiveNodeId(resolvedNode?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
-    setSelectedProfileId(resolvedProfile?.id ?? null);
+    setActiveModel(deriveActiveModel(payload.collections, payload.collections.activeModel ?? activeModel));
     setMetadataDraft(payload.collections.bookMetadata ?? emptyBookMetadata);
     setSelectedChapterTitle(resolvedChapter?.title ?? '');
     setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
@@ -213,7 +234,6 @@ export function WorkspaceShell({
     const resolvedChapter = deriveChapterSelection(result.collections, options.chapterId ?? activeChapterId);
     const resolvedNode = deriveNodeSelection(result.collections, options.nodeId ?? activeNodeId);
     const resolvedSession = deriveSessionSelection(result.collections, options.sessionId ?? activeSessionId);
-    const resolvedProfile = deriveProfileSelection(result.collections, options.profileId ?? selectedProfileId);
 
     setCollections(result.collections);
     setLocale(result.bootstrap.workspace.locale);
@@ -221,7 +241,7 @@ export function WorkspaceShell({
     setActiveChapterId(resolvedChapter?.id ?? null);
     setActiveNodeId(resolvedNode?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
-    setSelectedProfileId(resolvedProfile?.id ?? null);
+    setActiveModel(deriveActiveModel(result.collections, result.collections.activeModel ?? activeModel));
     setMetadataDraft(result.collections.bookMetadata ?? emptyBookMetadata);
 
     if (!options.preserveEditor) {
@@ -338,15 +358,15 @@ export function WorkspaceShell({
   };
 
   const handleRunTask = async (taskClass: any) => {
-    if (!activeProfile || !activeChapter) return;
+    if (!activeModel || !activeProfile || !activeChapter) return;
     setSaveState(`ai:${taskClass}`);
     const response = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         action: 'generate',
-        profileId: activeProfile.id,
-        modelId: activeProfile.modelIds[0],
+        profileId: activeModel.profileId,
+        modelId: activeModel.modelId,
         taskClass,
         prompt: editorBody,
         stream: true,
@@ -362,6 +382,11 @@ export function WorkspaceShell({
     setSaveState('ai-complete');
   };
 
+  const handleActiveModelChange = useCallback((selection: ActiveModelSelection) => {
+    setActiveModel(selection);
+    mutateWorkspace({ action: 'set-active-model', profileId: selection.profileId, modelId: selection.modelId }, { preserveEditor: true });
+  }, [activeWorkId, activeSessionId]);
+
   return (
     <main className="app-shell">
       <div className={cx("focus-mode-fade", isFocusActive && "focus-mode-dim")}>
@@ -375,9 +400,9 @@ export function WorkspaceShell({
       </div>
 
       <div className="app-main">
-        <aside 
+        <aside
           className={cx(
-            "app-sidebar sidebar-transition overflow-hidden", 
+            "app-sidebar sidebar-transition overflow-hidden",
             isSidebarOpen ? "w-[240px] opacity-100" : "w-0 opacity-0 border-none",
             isFocusActive && "focus-mode-dim focus-mode-fade"
           )}
@@ -385,6 +410,7 @@ export function WorkspaceShell({
           <div className="w-[240px]">
             <SidebarNav
               activeChapterId={activeChapterId ?? ''}
+              activeModel={activeModel}
               activeWorkId={activeWorkId ?? ''}
               chapters={collections.chapters}
               copy={copy}
@@ -397,9 +423,11 @@ export function WorkspaceShell({
               onCreateChapter={() => mutateWorkspace({ action: 'create-chapter', workId: activeWorkId, volumeId: collections.volumes[0]?.id, title: chapterDraftTitle, bodyJson: serializeChapterText('') })}
               onCreateVolume={() => mutateWorkspace({ action: 'create-volume', workId: activeWorkId, title: volumeDraftTitle })}
               onCreateWork={() => mutateWorkspace({ action: 'create-work', title: workDraftTitle, locale, synopsis: '' })}
+              onOpenSettings={() => setIsSettingsOpen(true)}
               onVolumeTitleChange={setVolumeDraftTitle}
               onWorkChange={handleSwitchWork}
               onWorkTitleChange={setWorkDraftTitle}
+              providers={collections.providerProfiles}
               volumes={collections.volumes}
               works={collections.works}
             />
@@ -407,18 +435,18 @@ export function WorkspaceShell({
         </aside>
 
         <div className="app-content relative">
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             className={cx(
-              "absolute left-2 top-2 z-20 h-8 w-8 p-0 transition-opacity", 
+              "absolute left-2 top-2 z-20 h-8 w-8 p-0 transition-opacity",
               isFocusActive && "opacity-0 pointer-events-none"
-            )} 
+            )}
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
           >
             {isSidebarOpen ? '←' : '→'}
           </Button>
-          
+
           <EditorPanel
             chapter={activeChapter}
             body={editorBody}
@@ -437,14 +465,14 @@ export function WorkspaceShell({
           />
         </div>
 
-        <aside 
+        <aside
           className={cx(
             "app-aside flex flex-col sidebar-transition",
             isFocusActive && "focus-mode-dim focus-mode-fade"
           )}
         >
           <div className="flex border-b" role="tablist">
-            <button 
+            <button
               role="tab"
               aria-selected={rightSidebarTab === 'ai'}
               className={cx("flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors", rightSidebarTab === 'ai' ? "bg-background border-b-2 border-primary" : "bg-muted/50 text-muted-foreground")}
@@ -452,7 +480,7 @@ export function WorkspaceShell({
             >
               AI
             </button>
-            <button 
+            <button
               role="tab"
               aria-selected={rightSidebarTab === 'settings'}
               className={cx("flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors", rightSidebarTab === 'settings' ? "bg-background border-b-2 border-primary" : "bg-muted/50 text-muted-foreground")}
@@ -460,7 +488,7 @@ export function WorkspaceShell({
             >
               Settings
             </button>
-            <button 
+            <button
               role="tab"
               aria-selected={rightSidebarTab === 'snapshots'}
               className={cx("flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors", rightSidebarTab === 'snapshots' ? "bg-background border-b-2 border-primary" : "bg-muted/50 text-muted-foreground")}
@@ -469,7 +497,7 @@ export function WorkspaceShell({
               Snapshots
             </button>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto">
             {rightSidebarTab === 'ai' && (
               <AiSidebar
@@ -478,34 +506,13 @@ export function WorkspaceShell({
                 freeChatPrompt={freeChatPrompt}
                 locale={locale}
                 messages={collections.chatMessages}
-                modelDraft={modelDraft}
-                activeProfileId={selectedProfileId}
+                activeModel={activeModel}
                 activeSessionId={activeSessionId}
-                onCreateProfile={async () => {
-                  if (!modelDraft.label.trim() || !modelDraft.endpoint.trim() || !modelDraft.models.trim()) return;
-                  const payload = await readJson<{ profile: { id: string } }>(
-                    await fetch('/api/ai', {
-                      method: 'POST',
-                      headers: { 'content-type': 'application/json' },
-                      body: JSON.stringify({
-                        action: 'create-profile',
-                        label: modelDraft.label,
-                        family: 'custom-endpoint',
-                        endpoint: modelDraft.endpoint,
-                        apiKey: 'custom-key',
-                        modelIds: modelDraft.models.split(',').map((e: string) => e.trim()).filter(Boolean),
-                      }),
-                    }),
-                  );
-                  setModelDraft({ label: '', endpoint: '', models: '' });
-                  await refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined);
-                }}
+                onOpenSettings={() => setIsSettingsOpen(true)}
                 onCreateSession={() => mutateWorkspace({ action: 'create-chat-session', workId: activeWorkId, title: sessionDraftTitle })}
                 onFreeChatPromptChange={setFreeChatPrompt}
-                onModelDraftChange={(field, value) => setModelDraft((current) => ({ ...current, [field]: value }))}
-                onSelectProfile={setSelectedProfileId}
                 onSendFreeChat={async () => {
-                  if (!activeSessionId || !freeChatPrompt.trim() || !activeProfile) return;
+                  if (!activeSessionId || !freeChatPrompt.trim() || !activeModel) return;
                   await mutateWorkspace({
                     action: 'append-chat-message',
                     sessionId: activeSessionId,
@@ -519,8 +526,8 @@ export function WorkspaceShell({
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({
                       action: 'generate',
-                      profileId: activeProfile.id,
-                      modelId: activeProfile.modelIds[0],
+                      profileId: activeModel.profileId,
+                      modelId: activeModel.modelId,
                       taskClass: '自由对话',
                       prompt: freeChatPrompt,
                       chapter: editorBody,
@@ -596,6 +603,17 @@ export function WorkspaceShell({
           </div>
         </aside>
       </div>
+
+      {isSettingsOpen && (
+        <ModelSettingsDialog
+          copy={copy}
+          providers={collections.providerProfiles}
+          activeModel={activeModel}
+          onActiveModelChange={handleActiveModelChange}
+          onProvidersChange={() => refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined)}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
     </main>
   );
 }

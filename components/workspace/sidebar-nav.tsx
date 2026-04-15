@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type {
+  ActiveModelSelection,
   ChapterRecord,
+  ProviderProfileRecord,
   VolumeRecord,
   WorkRecord,
   WorkspaceLocale,
@@ -23,6 +25,8 @@ export function SidebarNav({
   draftWorkTitle,
   draftVolumeTitle,
   draftChapterTitle,
+  activeModel,
+  providers,
   onWorkTitleChange,
   onVolumeTitleChange,
   onChapterTitleChange,
@@ -31,6 +35,7 @@ export function SidebarNav({
   onCreateWork,
   onCreateVolume,
   onCreateChapter,
+  onOpenSettings,
 }: {
   copy: AppMessages;
   locale: WorkspaceLocale;
@@ -42,6 +47,8 @@ export function SidebarNav({
   draftWorkTitle: string;
   draftVolumeTitle: string;
   draftChapterTitle: string;
+  activeModel: ActiveModelSelection | null;
+  providers: ProviderProfileRecord[];
   onWorkTitleChange: (value: string) => void;
   onVolumeTitleChange: (value: string) => void;
   onChapterTitleChange: (value: string) => void;
@@ -50,6 +57,7 @@ export function SidebarNav({
   onCreateWork: () => void;
   onCreateVolume: () => void;
   onCreateChapter: () => void;
+  onOpenSettings: () => void;
 }) {
   const [collapsedVolumes, setCollapsedVolumes] = useState<Record<string, boolean>>({});
 
@@ -133,16 +141,41 @@ export function SidebarNav({
       </div>
 
       <div className="mt-auto p-4 border-t border-muted-foreground/10 bg-background/50 backdrop-blur-sm space-y-2">
-         <Input 
+         <Input
            size={1}
-           value={draftChapterTitle} 
+           value={draftChapterTitle}
            onChange={(e) => onChapterTitleChange(e.target.value)}
            placeholder="New chapter..."
            className="h-8 text-xs bg-background/50"
          />
-         <Button variant="outline" size="sm" className="w-full h-8 text-xs shadow-none border-muted-foreground/10 hover:border-muted-foreground/30 active:scale-[0.98]" onClick={onCreateChapter}>
-            Add Chapter
-         </Button>
+         <div className="flex gap-2">
+           <Button variant="outline" size="sm" className="flex-1 h-8 text-xs shadow-none border-muted-foreground/10 hover:border-muted-foreground/30 active:scale-[0.98]" onClick={onCreateChapter}>
+              Add Chapter
+           </Button>
+           <Button
+             variant="ghost"
+             size="sm"
+             className="h-8 w-8 p-0 shrink-0"
+             onClick={onOpenSettings}
+             title={copy.modelSettings}
+           >
+             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
+               <circle cx="8" cy="8" r="2.5" />
+               <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
+             </svg>
+           </Button>
+         </div>
+         {activeModel && (() => {
+           const profile = providers.find((p) => p.id === activeModel.profileId);
+           return profile ? (
+             <button
+               onClick={onOpenSettings}
+               className="w-full text-left px-2 py-1 rounded text-[10px] font-mono text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50 transition-colors truncate"
+             >
+               {profile.label}/{activeModel.modelId}
+             </button>
+           ) : null;
+         })()}
       </div>
     </div>
   );

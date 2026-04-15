@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type {
+  ActiveModelSelection,
   ChatRole,
   SettingNodeType,
   WorkspaceCollections,
@@ -24,6 +25,10 @@ import {
 import {
   listProviderProfiles,
 } from '../repositories/provider-repository.ts';
+import {
+  getActiveModelPreference,
+  setActiveModelPreference,
+} from '../ai/provider-registry.ts';
 import {
   createSettingNode,
   deleteSettingNode,
@@ -165,6 +170,11 @@ const mutationSchema = z.discriminatedUnion('action', [
     body: z.string().min(1),
     tokenCount: z.number().int().nonnegative().optional(),
   }),
+  z.object({
+    action: z.literal('set-active-model'),
+    profileId: z.string().min(1),
+    modelId: z.string().min(1),
+  }),
 ]);
 
 type ContextSelection = {
@@ -193,6 +203,7 @@ export function getWorkspaceCollections(context: ContextSelection = {}): Workspa
       chatSessions: [],
       activeSessionId: null,
       chatMessages: [],
+      activeModel: null,
     };
   }
 
@@ -218,6 +229,7 @@ export function getWorkspaceCollections(context: ContextSelection = {}): Workspa
     chatSessions,
     activeSessionId: activeSession?.id ?? null,
     chatMessages: activeSession ? listChatMessages(activeSession.id) : [],
+    activeModel: getActiveModelPreference(activeWork.id),
   };
 }
 
@@ -378,6 +390,15 @@ export function applyWorkspaceMutation(input: unknown) {
           body: mutation.body,
           tokenCount: mutation.tokenCount,
         }),
+      };
+    case 'set-active-model':
+      setActiveModelPreference({
+        profileId: mutation.profileId,
+        modelId: mutation.modelId,
+      });
+      return {
+        action: mutation.action,
+        activeModel: { profileId: mutation.profileId, modelId: mutation.modelId } as ActiveModelSelection,
       };
   }
 }

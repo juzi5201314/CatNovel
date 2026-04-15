@@ -104,6 +104,11 @@ export interface ChatMessageRecord {
   createdAt: string;
 }
 
+export interface ActiveModelSelection {
+  profileId: string;
+  modelId: string;
+}
+
 export interface WorkspaceCollections {
   works: WorkRecord[];
   activeWorkId: string | null;
@@ -115,4 +120,5 @@ export interface WorkspaceCollections {
   chatSessions: ChatSessionRecord[];
   activeSessionId: string | null;
   chatMessages: ChatMessageRecord[];
+  activeModel: ActiveModelSelection | null;
 }
