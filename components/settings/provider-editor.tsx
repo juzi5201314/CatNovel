@@ -10,10 +10,9 @@ import { Input } from '../ui/input';
 import { cx } from '@/lib/design/cx';
 
 const familyOptions: { value: ProviderFamily; label: string }[] = [
-  { value: 'openai-compatible', label: 'OpenAI Compatible' },
+  { value: 'openai-compatible', label: 'OpenAI Compatible (含 Ollama)' },
   { value: 'claude-native', label: 'Anthropic Claude' },
   { value: 'gemini-native', label: 'Google Gemini' },
-  { value: 'custom-endpoint', label: 'Custom / Ollama' },
 ];
 
 export function ProviderEditor({
@@ -226,19 +225,41 @@ export function ProviderEditor({
           <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Models</label>
 
           {provider.modelIds.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {provider.modelIds.map((modelId) => (
-                <span key={modelId} className="model-tag">
-                  {modelId}
-                  <button
-                    onClick={() => handleRemoveModel(modelId)}
-                    className="ml-1 opacity-40 hover:opacity-100 transition-opacity"
-                    aria-label={`Remove ${modelId}`}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <select
+                  value={provider.modelIds[0]}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const reorderedIds = [selectedId, ...provider.modelIds.filter(m => m !== selectedId)];
+                    fetch('/api/ai', {
+                      method: 'PATCH',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ profileId: provider.id, modelIds: reorderedIds }),
+                    }).then(() => onModelsChange());
+                  }}
+                  className="input h-9 text-sm w-full appearance-none cursor-pointer"
+                >
+                  {provider.modelIds.map((modelId) => (
+                    <option key={modelId} value={modelId}>{modelId}</option>
+                  ))}
+                </select>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 px-3 text-xs shrink-0 text-muted-foreground hover:text-red-600"
+                  onClick={() => handleRemoveModel(provider.modelIds[0])}
+                  disabled={provider.modelIds.length <= 1}
+                  title={provider.modelIds.length <= 1 ? copy.noModels : `${provider.modelIds.length} models`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground/60">
+                {provider.modelIds.length} models
+              </p>
             </div>
           ) : (
             <p className="text-xs text-muted-foreground opacity-60">{copy.noModels}</p>
@@ -300,7 +321,12 @@ export function ProviderEditor({
           <Button
             variant="ghost"
             size="sm"
-            className={cx("w-full h-9 text-xs", confirmDelete ? "text-red-600 bg-red-50 hover:bg-red-100" : "text-muted-foreground")}
+            className={cx(
+              "w-full h-9 text-xs",
+              confirmDelete
+                ? "text-white bg-red-500 hover:bg-red-600"
+                : "text-red-600 hover:text-red-700 hover:bg-red-50"
+            )}
             onClick={handleDeleteClick}
             onBlur={() => setConfirmDelete(false)}
           >
