@@ -1,14 +1,15 @@
 import type { ReactNode } from 'react';
 
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist_Mono, Noto_Sans_SC } from 'next/font/google';
 import { Toaster } from 'sonner';
 
 import './globals.css';
 
-const geistSans = Geist({
+const notoSansSC = Noto_Sans_SC({
   subsets: ['latin'],
-  variable: '--font-geist-sans',
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-noto-sans-sc',
 });
 
 const geistMono = Geist_Mono({
@@ -29,7 +30,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body className={`${notoSansSC.variable} ${geistMono.variable}`}>
         {children}
         <Toaster position="top-right" richColors />
       </body>

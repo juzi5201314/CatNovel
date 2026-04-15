@@ -152,10 +152,10 @@ function VolumeManagerPanel({
                   </div>
                 ) : (
                   <>
-                    <span className="flex-1 text-left text-xs font-medium truncate text-muted-foreground">
+                    <span className="flex-1 text-left text-sm font-medium truncate text-foreground/90">
                       {volume.title}
                     </span>
-                    <span className="text-[10px] text-muted-foreground/40">
+                    <span className="text-[10px] text-muted-foreground/70">
                       {volumeChapters.length}章
                     </span>
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -194,10 +194,10 @@ function VolumeManagerPanel({
                       key={chapter.id}
                       className="group flex items-center gap-1 px-2 py-1 rounded-md hover:bg-muted/30"
                     >
-                      <span className="flex-1 text-left text-xs truncate text-muted-foreground/70">
+                      <span className="flex-1 text-left text-xs truncate text-foreground/80">
                         {chapter.title}
                       </span>
-                      <span className="text-[9px] text-muted-foreground/40">
+                      <span className="text-[9px] text-muted-foreground/60">
                         {chapter.wordCount}
                       </span>
                       <Button
@@ -358,15 +358,15 @@ function WorkManagerPanel({
               </div>
             ) : (
               <>
-                <button
-                  onClick={() => handleWorkChange(work.id)}
-                  className={cx(
-                    "flex-1 text-left text-sm truncate",
-                    work.id === activeWorkId ? "font-medium text-foreground" : "text-muted-foreground"
-                  )}
-                >
-                  {work.title}
-                </button>
+                  <button
+                    onClick={() => handleWorkChange(work.id)}
+                    className={cx(
+                      "flex-1 text-left text-sm truncate",
+                      work.id === activeWorkId ? "font-medium text-foreground" : "text-foreground/80"
+                    )}
+                  >
+                    {work.title}
+                  </button>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button
                     variant="ghost"
@@ -518,7 +518,7 @@ export function SidebarNav({
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
 
         <div className="space-y-2">
-          <span className="text-mono-label px-2 opacity-50">{copy.workManager}</span>
+          <span className="text-mono-label px-2 text-muted-foreground/80">{copy.workManager}</span>
           <div ref={workSelectorRef} className="relative">
             <button
               onClick={() => setIsWorkManagerOpen(!isWorkManagerOpen)}
@@ -564,7 +564,7 @@ export function SidebarNav({
 
         <div className="space-y-4 pt-4 border-t border-muted-foreground/10">
           <div className="flex items-center justify-between px-2">
-            <span className="text-mono-label opacity-50">{copy.chapterManager}</span>
+            <span className="text-mono-label text-muted-foreground/80">{copy.chapterManager}</span>
             <div ref={volumeSelectorRef} className="relative">
               <Button
                 variant="ghost"
@@ -604,10 +604,10 @@ export function SidebarNav({
                     onClick={() => toggleVolume(volume.id)}
                     className="w-full px-2 flex items-center justify-between group cursor-pointer"
                   >
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.1em] group-hover:text-foreground transition-colors">
+                    <span className="text-[11px] font-semibold text-foreground/85 uppercase tracking-[0.08em] group-hover:text-foreground transition-colors">
                       {volume.title}
                     </span>
-                    <span className="text-[10px] text-muted-foreground/40 group-hover:text-muted-foreground transition-all">
+                    <span className="text-[11px] text-muted-foreground/60 group-hover:text-muted-foreground/80 transition-all">
                       {isCollapsed ? '+' : '−'}
                     </span>
                   </button>
@@ -656,22 +656,22 @@ export function SidebarNav({
                             </div>
                           ) : (
                             <>
-                              <button
-                                onClick={() => onChapterChange(chapter.id)}
-                                onDoubleClick={() => {
-                                  setEditingChapterId(chapter.id);
-                                  setEditingChapterTitle(chapter.title);
-                                }}
-                                className={cx(
-                                  "flex-1 text-left px-3 py-1.5 text-sm transition-all duration-200 active:scale-[0.98]",
-                                  chapter.id === activeChapterId
-                                    ? "text-foreground font-medium"
-                                    : "text-muted-foreground hover:text-foreground"
-                                )}
-                              >
+                  <button
+                    onClick={() => onChapterChange(chapter.id)}
+                    onDoubleClick={() => {
+                      setEditingChapterId(chapter.id);
+                      setEditingChapterTitle(chapter.title);
+                    }}
+                    className={cx(
+                      "flex-1 text-left px-3 py-1.5 text-sm transition-all duration-200 active:scale-[0.98]",
+                      chapter.id === activeChapterId
+                        ? "text-foreground font-semibold"
+                        : "text-foreground/75 hover:text-foreground"
+                    )}
+                  >
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="truncate">{chapter.title}</span>
-                                  <span className="text-[9px] font-mono opacity-40 group-hover:opacity-100 transition-opacity">
+                                  <span className="text-[10px] font-mono text-muted-foreground/60 group-hover:text-muted-foreground transition-colors">
                                     {chapter.wordCount}
                                   </span>
                                 </div>

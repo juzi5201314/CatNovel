@@ -47,7 +47,7 @@
   html {
     background: var(--cn-bg);
     color: var(--cn-text);
-    font-family: var(--font-geist-sans), Arial, sans-serif;
+    font-family: var(--font-noto-sans-sc), 'PingFang SC', 'Microsoft YaHei', sans-serif;
     font-feature-settings: 'liga' 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
