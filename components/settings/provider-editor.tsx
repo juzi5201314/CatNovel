@@ -9,10 +9,48 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { cx } from '@/lib/design/cx';
 
-const familyOptions: { value: ProviderFamily; label: string }[] = [
+const apiFormatOptions: { value: ProviderFamily; label: string }[] = [
   { value: 'openai-compatible', label: 'OpenAI Compatible (含 Ollama)' },
+  { value: 'openai-responses', label: 'OpenAI Responses API' },
   { value: 'claude-native', label: 'Anthropic Claude' },
   { value: 'gemini-native', label: 'Google Gemini' },
+];
+
+interface PresetProvider {
+  key: string;
+  label: string;
+  baseUrl: string;
+  family: ProviderFamily;
+  websiteUrl: string;
+  hint?: string;
+}
+
+const presetProviders: PresetProvider[] = [
+  { key: 'zhipu', label: '智谱AI (GLM)', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', family: 'openai-compatible', websiteUrl: 'https://open.bigmodel.cn' },
+  { key: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', family: 'openai-compatible', websiteUrl: 'https://platform.deepseek.com' },
+  { key: 'bailian', label: '阿里云百炼 (千问)', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', family: 'openai-compatible', websiteUrl: 'https://bailian.console.aliyun.com', hint: '支持OpenAI和Anthropic两种格式' },
+  { key: 'volcengine', label: '火山引擎 (豆包)', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', family: 'openai-compatible', websiteUrl: 'https://console.volcengine.com', hint: '需在控制台创建推理接入点' },
+  { key: 'moonshot', label: 'Moonshot (Kimi)', baseUrl: 'https://api.moonshot.cn/v1', family: 'openai-compatible', websiteUrl: 'https://platform.moonshot.cn' },
+  { key: 'stepfun', label: '阶跃星辰 (Step)', baseUrl: 'https://api.stepfun.com/v1', family: 'openai-compatible', websiteUrl: 'https://platform.stepfun.com' },
+  { key: 'yi', label: '零一万物 (Yi)', baseUrl: 'https://api.lingyiwanwu.com/v1', family: 'openai-compatible', websiteUrl: 'https://platform.lingyiwanwu.com' },
+  { key: 'baichuan', label: '百川 (Baichuan)', baseUrl: 'https://api.baichuan-ai.com/v1', family: 'openai-compatible', websiteUrl: 'https://platform.baichuan-ai.com' },
+  { key: 'hunyuan', label: '腾讯混元', baseUrl: 'https://api.hunyuan.cloud.tencent.com/v1', family: 'openai-compatible', websiteUrl: 'https://cloud.tencent.com/product/hunyuan' },
+  { key: 'baidu', label: '百度文心', baseUrl: 'https://qianfan.baidubce.com/v2', family: 'openai-compatible', websiteUrl: 'https://qianfan.cloud.baidu.com' },
+  { key: 'minimax', label: 'MiniMax', baseUrl: 'https://api.minimax.chat/v1', family: 'openai-compatible', websiteUrl: 'https://platform.minimaxi.com' },
+  { key: 'siliconflow', label: 'SiliconFlow (硅基流动)', baseUrl: 'https://api.siliconflow.cn/v1', family: 'openai-compatible', websiteUrl: 'https://siliconflow.cn' },
+  { key: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', family: 'openai-compatible', websiteUrl: 'https://platform.openai.com' },
+  { key: 'claude', label: 'Claude (Anthropic)', baseUrl: 'https://api.anthropic.com', family: 'claude-native', websiteUrl: 'https://console.anthropic.com' },
+  { key: 'gemini', label: 'Gemini (OpenAI兼容)', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', family: 'openai-compatible', websiteUrl: 'https://aistudio.google.com' },
+  { key: 'gemini-native', label: 'Gemini（原生格式）', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', family: 'gemini-native', websiteUrl: 'https://aistudio.google.com' },
+  { key: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', family: 'openai-compatible', websiteUrl: 'https://console.groq.com' },
+  { key: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', family: 'openai-compatible', websiteUrl: 'https://console.mistral.ai' },
+  { key: 'cohere', label: 'Cohere', baseUrl: 'https://api.cohere.com/v2', family: 'openai-compatible', websiteUrl: 'https://cohere.com' },
+  { key: 'together', label: 'Together AI', baseUrl: 'https://api.together.xyz/v1', family: 'openai-compatible', websiteUrl: 'https://api.together.xyz' },
+  { key: 'perplexity', label: 'Perplexity', baseUrl: 'https://api.perplexity.ai', family: 'openai-compatible', websiteUrl: 'https://www.perplexity.ai/settings' },
+  { key: 'xai', label: 'xAI (Grok)', baseUrl: 'https://api.x.ai/v1', family: 'openai-compatible', websiteUrl: 'https://console.x.ai' },
+  { key: 'cerebras', label: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1', family: 'openai-compatible', websiteUrl: 'https://cloud.cerebras.ai' },
+  { key: 'github', label: 'GitHub Models', baseUrl: 'https://models.inference.ai.azure.com', family: 'openai-compatible', websiteUrl: 'https://github.com/marketplace/models' },
+  { key: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', family: 'openai-compatible', websiteUrl: 'https://openrouter.ai' },
 ];
 
 export function ProviderEditor({
@@ -148,7 +186,6 @@ export function ProviderEditor({
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="p-6 space-y-5 max-w-lg">
-        {/* Label */}
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{copy.providerLabel}</label>
           <Input
@@ -159,21 +196,62 @@ export function ProviderEditor({
           />
         </div>
 
-        {/* Family */}
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{copy.providerFamily}</label>
           <select
             value={provider.family}
-            onChange={(e) => handlePatch('family', e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              const preset = presetProviders.find(p => p.key === value);
+              if (preset) {
+                handlePatch('endpoint', preset.baseUrl);
+                handlePatch('family', preset.family);
+                setLocalEndpoint(preset.baseUrl);
+              } else {
+                handlePatch('family', value as ProviderFamily);
+              }
+            }}
             className="input h-9 text-sm w-full appearance-none cursor-pointer"
           >
-            {familyOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
+            <optgroup label="API 格式">
+              {apiFormatOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </optgroup>
+            <optgroup label="预设供应商">
+              {presetProviders.map((preset) => (
+                <option key={preset.key} value={preset.key}>{preset.label}</option>
+              ))}
+            </optgroup>
           </select>
+          {(() => {
+            const selectedPreset = presetProviders.find(p => p.family === provider.family && p.baseUrl === provider.endpoint);
+            if (selectedPreset) {
+              return (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <a
+                    href={selectedPreset.websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15,3 21,3 21,9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                    访问 {selectedPreset.label} 官网
+                  </a>
+                  {selectedPreset.hint && (
+                    <span className="text-[10px] text-muted-foreground">({selectedPreset.hint})</span>
+                  )}
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
 
-        {/* Endpoint */}
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{copy.endpoint}</label>
           <Input
@@ -185,7 +263,6 @@ export function ProviderEditor({
           />
         </div>
 
-        {/* API Key */}
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{copy.apiKey}</label>
           <div className="flex gap-2">
@@ -220,7 +297,6 @@ export function ProviderEditor({
           </button>
         </div>
 
-        {/* Models */}
         <div className="space-y-3 pt-2 border-t">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Models</label>
 
