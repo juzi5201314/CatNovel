@@ -66,8 +66,8 @@ export function SidebarNav({
   };
 
   return (
-    <div className="flex flex-col h-full bg-muted/30">
-      <div className="p-4 space-y-4">
+    <div className="flex flex-col h-full bg-muted/30 overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         <div className="space-y-2">
           <span className="text-mono-label px-2 opacity-50">{copy.workManager}</span>
           <div className="space-y-1">
@@ -140,7 +140,7 @@ export function SidebarNav({
         </div>
       </div>
 
-      <div className="mt-auto p-4 border-t border-muted-foreground/10 bg-background/50 backdrop-blur-sm space-y-2">
+      <div className="flex-none p-4 border-t border-muted-foreground/10 bg-background/50 backdrop-blur-sm space-y-2">
          <Input
            size={1}
            value={draftChapterTitle}
@@ -165,17 +165,34 @@ export function SidebarNav({
              </svg>
            </Button>
          </div>
-         {activeModel && (() => {
-           const profile = providers.find((p) => p.id === activeModel.profileId);
-           return profile ? (
-             <button
-               onClick={onOpenSettings}
-               className="w-full text-left px-2 py-1 rounded text-[10px] font-mono text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50 transition-colors truncate"
-             >
-               {profile.label}/{activeModel.modelId}
-             </button>
-           ) : null;
-         })()}
+      </div>
+
+      <div className="flex-none p-3 border-t border-muted-foreground/10 bg-muted/20">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onOpenSettings}
+          className={cx(
+            "w-full h-9 px-3 text-xs justify-start gap-2.5",
+            "hover:bg-background/80 hover:text-foreground",
+            "active:scale-[0.98] transition-all duration-200"
+          )}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-muted-foreground">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+          <span className="flex-1 truncate text-left font-medium">
+            {activeModel ? (() => {
+              const profile = providers.find((p) => p.id === activeModel.profileId);
+              return profile ? `${profile.label} / ${activeModel.modelId}` : copy.modelSettings;
+            })() : copy.modelSettings}
+          </span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-muted-foreground/50">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </Button>
       </div>
     </div>
   );
