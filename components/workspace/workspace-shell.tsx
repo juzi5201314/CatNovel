@@ -422,6 +422,8 @@ export function WorkspaceShell({
               onCreateChapter={() => mutateWorkspace({ action: 'create-chapter', workId: activeWorkId, volumeId: collections.volumes[0]?.id, title: chapterDraftTitle, bodyJson: serializeChapterText('') })}
               onCreateVolume={() => mutateWorkspace({ action: 'create-volume', workId: activeWorkId, title: volumeDraftTitle })}
               onCreateWork={() => mutateWorkspace({ action: 'create-work', title: workDraftTitle, locale, synopsis: '' })}
+              onUpdateWork={(workId, title) => mutateWorkspace({ action: 'update-work', workId, title })}
+              onDeleteWork={(workId) => mutateWorkspace({ action: 'delete-work', workId })}
               onOpenSettings={() => setIsSettingsOpen(true)}
               onVolumeTitleChange={setVolumeDraftTitle}
               onWorkChange={handleSwitchWork}
