@@ -25,12 +25,14 @@ export function EditorPanel({
   editorModes,
   saveState,
   pendingGhostText,
+  isSidebarOpen,
   onTitleChange,
   onBodyChange,
   onToggleMode,
   onRunTask,
   onAcceptGhostText,
   onRejectGhostText,
+  onToggleSidebar,
 }: {
   locale: WorkspaceLocale;
   copy: AppMessages;
@@ -40,16 +42,41 @@ export function EditorPanel({
   editorModes: EditorModes;
   saveState: string;
   pendingGhostText: string;
+  isSidebarOpen: boolean;
   onTitleChange: (value: string) => void;
   onBodyChange: (value: string) => void;
   onToggleMode: (mode: keyof EditorModes) => void;
   onRunTask: (taskClass: '续写' | '改写' | '润色' | '扩写' | 'ghost-text') => void;
   onAcceptGhostText: () => void;
   onRejectGhostText: () => void;
+  onToggleSidebar: () => void;
 }) {
   return (
     <div className="flex flex-col h-full bg-background animate-fade-in" id="editor-panel">
-      <div className="border-b px-6 py-4 flex items-center justify-between bg-background sticky top-0 z-10">
+      <div className="border-b px-4 py-4 flex items-center gap-3 bg-background sticky top-0 z-10">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 border border-border shadow-sm shrink-0 flex items-center justify-center"
+          onClick={onToggleSidebar}
+          title={isSidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            {isSidebarOpen ? (
+              <>
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M9 4v16" />
+                <path d="m14 10-3 3 3 3" />
+              </>
+            ) : (
+              <>
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M9 4v16" />
+                <path d="m10 10 3 3-3 3" />
+              </>
+            )}
+          </svg>
+        </Button>
         <div className="flex-1 max-w-2xl">
           <Input 
             value={draftTitle} 

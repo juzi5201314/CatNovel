@@ -440,24 +440,13 @@ export function WorkspaceShell({
         </aside>
 
         <div className="app-content relative">
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cx(
-              "absolute left-2 top-2 z-20 h-8 w-8 p-0 transition-opacity",
-              isFocusActive && "opacity-0 pointer-events-none"
-            )}
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          >
-            {isSidebarOpen ? '←' : '→'}
-          </Button>
-
           <EditorPanel
             chapter={activeChapter}
             body={editorBody}
             copy={copy}
             draftTitle={selectedChapterTitle}
             editorModes={editorModes}
+            isSidebarOpen={isSidebarOpen}
             locale={locale}
             onBodyChange={(v) => { setEditorBody(v); handleActivity(); }}
             onTitleChange={(v) => { setSelectedChapterTitle(v); handleActivity(); }}
@@ -465,6 +454,7 @@ export function WorkspaceShell({
             onRunTask={handleRunTask}
             onAcceptGhostText={() => { setEditorBody((c) => `${c}\n\n${pendingGhostText}`.trim()); setPendingGhostText(''); }}
             onRejectGhostText={() => setPendingGhostText('')}
+            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
             pendingGhostText={pendingGhostText}
             saveState={saveState}
           />
