@@ -1,6 +1,4 @@
-import type { AppMessages, SupportedLocale } from '../../lib/i18n/messages';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
+import type { SupportedLocale } from '../../lib/i18n/messages';
 
 const localeLabels: Record<SupportedLocale, string> = {
   zh: '简体中文',
@@ -10,13 +8,11 @@ const localeLabels: Record<SupportedLocale, string> = {
 
 export function WorkspaceHeader({
   locale,
-  copy,
   activeWorkLabel,
   activeChapterTitle,
   onLocaleChange,
 }: {
   locale: SupportedLocale;
-  copy: AppMessages;
   activeWorkLabel: string;
   activeChapterTitle: string;
   onLocaleChange: (locale: SupportedLocale) => void;
@@ -39,26 +35,28 @@ export function WorkspaceHeader({
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-1 bg-muted p-1 rounded-md">
-          {(['zh', 'en', 'ru'] as SupportedLocale[]).map((entry) => (
-            <button
-              key={entry}
-              className={[
-                'px-2 py-1 text-xs rounded-sm transition-colors',
-                entry === locale ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onClick={() => onLocaleChange(entry)}
-              type="button"
-            >
-              {localeLabels[entry]}
-            </button>
-          ))}
+        <div className="relative">
+          <select
+            value={locale}
+            onChange={(e) => onLocaleChange(e.target.value as SupportedLocale)}
+            className="input h-8 text-xs w-32 appearance-none cursor-pointer pr-8"
+          >
+            {(['zh', 'en', 'ru'] as SupportedLocale[]).map((entry) => (
+              <option key={entry} value={entry}>
+                {localeLabels[entry]}
+              </option>
+            ))}
+          </select>
+          <svg
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
-        <Button variant="primary" size="sm">
-          {copy.launchWriting}
-        </Button>
       </div>
     </header>
   );

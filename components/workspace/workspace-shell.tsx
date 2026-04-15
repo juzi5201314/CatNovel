@@ -388,7 +388,6 @@ export function WorkspaceShell({
         <WorkspaceHeader
           activeChapterTitle={activeChapter?.title ?? '—'}
           activeWorkLabel={activeWork?.title ?? 'CatNovel'}
-          copy={copy}
           locale={locale}
           onLocaleChange={handleSwitchLocale}
         />
@@ -438,11 +437,9 @@ export function WorkspaceShell({
           <EditorPanel
             chapter={activeChapter}
             body={editorBody}
-            copy={copy}
             draftTitle={selectedChapterTitle}
             editorModes={editorModes}
             isSidebarOpen={isSidebarOpen}
-            locale={locale}
             onBodyChange={setEditorBody}
             onTitleChange={setSelectedChapterTitle}
             onToggleMode={(mode) => setEditorModes((current) => ({ ...current, [mode]: !current[mode] }))}
