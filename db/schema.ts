@@ -292,7 +292,7 @@ export const seedStatements = [
     ('openai-default', 'work-default', 'openai-compatible', 'OpenAI Compatible', 'https://api.openai.com/v1', 'gpt-4.1', '["gpt-4.1","gpt-4o-mini"]', 'OPENAI_API_KEY', 'openai-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
     ('gemini-default', 'work-default', 'gemini-native', 'Gemini Native', 'https://generativelanguage.googleapis.com', 'gemini-2.5-pro', '["gemini-2.5-pro","gemini-2.5-flash"]', 'GEMINI_API_KEY', 'gemini-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
     ('claude-default', 'work-default', 'claude-native', 'Claude Native', 'https://api.anthropic.com', 'claude-sonnet-4-0', '["claude-sonnet-4","claude-haiku-4"]', 'ANTHROPIC_API_KEY', 'claude-test-key', 1, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('custom-default', 'work-default', 'custom-endpoint', 'Custom Endpoint', 'https://llm.example.com/v1', 'custom-model', '["custom-model"]', 'CUSTOM_LLM_API_KEY', 'custom-test-key', 0, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+    ('ollama-default', 'work-default', 'openai-compatible', 'Ollama', 'http://localhost:11434/v1', 'llama3.2', '["llama3.2"]', 'OLLAMA_API_KEY', 'ollama', 0, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
   `INSERT OR IGNORE INTO settings_nodes (id, work_id, parent_id, node_type, title, payload_json, created_at, updated_at)
    VALUES
     ('setting-character-root', 'work-default', NULL, 'character', '主角团', '{"summary":"主角、盟友与反派的动机。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),

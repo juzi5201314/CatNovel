@@ -13,7 +13,6 @@ const familyLabels: Record<ProviderFamily, string> = {
   'openai-compatible': 'OpenAI',
   'claude-native': 'Claude',
   'gemini-native': 'Gemini',
-  'custom-endpoint': 'Custom',
 };
 
 export function ProviderList({

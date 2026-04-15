@@ -3,8 +3,7 @@ export type WorkspaceLocale = 'zh' | 'en' | 'ru';
 export type ProviderFamily =
   | 'openai-compatible'
   | 'gemini-native'
-  | 'claude-native'
-  | 'custom-endpoint';
+  | 'claude-native';
 
 export type SettingNodeType =
   | 'character'

@@ -28,7 +28,6 @@ export const supportedProviderFamilies: ProviderFamily[] = [
   'openai-compatible',
   'gemini-native',
   'claude-native',
-  'custom-endpoint',
 ];
 
 export function listProviderProfiles(): ProviderProfile[] {

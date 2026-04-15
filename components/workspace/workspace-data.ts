@@ -55,11 +55,6 @@ export const providerFamilyLabels: Record<ProviderFamily, LocaleText> = {
     en: 'Claude-native',
     ru: 'Claude-native',
   },
-  'custom-endpoint': {
-    zh: '自定义端点',
-    en: 'Custom endpoint',
-    ru: 'Пользовательский endpoint',
-  },
 };
 
 export const slashCommands = [

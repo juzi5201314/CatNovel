@@ -48,7 +48,7 @@ describe('AI backend flows', () => {
         body: JSON.stringify({
           action: 'create-profile',
           label: 'Local custom provider',
-          family: 'custom-endpoint',
+          family: 'openai-compatible',
           endpoint: 'http://localhost:8080/v1',
           apiKey: 'custom-key',
           modelIds: ['story-model'],
@@ -105,7 +105,6 @@ describe('AI backend flows', () => {
       'openai-compatible',
       'gemini-native',
       'claude-native',
-      'custom-endpoint',
     ] as const;
 
     for (const family of families) {
@@ -183,7 +182,7 @@ describe('AI backend flows', () => {
         body: JSON.stringify({
           action: 'create-profile',
           label: 'Broken provider',
-          family: 'custom-endpoint',
+          family: 'openai-compatible',
           endpoint: 'http://localhost:9090/v1',
           apiKey: '',
           modelIds: ['broken-model'],
