@@ -50,6 +50,56 @@
     font-weight: 600;
     margin: 0;
   }
+
+  /* Custom Scrollbar — thin, rounded, theme-aware */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Sidebar uses slightly softer thumb on its off-white bg */
+  .app-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.09);
+  }
+
+  .app-sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.18);
+  }
+
+  .app-sidebar {
+    scrollbar-color: rgba(0, 0, 0, 0.09) transparent;
+  }
+
+  /* Hide scrollbar utility */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer components {
@@ -287,9 +337,41 @@
   }
 
   .sidebar-transition {
-    transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), 
+    transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
                 opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
                 transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  /* Settings Dialog */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: var(--cn-bg);
+    display: flex;
+    flex-direction: column;
+    animation: fadeIn 0.15s ease-out;
+  }
+
+  .settings-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .model-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: var(--font-geist-mono), monospace;
+    background: var(--cn-bg-soft);
+    color: var(--cn-text-secondary);
+    box-shadow: var(--cn-light-ring-shadow);
   }
 }
 
