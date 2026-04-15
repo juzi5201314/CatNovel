@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+@theme {
+  --color-background: var(--cn-bg);
+  --color-foreground: var(--cn-text);
+  --color-muted: var(--cn-bg-muted);
+  --color-muted-foreground: var(--cn-text-muted);
+  --color-border: var(--cn-line-strong);
+  --color-primary: var(--cn-blue);
+  --color-ring: var(--cn-focus);
+  --radius-sm: var(--cn-radius-sm);
+  --radius-md: var(--cn-radius-md);
+  --radius-lg: var(--cn-radius-lg);
+}
+
 :root {
   --cn-bg: #ffffff;
   --cn-bg-soft: #fafafa;
