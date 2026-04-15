@@ -11,8 +11,10 @@ import { cx } from '@/lib/design/cx';
 
 const familyLabels: Record<ProviderFamily, string> = {
   'openai-compatible': 'OpenAI',
+  'openai-responses': 'OpenAI Resp',
   'claude-native': 'Claude',
   'gemini-native': 'Gemini',
+  'custom-endpoint': 'Custom',
 };
 
 export function ProviderList({

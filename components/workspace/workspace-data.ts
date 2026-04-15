@@ -45,6 +45,11 @@ export const providerFamilyLabels: Record<ProviderFamily, LocaleText> = {
     en: 'OpenAI-compatible',
     ru: 'OpenAI-compatible',
   },
+  'openai-responses': {
+    zh: 'OpenAI Responses',
+    en: 'OpenAI Responses',
+    ru: 'OpenAI Responses',
+  },
   'gemini-native': {
     zh: 'Gemini-native',
     en: 'Gemini-native',
@@ -54,6 +59,11 @@ export const providerFamilyLabels: Record<ProviderFamily, LocaleText> = {
     zh: 'Claude-native',
     en: 'Claude-native',
     ru: 'Claude-native',
+  },
+  'custom-endpoint': {
+    zh: 'Custom Endpoint',
+    en: 'Custom Endpoint',
+    ru: 'Custom Endpoint',
   },
 };
 

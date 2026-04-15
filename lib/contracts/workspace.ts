@@ -4,7 +4,8 @@ export type ProviderFamily =
   | 'openai-compatible'
   | 'openai-responses'
   | 'gemini-native'
-  | 'claude-native';
+  | 'claude-native'
+  | 'custom-endpoint';
 
 export type SettingNodeType =
   | 'character'
