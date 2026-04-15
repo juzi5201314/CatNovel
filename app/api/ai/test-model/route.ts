@@ -98,6 +98,31 @@ async function testModelConnection(
         return content.slice(0, 100);
       }
 
+      case 'openai-responses': {
+        const res = await fetch(`${base}/responses`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelId,
+            input: 'hi',
+            max_output_tokens: 10,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+        }
+
+        const data = await res.json();
+        const content = data.output?.[0]?.content?.[0]?.text ?? data.text ?? '';
+        return content.slice(0, 100);
+      }
+
       case 'claude-native': {
         const res = await fetch(`${base}/v1/messages`, {
           method: 'POST',

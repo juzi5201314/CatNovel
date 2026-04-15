@@ -48,6 +48,7 @@ async function fetchModelsFromProvider(
   try {
     switch (family) {
       case 'openai-compatible':
+      case 'openai-responses':
       case 'custom-endpoint': {
         const res = await fetch(`${endpoint.replace(/\/+$/, '')}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
