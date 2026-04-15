@@ -419,11 +419,15 @@ export function WorkspaceShell({
               locale={locale}
               onChapterChange={handleSwitchChapter}
               onChapterTitleChange={setChapterDraftTitle}
-              onCreateChapter={() => mutateWorkspace({ action: 'create-chapter', workId: activeWorkId, volumeId: collections.volumes[0]?.id, title: chapterDraftTitle, bodyJson: serializeChapterText('') })}
+              onCreateChapter={(volumeId) => mutateWorkspace({ action: 'create-chapter', workId: activeWorkId, volumeId: volumeId ?? collections.volumes[0]?.id, title: `第${(collections.chapters.filter(c => c.volumeId === volumeId).length + 1)}章`, bodyJson: serializeChapterText('') })}
               onCreateVolume={() => mutateWorkspace({ action: 'create-volume', workId: activeWorkId, title: volumeDraftTitle })}
               onCreateWork={() => mutateWorkspace({ action: 'create-work', title: workDraftTitle, locale, synopsis: '' })}
               onUpdateWork={(workId, title) => mutateWorkspace({ action: 'update-work', workId, title })}
               onDeleteWork={(workId) => mutateWorkspace({ action: 'delete-work', workId })}
+              onUpdateVolume={(volumeId, title) => mutateWorkspace({ action: 'update-volume', volumeId, title })}
+              onDeleteVolume={(volumeId) => mutateWorkspace({ action: 'delete-volume', volumeId })}
+              onDeleteChapter={(chapterId) => mutateWorkspace({ action: 'delete-chapter', chapterId })}
+              onUpdateChapter={(chapterId, title) => mutateWorkspace({ action: 'update-chapter', chapterId, title })}
               onOpenSettings={() => setIsSettingsOpen(true)}
               onVolumeTitleChange={setVolumeDraftTitle}
               onWorkChange={handleSwitchWork}
