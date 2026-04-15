@@ -22,7 +22,7 @@ export const chapterSummarySchema = z.object({
 export const providerSummarySchema = z.object({
   id: z.string(),
   label: z.string(),
-  family: z.enum(["openai-compatible", "gemini-native", "claude-native"]),
+  family: z.enum(["openai-compatible", "openai-responses", "gemini-native", "claude-native"]),
   enabled: z.boolean(),
 });
 

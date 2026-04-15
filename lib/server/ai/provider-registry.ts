@@ -26,6 +26,7 @@ export interface ProviderProfile extends ProviderProfileInput {
 
 export const supportedProviderFamilies: ProviderFamily[] = [
   'openai-compatible',
+  'openai-responses',
   'gemini-native',
   'claude-native',
 ];

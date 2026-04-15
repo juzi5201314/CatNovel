@@ -2,6 +2,7 @@ export type WorkspaceLocale = 'zh' | 'en' | 'ru';
 
 export type ProviderFamily =
   | 'openai-compatible'
+  | 'openai-responses'
   | 'gemini-native'
   | 'claude-native';
 
