@@ -440,10 +440,10 @@ export function WorkspaceShell({
             draftTitle={selectedChapterTitle}
             editorModes={editorModes}
             isSidebarOpen={isSidebarOpen}
-            onBodyChange={setEditorBody}
-            onTitleChange={setSelectedChapterTitle}
+            onBodyChange={(value) => { setEditorBody(value); setSaveState('modified'); }}
+            onTitleChange={(value) => { setSelectedChapterTitle(value); setSaveState('modified'); }}
             onToggleMode={(mode) => setEditorModes((current) => ({ ...current, [mode]: !current[mode] }))}
-            onAcceptGhostText={() => { setEditorBody((c) => `${c}\n\n${pendingGhostText}`.trim()); setPendingGhostText(''); }}
+            onAcceptGhostText={() => { setEditorBody((c) => `${c}\n\n${pendingGhostText}`.trim()); setPendingGhostText(''); setSaveState('modified'); }}
             onRejectGhostText={() => setPendingGhostText('')}
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
             pendingGhostText={pendingGhostText}

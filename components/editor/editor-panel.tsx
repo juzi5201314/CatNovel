@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { cx } from '@/lib/design/cx';
+import { countCharacters, countParagraphs } from '@/lib/server/services/workspace-metrics';
 
 export type EditorModes = {
   slash: boolean;
@@ -43,6 +44,9 @@ export function EditorPanel({
   onRejectGhostText: () => void;
   onToggleSidebar: () => void;
 }) {
+  const charCount = countCharacters(body);
+  const paragraphCount = countParagraphs(body);
+
   return (
     <div className="flex flex-col h-full bg-background animate-fade-in" id="editor-panel">
       <div className="border-b px-4 py-4 flex items-center gap-3 bg-background sticky top-0 z-10">
@@ -77,39 +81,40 @@ export function EditorPanel({
             placeholder="Chapter Title"
           />
         </div>
-        <div className="flex items-center gap-4">
-          <Badge tone="neutral" pulse={saveState === 'autosaving' || saveState === 'saving'} className="font-mono text-[10px] uppercase tracking-tighter">
-            {saveState === 'autosaving' ? 'Saving...' : saveState === 'saving' ? 'Saving...' : saveState}
-          </Badge>
+        <div className="flex items-center gap-6 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
-             <Button variant="ghost" size="sm" onClick={() => onToggleMode('highlight')} className={cx("h-8 px-2 text-xs", editorModes.highlight ? 'bg-accent text-accent-foreground' : 'text-muted-foreground')}>
-               Highlight
-             </Button>
+            <span className="text-mono-label opacity-50">Chars</span>
+            <span className="font-mono font-medium">{charCount}</span>
           </div>
+          <div className="flex items-center gap-1">
+            <span className="text-mono-label opacity-50">Paragraphs</span>
+            <span className="font-mono font-medium">{paragraphCount}</span>
+          </div>
+           <div className="flex items-center gap-1">
+             <span className={cx(
+               "text-mono-label",
+               saveState === 'modified' && 'text-amber-500',
+               saveState === 'saved' && 'text-green-500',
+               (saveState === 'autosaving' || saveState === 'saving') && 'opacity-50',
+               saveState === 'failed' && 'text-red-500',
+               saveState === 'idle' && 'opacity-50'
+             )}>Saved</span>
+             <span className="font-mono text-muted-foreground">
+               {chapter?.lastAutosavedAt
+                 ? new Date(chapter.lastAutosavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+                 : '—'}
+             </span>
+           </div>
+           <div className="flex items-center gap-4 ml-2 pl-4 border-l">
+             <Badge tone="neutral" pulse={saveState === 'autosaving' || saveState === 'saving'} className="font-mono text-[10px] uppercase tracking-tighter">
+               {saveState === 'autosaving' ? 'Saving...' : saveState === 'saving' ? 'Saving...' : saveState}
+             </Badge>
+           </div>
         </div>
       </div>
 
       <div className="flex-1 px-12 py-8 md:px-16 md:py-10 lg:px-20 lg:py-12 overflow-y-auto">
         <div className="max-w-none space-y-12">
-           <div className="grid grid-cols-4 gap-8 border-b pb-8">
-              <div className="space-y-1">
-                <span className="text-mono-label opacity-50">Words</span>
-                <p className="text-2xl font-semibold tracking-tight">{chapter?.wordCount ?? 0}</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-mono-label opacity-50">Chars</span>
-                <p className="text-2xl font-semibold tracking-tight">{chapter?.characterCount ?? 0}</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-mono-label opacity-50">Reading</span>
-                <p className="text-2xl font-semibold tracking-tight">{chapter?.readingMinutes ?? 0}m</p>
-              </div>
-              <div className="space-y-1">
-                <span className="text-mono-label opacity-50">Saved</span>
-                <p className="text-[10px] text-muted-foreground font-mono mt-2 truncate">{chapter?.lastAutosavedAt?.split('T')[1].split('.')[0] ?? '—'}</p>
-              </div>
-           </div>
-
            <div className="relative group">
             <Textarea
               className="min-h-[70vh] text-lg leading-relaxed bg-transparent shadow-none border-none p-0 focus:shadow-none resize-none placeholder:text-muted-foreground/30"

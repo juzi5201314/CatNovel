@@ -7,11 +7,6 @@ type UnknownJson =
   | { [key: string]: UnknownJson };
 
 function collectText(value: UnknownJson, chunks: string[]) {
-  if (typeof value === "string") {
-    chunks.push(value);
-    return;
-  }
-
   if (Array.isArray(value)) {
     for (const item of value) {
       collectText(item, chunks);
@@ -22,10 +17,10 @@ function collectText(value: UnknownJson, chunks: string[]) {
   if (value && typeof value === "object") {
     if (typeof value.text === "string") {
       chunks.push(value.text);
-    }
-
-    for (const item of Object.values(value)) {
-      collectText(item, chunks);
+    } else {
+      for (const item of Object.values(value)) {
+        collectText(item, chunks);
+      }
     }
   }
 }
@@ -62,6 +57,13 @@ export function countWords(plaintext: string) {
 
 export function countCharacters(plaintext: string) {
   return [...plaintext.replace(/\s+/gu, "")].length;
+}
+
+export function countParagraphs(body: string) {
+  return body
+    .split(/\n{2,}/)
+    .map((entry) => entry.trim())
+    .filter(Boolean).length;
 }
 
 export function estimateReadingMinutes(wordCount: number) {
