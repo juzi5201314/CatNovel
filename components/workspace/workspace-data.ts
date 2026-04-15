@@ -57,49 +57,6 @@ export const providerFamilyLabels: Record<ProviderFamily, LocaleText> = {
   },
 };
 
-export const slashCommands = [
-  {
-    id: '续写',
-    label: {
-      zh: '/续写',
-      en: '/continue',
-      ru: '/продолжить',
-    },
-  },
-  {
-    id: '改写',
-    label: {
-      zh: '/改写',
-      en: '/rewrite',
-      ru: '/переписать',
-    },
-  },
-  {
-    id: '润色',
-    label: {
-      zh: '/润色',
-      en: '/polish',
-      ru: '/отшлифовать',
-    },
-  },
-  {
-    id: '扩写',
-    label: {
-      zh: '/扩写',
-      en: '/expand',
-      ru: '/расширить',
-    },
-  },
-  {
-    id: 'ghost-text',
-    label: {
-      zh: '/ghost text',
-      en: '/ghost text',
-      ru: '/ghost text',
-    },
-  },
-] as const;
-
 export function t(locale: WorkspaceLocale, text: LocaleText) {
   return text[locale];
 }

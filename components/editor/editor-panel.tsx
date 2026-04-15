@@ -1,12 +1,10 @@
-import type { ChapterRecord, WorkspaceLocale } from '@/lib/contracts/workspace';
-import type { AppMessages } from '@/lib/i18n/messages';
+import type { ChapterRecord } from '@/lib/contracts/workspace';
 
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
-import { slashCommands, t } from '../workspace/workspace-data';
 import { cx } from '@/lib/design/cx';
 
 export type EditorModes = {
@@ -17,8 +15,6 @@ export type EditorModes = {
 };
 
 export function EditorPanel({
-  locale,
-  copy,
   chapter,
   body,
   draftTitle,
@@ -29,13 +25,10 @@ export function EditorPanel({
   onTitleChange,
   onBodyChange,
   onToggleMode,
-  onRunTask,
   onAcceptGhostText,
   onRejectGhostText,
   onToggleSidebar,
 }: {
-  locale: WorkspaceLocale;
-  copy: AppMessages;
   chapter: ChapterRecord | null;
   body: string;
   draftTitle: string;
@@ -46,7 +39,6 @@ export function EditorPanel({
   onTitleChange: (value: string) => void;
   onBodyChange: (value: string) => void;
   onToggleMode: (mode: keyof EditorModes) => void;
-  onRunTask: (taskClass: '续写' | '改写' | '润色' | '扩写' | 'ghost-text') => void;
   onAcceptGhostText: () => void;
   onRejectGhostText: () => void;
   onToggleSidebar: () => void;
@@ -150,23 +142,6 @@ export function EditorPanel({
         </div>
       </div>
 
-      <div className="border-t p-4 bg-background/80 backdrop-blur-sm sticky bottom-0">
-        <div className="px-8 md:px-12 lg:px-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-             {slashCommands.map((command) => (
-                <Button 
-                  key={command.id} 
-                  variant="outline" 
-                  size="sm"
-                  className="h-8 px-3 text-xs whitespace-nowrap border-muted-foreground/10 hover:border-muted-foreground/30 transition-all"
-                  onClick={() => onRunTask(command.id as any)}
-                >
-                  {t(locale, command.label)}
-                </Button>
-             ))}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

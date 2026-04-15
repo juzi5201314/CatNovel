@@ -27,37 +27,12 @@ import {
   serializeSettingSummary,
 } from './workspace-data';
 import { WorkspaceHeader } from './workspace-header';
-import { Button } from '../ui/button';
 import { cx } from '@/lib/design/cx';
 
 async function readJson<T>(response: Response) {
   const payload = (await response.json()) as T;
   if (!response.ok) throw new Error(JSON.stringify(payload));
   return payload;
-}
-
-async function readEventStream(response: Response) {
-  const reader = response.body?.getReader();
-  if (!reader) return '';
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let output = '';
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buffer += decoder.decode(chunk.value, { stream: true });
-    const events = buffer.split('\n\n');
-    buffer = events.pop() ?? '';
-    for (const eventChunk of events) {
-      const lines = eventChunk.split('\n');
-      const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
-      const dataLine = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
-      if (!event || !dataLine) continue;
-      const payload = JSON.parse(dataLine) as { chunk?: string };
-      if (event === 'token' && payload.chunk) output += payload.chunk;
-    }
-  }
-  return output;
 }
 
 const emptyBookMetadata: BookMetadataRecord = {
@@ -208,11 +183,6 @@ export function WorkspaceShell({
   const activeWork = collections.works.find((work) => work.id === activeWorkId) ?? collections.works[0] ?? null;
   const activeChapter = deriveChapterSelection(collections, activeChapterId);
   const activeNode = deriveNodeSelection(collections, activeNodeId);
-
-  // Resolve the active profile from activeModel for backward compat
-  const activeProfile = activeModel
-    ? collections.providerProfiles.find((p) => p.id === activeModel.profileId) ?? null
-    : null;
 
   const aiContextSettings = useMemo(
     () => collections.settingsNodes.map((node) => `${node.title}\n${parseSettingSummary(node.payloadJson)}`),
@@ -407,31 +377,6 @@ export function WorkspaceShell({
     setPendingGhostText('');
   };
 
-  const handleRunTask = async (taskClass: any) => {
-    if (!activeModel || !activeProfile || !activeChapter) return;
-    setSaveState(`ai:${taskClass}`);
-    const response = await fetch('/api/ai', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        action: 'generate',
-        profileId: activeModel.profileId,
-        modelId: activeModel.modelId,
-        taskClass,
-        prompt: editorBody,
-        stream: true,
-        chapter: editorBody,
-        settings: aiContextSettings,
-        summaries: [],
-        manualSelections: [activeNodeSummary].filter(Boolean),
-      }),
-    });
-    const generatedText = await readEventStream(response);
-    if (taskClass === 'ghost-text') setPendingGhostText(generatedText);
-    else setEditorBody((current) => `${current}\n\n${generatedText}`.trim());
-    setSaveState('ai-complete');
-  };
-
   const handleActiveModelChange = useCallback((selection: ActiveModelSelection) => {
     setActiveModel(selection);
     mutateWorkspace({ action: 'set-active-model', profileId: selection.profileId, modelId: selection.modelId }, { preserveEditor: true });
@@ -501,7 +446,6 @@ export function WorkspaceShell({
             onBodyChange={setEditorBody}
             onTitleChange={setSelectedChapterTitle}
             onToggleMode={(mode) => setEditorModes((current) => ({ ...current, [mode]: !current[mode] }))}
-            onRunTask={handleRunTask}
             onAcceptGhostText={() => { setEditorBody((c) => `${c}\n\n${pendingGhostText}`.trim()); setPendingGhostText(''); }}
             onRejectGhostText={() => setPendingGhostText('')}
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
