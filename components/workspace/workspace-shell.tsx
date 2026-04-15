@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 
@@ -123,8 +123,67 @@ export function WorkspaceShell({
   const [activeModel, setActiveModel] = useState<ActiveModelSelection | null>(initialActiveModel);
   const [rightSidebarTab, setRightSidebarTab] = useState<'ai' | 'settings' | 'snapshots'>('ai');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isFocusActive, setIsFocusActive] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const isResizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(320);
+  const rafRef = useRef<number | null>(null);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    isResizingRef.current = true;
+    startXRef.current = e.clientX;
+    startWidthRef.current = rightSidebarWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [rightSidebarWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+
+      rafRef.current = requestAnimationFrame(() => {
+        const delta = startXRef.current - e.clientX;
+        const newWidth = Math.max(240, Math.min(600, startWidthRef.current + delta));
+
+        if (sidebarRef.current) {
+          sidebarRef.current.style.width = `${newWidth}px`;
+        }
+      });
+    };
+
+    const handleMouseUp = () => {
+      if (!isResizingRef.current) return;
+      isResizingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+
+      if (sidebarRef.current) {
+        const finalWidth = parseInt(sidebarRef.current.style.width, 10);
+        setRightSidebarWidth(finalWidth);
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
 
   const [editorModes, setEditorModes] = useState({ slash: true, bubble: true, highlight: true, pageBreak: false });
   const [workDraftTitle, setWorkDraftTitle] = useState('');
@@ -159,14 +218,6 @@ export function WorkspaceShell({
     () => collections.settingsNodes.map((node) => `${node.title}\n${parseSettingSummary(node.payloadJson)}`),
     [collections.settingsNodes],
   );
-
-  useEffect(() => {
-    if (!isFocusActive) return;
-    const timer = setTimeout(() => setIsFocusActive(false), 3000);
-    return () => clearTimeout(timer);
-  }, [isFocusActive]);
-
-  const handleActivity = () => setIsFocusActive(true);
 
   const handleManualSave = async () => {
     if (!activeChapter) return;
@@ -388,7 +439,7 @@ export function WorkspaceShell({
 
   return (
     <main className="app-shell">
-      <div className={cx("focus-mode-fade", isFocusActive && "focus-mode-dim")}>
+      <div>
         <WorkspaceHeader
           activeChapterTitle={activeChapter?.title ?? '—'}
           activeWorkLabel={activeWork?.title ?? 'CatNovel'}
@@ -402,8 +453,7 @@ export function WorkspaceShell({
         <aside
           className={cx(
             "app-sidebar sidebar-transition overflow-hidden",
-            isSidebarOpen ? "w-[240px] opacity-100" : "w-0 opacity-0 border-none",
-            isFocusActive && "focus-mode-dim focus-mode-fade"
+            isSidebarOpen ? "w-[240px] opacity-100" : "w-0 opacity-0 border-none"
           )}
         >
           <div className="w-[240px]">
@@ -448,8 +498,8 @@ export function WorkspaceShell({
             editorModes={editorModes}
             isSidebarOpen={isSidebarOpen}
             locale={locale}
-            onBodyChange={(v) => { setEditorBody(v); handleActivity(); }}
-            onTitleChange={(v) => { setSelectedChapterTitle(v); handleActivity(); }}
+            onBodyChange={setEditorBody}
+            onTitleChange={setSelectedChapterTitle}
             onToggleMode={(mode) => setEditorModes((current) => ({ ...current, [mode]: !current[mode] }))}
             onRunTask={handleRunTask}
             onAcceptGhostText={() => { setEditorBody((c) => `${c}\n\n${pendingGhostText}`.trim()); setPendingGhostText(''); }}
@@ -461,11 +511,17 @@ export function WorkspaceShell({
         </div>
 
         <aside
-          className={cx(
-            "app-aside flex flex-col sidebar-transition",
-            isFocusActive && "focus-mode-dim focus-mode-fade"
-          )}
+          ref={sidebarRef}
+          className="app-aside flex flex-col sidebar-transition relative"
+          style={{ width: rightSidebarWidth }}
         >
+          <div
+            className="absolute left-0 top-0 bottom-0 w-3 cursor-col-resize hover:bg-muted active:bg-muted-foreground/20 z-50 flex items-center justify-center group"
+            onMouseDown={handleResizeStart}
+            title="拖动调整宽度"
+          >
+            <div className="w-px h-8 rounded-full bg-muted-foreground/30 group-hover:bg-muted-foreground/50" />
+          </div>
           <div className="flex border-b" role="tablist">
             <button
               role="tab"

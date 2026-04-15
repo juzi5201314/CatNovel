@@ -77,10 +77,10 @@ export function EditorPanel({
             )}
           </svg>
         </Button>
-        <div className="flex-1 max-w-2xl">
-          <Input 
-            value={draftTitle} 
-            onChange={(event) => onTitleChange(event.target.value)} 
+        <div className="flex-1">
+          <Input
+            value={draftTitle}
+            onChange={(event) => onTitleChange(event.target.value)}
             className="text-card-title bg-transparent shadow-none px-0 focus:shadow-none hover:bg-accent/50 transition-colors border-none"
             placeholder="Chapter Title"
           />
@@ -97,8 +97,8 @@ export function EditorPanel({
         </div>
       </div>
 
-      <div className="flex-1 p-6 md:p-12 overflow-y-auto">
-        <div className="max-w-3xl mx-auto space-y-12">
+      <div className="flex-1 px-12 py-8 md:px-16 md:py-10 lg:px-20 lg:py-12 overflow-y-auto">
+        <div className="max-w-none space-y-12">
            <div className="grid grid-cols-4 gap-8 border-b pb-8">
               <div className="space-y-1">
                 <span className="text-mono-label opacity-50">Words</span>
@@ -151,7 +151,7 @@ export function EditorPanel({
       </div>
 
       <div className="border-t p-4 bg-background/80 backdrop-blur-sm sticky bottom-0">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
+        <div className="px-8 md:px-12 lg:px-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
              {slashCommands.map((command) => (
                 <Button 

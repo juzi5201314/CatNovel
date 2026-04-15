@@ -7,7 +7,6 @@ import type {
 } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
-import { Badge } from '../ui/badge';
 import { ChatSessionList } from './chat-session-list';
 
 export function AiSidebar({
@@ -57,10 +56,6 @@ export function AiSidebar({
   return (
     <div className="flex flex-col h-full animate-fade-in" id="ai-panel">
       <div className="border-b px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-           <span className="text-mono-label">{copy.aiSidebar}</span>
-           <Badge tone="red" className="text-[10px] px-1.5 py-0">LIVE</Badge>
-        </div>
         <button
           onClick={onOpenSettings}
           className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-mono text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors max-w-[180px]"

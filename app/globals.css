@@ -160,12 +160,12 @@
   }
 
   .app-aside {
-    width: 320px;
     border-left: 1px solid var(--cn-line-strong);
     background: var(--cn-bg);
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    flex-shrink: 0;
   }
 
   /* Geist Typography System */
