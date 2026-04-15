@@ -5,6 +5,7 @@ import {
 import {
   findProviderProfile,
   listModelsByProvider,
+  type ProviderFamily,
 } from './provider-registry.ts';
 import {
   archiveTokenUsage,
@@ -153,4 +154,156 @@ function buildStreamChunks(text: string, taskClass: AiTaskClass) {
     text.slice(0, Math.ceil(text.length / 2)),
     text.slice(Math.ceil(text.length / 2)),
   ].filter(Boolean);
+}
+
+interface CallProviderParams {
+  family: ProviderFamily;
+  endpoint: string;
+  apiKey: string;
+  modelId: string;
+  prompt: string;
+  contextPacket: ReturnType<typeof buildContextPacket>;
+  stream?: boolean;
+}
+
+interface ProviderResponse {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export async function callProvider(params: CallProviderParams): Promise<ProviderResponse> {
+  const { family, endpoint, apiKey, modelId, prompt, contextPacket } = params;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
+
+  try {
+    const base = endpoint.replace(/\/+$/, '');
+    const fullPrompt = `${contextPacket.combinedContext}\n\n${prompt}`.trim();
+
+    switch (family) {
+      case 'openai-compatible': {
+        const res = await fetch(`${base}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages: [{ role: 'user', content: fullPrompt }],
+            stream: false,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+        }
+
+        const data = await res.json();
+        return {
+          text: data.choices?.[0]?.message?.content ?? '',
+          inputTokens: data.usage?.prompt_tokens ?? estimateTokenCount(fullPrompt),
+          outputTokens: data.usage?.completion_tokens ?? estimateTokenCount(data.choices?.[0]?.message?.content ?? ''),
+        };
+      }
+
+      case 'openai-responses': {
+        const res = await fetch(`${base}/responses`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelId,
+            input: fullPrompt,
+            stream: false,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+        }
+
+        const data = await res.json();
+        const text = data.output?.[0]?.content?.[0]?.text ?? data.text ?? '';
+        return {
+          text,
+          inputTokens: data.usage?.input_tokens ?? estimateTokenCount(fullPrompt),
+          outputTokens: data.usage?.output_tokens ?? estimateTokenCount(text),
+        };
+      }
+
+      case 'claude-native': {
+        const res = await fetch(`${base}/v1/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages: [{ role: 'user', content: fullPrompt }],
+            max_tokens: 4096,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+        }
+
+        const data = await res.json();
+        const text = data.content?.[0]?.text ?? '';
+        return {
+          text,
+          inputTokens: data.usage?.input_tokens ?? estimateTokenCount(fullPrompt),
+          outputTokens: data.usage?.output_tokens ?? estimateTokenCount(text),
+        };
+      }
+
+      case 'gemini-native': {
+        const res = await fetch(
+          `${base}/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: fullPrompt }] }],
+            }),
+            signal: controller.signal,
+          },
+        );
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+        }
+
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        return {
+          text,
+          inputTokens: estimateTokenCount(fullPrompt),
+          outputTokens: estimateTokenCount(text),
+        };
+      }
+
+      default:
+        throw new Error(`Unsupported provider family: ${family}`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function estimateTokenCount(text: string): number {
+  return Math.ceil(text.length / 4);
 }
