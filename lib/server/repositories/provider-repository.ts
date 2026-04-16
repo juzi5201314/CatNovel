@@ -21,63 +21,6 @@ type ProviderRow = {
   updatedAt: string;
 };
 
-const defaultProfiles: Array<{
-  id: string;
-  family: ProviderFamily;
-  label: string;
-  endpoint: string;
-  model: string;
-  modelIds: string[];
-  apiKeyEnv: string;
-  apiKey: string;
-  enabled: boolean;
-}> = [
-  {
-    id: 'openai-default',
-    family: 'openai-compatible',
-    label: 'OpenAI-compatible',
-    endpoint: 'https://api.openai.local/v1',
-    model: 'gpt-4.1',
-    modelIds: ['gpt-4.1', 'gpt-4o-mini'],
-    apiKeyEnv: 'OPENAI_API_KEY',
-    apiKey: 'openai-test-key',
-    enabled: true,
-  },
-  {
-    id: 'gemini-default',
-    family: 'gemini-native',
-    label: 'Gemini-native',
-    endpoint: 'https://generativelanguage.googleapis.local',
-    model: 'gemini-2.5-pro',
-    modelIds: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-    apiKeyEnv: 'GEMINI_API_KEY',
-    apiKey: 'gemini-test-key',
-    enabled: true,
-  },
-  {
-    id: 'claude-default',
-    family: 'claude-native',
-    label: 'Claude-native',
-    endpoint: 'https://api.anthropic.local/v1',
-    model: 'claude-sonnet-4',
-    modelIds: ['claude-sonnet-4', 'claude-haiku-4'],
-    apiKeyEnv: 'ANTHROPIC_API_KEY',
-    apiKey: 'claude-test-key',
-    enabled: true,
-  },
-  {
-    id: 'ollama-default',
-    family: 'openai-compatible',
-    label: 'Ollama',
-    endpoint: 'http://localhost:11434/v1',
-    model: 'llama3.2',
-    modelIds: ['llama3.2'],
-    apiKeyEnv: 'OLLAMA_API_KEY',
-    apiKey: 'ollama',
-    enabled: false,
-  },
-];
-
 function hydrateProvider(row: ProviderRow): ProviderProfileRecord {
   const parsedModelIds = JSON.parse(row.modelIdsJson || '[]') as string[];
 
@@ -269,12 +212,29 @@ export function deleteProviderProfile(profileId: string) {
   return current;
 }
 
-export function resetProviderProfilesForTests(workId = 'work-default') {
+export function resetProviderProfilesForTests(
+  workId = 'work-default',
+  profiles: Array<{
+    id: string;
+    family: ProviderFamily;
+    label: string;
+    endpoint: string;
+    model: string;
+    modelIds: string[];
+    apiKeyEnv: string;
+    apiKey: string;
+    enabled: boolean;
+  }> = [],
+) {
   const db = getDatabase();
   const now = new Date().toISOString();
 
   withImmediateTransaction(db, () => {
     db.prepare('DELETE FROM ai_provider_profiles WHERE work_id = ?').run(workId);
+
+    if (profiles.length === 0) {
+      return;
+    }
 
     const insert = db.prepare(
       `INSERT INTO ai_provider_profiles (
@@ -293,7 +253,7 @@ export function resetProviderProfilesForTests(workId = 'work-default') {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
-    for (const profile of defaultProfiles) {
+    for (const profile of profiles) {
       insert.run(
         profile.id,
         workId,

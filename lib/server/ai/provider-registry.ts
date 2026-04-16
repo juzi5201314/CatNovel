@@ -106,8 +106,8 @@ export function listModelsByFamily(family: ProviderFamily) {
     .flatMap((profile) => listModelsByProvider(profile.id));
 }
 
-export function resetProviderProfilesForTests() {
-  resetProviderProfilesInDatabase();
+export function resetProviderProfilesForTests(profiles?: Parameters<typeof resetProviderProfilesInDatabase>[1]) {
+  resetProviderProfilesInDatabase('work-default', profiles);
 }
 
 export function getActiveModelPreference(): ActiveModelSelection | null {

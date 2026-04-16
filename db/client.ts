@@ -14,6 +14,11 @@ let dbInstance: DatabaseSync | null = null;
 let dbStatus: DatabaseStatus | null = null;
 
 function resolveDatabaseFile() {
+  // 内存模式：用于测试环境，数据不会持久化到磁盘
+  if (process.env.CATNOVEL_DB_MEMORY === 'true') {
+    return ':memory:';
+  }
+  
   const explicitFile = process.env.CATNOVEL_DB_FILE;
   if (explicitFile) {
     mkdirSync(dirname(explicitFile), { recursive: true });

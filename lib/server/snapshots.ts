@@ -93,9 +93,13 @@ function insertRows(table: SnapshotTable, rows: Record<string, unknown>[]) {
   const db = getDatabase();
   const columns = Object.keys(rows[0]);
   const placeholders = columns.map(() => '?').join(', ');
-  const statement = db.prepare(
-    `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
-  );
+  
+  // app_preferences 使用 INSERT OR REPLACE 避免主键冲突
+  const insertSql = table === 'app_preferences'
+    ? `INSERT OR REPLACE INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`
+    : `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
+  
+  const statement = db.prepare(insertSql);
 
   for (const row of rows) {
     const entries = Object.entries(row);
@@ -113,7 +117,8 @@ function deleteCurrentState(workId: string) {
   for (const table of deleteOrder) {
     switch (table) {
       case "app_preferences":
-        db.prepare("DELETE FROM app_preferences").run();
+        // app_preferences 是全局表，不随特定 work 的快照删除而清空
+        // 只删除与工作空间相关的特定偏好设置（如果有）
         break;
       case "chat_messages":
         db.prepare(

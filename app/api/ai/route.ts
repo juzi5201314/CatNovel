@@ -14,6 +14,7 @@ import {
   listTokenUsageRecords,
   resetTokenUsageArchiveForTests,
 } from '../../../lib/server/ai/token-usage-archive.ts';
+import { defaultTestProfiles } from '../../../tests/helpers/db-test-utils.ts';
 
 const noStoreHeaders = {
   'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -65,7 +66,14 @@ export async function POST(request: Request) {
   }
 
   if (action === 'reset-test-state') {
-    resetProviderProfilesForTests();
+    // 仅在测试环境允许重置，防止生产环境数据丢失
+    if (process.env.NODE_ENV !== 'test' && process.env.CATNOVEL_ALLOW_TEST_RESET !== 'true') {
+      return Response.json(
+        { error: 'Test reset is not allowed in production environment' },
+        { status: 403 }
+      );
+    }
+    resetProviderProfilesForTests(defaultTestProfiles);
     resetTokenUsageArchiveForTests();
 
     return Response.json({
