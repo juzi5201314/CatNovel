@@ -1,17 +1,14 @@
 import type {
   ChatMessageRecord,
   ChatSessionRecord,
-  WorkspaceLocale,
 } from '@/lib/contracts/workspace';
 
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { cx } from '@/lib/design/cx';
 
 export function ChatSessionList({
-  locale,
   sessions,
   activeSessionId,
   messages,
@@ -23,7 +20,6 @@ export function ChatSessionList({
   onSessionChange,
   onSendPrompt,
 }: {
-  locale: WorkspaceLocale;
   sessions: ChatSessionRecord[];
   activeSessionId: string | null;
   messages: ChatMessageRecord[];

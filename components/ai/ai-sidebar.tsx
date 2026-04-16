@@ -3,17 +3,13 @@ import type {
   ChatMessageRecord,
   ChatSessionRecord,
   ProviderProfileRecord,
-  WorkspaceLocale,
 } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
 import { ChatSessionList } from './chat-session-list';
 
 export function AiSidebar({
-  locale,
   copy,
-  workLabel,
-  chapterTitle,
   providers,
   activeModel,
   sessions,
@@ -28,10 +24,7 @@ export function AiSidebar({
   onFreeChatPromptChange,
   onSendFreeChat,
 }: {
-  locale: WorkspaceLocale;
   copy: AppMessages;
-  workLabel: string;
-  chapterTitle: string;
   providers: ProviderProfileRecord[];
   activeModel: ActiveModelSelection | null;
   sessions: ChatSessionRecord[];
@@ -71,7 +64,6 @@ export function AiSidebar({
 
       <div className="flex-1 overflow-y-auto">
         <ChatSessionList
-          locale={locale}
           sessions={sessions}
           activeSessionId={activeSessionId}
           messages={messages}

@@ -1,9 +1,16 @@
-import type { AppMessages } from '@/lib/i18n/messages';
+import type {
+  ChapterExportFormat,
+  ImportFileFormat,
+  ProjectExportFormat,
+} from '@/lib/contracts/transfer';
+
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
+const chapterExportOptions: ChapterExportFormat[] = ['md', 'docx', 'epub', 'pdf'];
+const importFileOptions: ImportFileFormat[] = ['md', 'docx', 'pdf'];
+
 export function SnapshotActionBar({
-  copy,
   draftLabel,
   onDraftLabelChange,
   onCreateSnapshot,
@@ -12,14 +19,13 @@ export function SnapshotActionBar({
   onExportChapters,
   onParseImportFile,
 }: {
-  copy: AppMessages;
   draftLabel: string;
   onDraftLabelChange: (value: string) => void;
   onCreateSnapshot: () => void;
-  onExportProject: (format: 'json' | 'txt' | 'md' | 'docx' | 'epub' | 'pdf') => void;
+  onExportProject: (format: ProjectExportFormat) => void;
   onImportProject: () => void;
-  onExportChapters: (format: 'txt' | 'md' | 'docx' | 'epub' | 'pdf') => void;
-  onParseImportFile: (format: 'txt' | 'md' | 'epub' | 'docx' | 'doc' | 'pdf') => void;
+  onExportChapters: (format: ChapterExportFormat) => void;
+  onParseImportFile: (format: ImportFileFormat) => void;
 }) {
   return (
     <div className="space-y-4 bg-muted/30 p-4 rounded-lg border">
@@ -39,9 +45,9 @@ export function SnapshotActionBar({
         <div className="space-y-1">
           <span className="text-[10px] uppercase text-muted-foreground font-semibold">Export</span>
           <div className="flex flex-wrap gap-1">
-            {['md', 'docx', 'epub', 'pdf'].map(fmt => (
-              <Button key={fmt} variant="outline" size="sm" className="h-6 text-[10px] uppercase px-1.5" onClick={() => onExportChapters(fmt as any)}>
-                {fmt}
+            {chapterExportOptions.map((format) => (
+              <Button key={format} variant="outline" size="sm" className="h-6 text-[10px] uppercase px-1.5" onClick={() => onExportChapters(format)}>
+                {format}
               </Button>
             ))}
           </div>
@@ -49,9 +55,9 @@ export function SnapshotActionBar({
         <div className="space-y-1">
           <span className="text-[10px] uppercase text-muted-foreground font-semibold">Import</span>
           <div className="flex flex-wrap gap-1">
-            {['md', 'docx', 'pdf'].map(fmt => (
-              <Button key={fmt} variant="outline" size="sm" className="h-6 text-[10px] uppercase px-1.5" onClick={() => onParseImportFile(fmt as any)}>
-                {fmt}
+            {importFileOptions.map((format) => (
+              <Button key={format} variant="outline" size="sm" className="h-6 text-[10px] uppercase px-1.5" onClick={() => onParseImportFile(format)}>
+                {format}
               </Button>
             ))}
           </div>

@@ -1,15 +1,11 @@
-import type { WorkspaceLocale } from '@/lib/contracts/workspace';
 import { Button } from '../ui/button';
-import { cx } from '@/lib/design/cx';
 
 export function SnapshotList({
-  locale,
   snapshots,
   auditLog,
   onRestore,
   onDelete,
 }: {
-  locale: WorkspaceLocale;
   snapshots: Array<{ id: string; label: string; createdAt: string }>;
   auditLog: string[];
   onRestore: (snapshotId: string) => void;

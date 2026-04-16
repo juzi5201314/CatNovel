@@ -19,13 +19,11 @@ export function EditorPanel({
   chapter,
   body,
   draftTitle,
-  editorModes,
   saveState,
   pendingGhostText,
   isSidebarOpen,
   onTitleChange,
   onBodyChange,
-  onToggleMode,
   onAcceptGhostText,
   onRejectGhostText,
   onToggleSidebar,
@@ -33,13 +31,11 @@ export function EditorPanel({
   chapter: ChapterRecord | null;
   body: string;
   draftTitle: string;
-  editorModes: EditorModes;
   saveState: string;
   pendingGhostText: string;
   isSidebarOpen: boolean;
   onTitleChange: (value: string) => void;
   onBodyChange: (value: string) => void;
-  onToggleMode: (mode: keyof EditorModes) => void;
   onAcceptGhostText: () => void;
   onRejectGhostText: () => void;
   onToggleSidebar: () => void;
