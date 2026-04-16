@@ -1,6 +1,6 @@
-import * as React from "react";
+import * as React from 'react';
 
-import { cn } from "@/lib/utils";
+import { cx } from '@/lib/design/cx';
 
 export function Separator({
   className,
@@ -9,7 +9,7 @@ export function Separator({
   return (
     <div
       aria-hidden="true"
-      className={cn("h-px w-full bg-[var(--color-line)]", className)}
+      className={cx('h-px w-full bg-[var(--color-line)]', className)}
       {...props}
     />
   );

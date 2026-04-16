@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import { cx } from '@/lib/design/cx';
+
 export function Panel({
   id,
   title,
@@ -18,8 +20,8 @@ export function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className={["surface", className].filter(Boolean).join(" ")} id={id}>
-      <div className={["surface__body", bodyClassName].filter(Boolean).join(" ")}>
+    <section className={cx('surface', className)} id={id}>
+      <div className={cx('surface__body', bodyClassName)}>
         <header className="surface__head">
           <div>
             <h2 className="surface__title">{title}</h2>

@@ -452,8 +452,8 @@ function ParentSelectorDialog({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const handleSelect = async (parentId: string | null) => {
-    await onSelect(parentId);
+  const handleSelect = (parentId: string | null) => {
+    onSelect(parentId);
     onClose();
   };
 
@@ -1212,12 +1212,13 @@ function NodeEditor({
 // ============================================
 
 export function WorldviewDialog({
-  copy: _copy,
+  copy,
   workId,
   nodes,
   onClose,
   onMutate,
 }: WorldviewDialogProps) {
+  void copy;
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeRootId, setActiveRootId] = useState<string | null>(null);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
