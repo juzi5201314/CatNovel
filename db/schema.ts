@@ -302,10 +302,10 @@ export const seedStatements = [
   `INSERT OR IGNORE INTO settings_nodes (id, work_id, parent_id, node_type, sort_index, title, payload_json, created_at, updated_at)
    VALUES
     ('setting-characters', 'work-default', NULL, 'group', 0, '角色', '{"schemaVersion":1,"note":"主角、盟友与反派的动机与关系"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-locations', 'work-default', NULL, 'group', 1, '地点', '{"schemaVersion":1,"note":"旧城、桥区与禁区入口"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-items', 'work-default', NULL, 'group', 2, '物品', '{"schemaVersion":1,"note":"会重写因果的旧印与其他道具"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-rules', 'work-default', NULL, 'group', 3, '世界规则', '{"schemaVersion":1,"note":"力量体系与禁忌条款"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-plot', 'work-default', NULL, 'group', 4, '主线冲突', '{"schemaVersion":1,"note":"主角追索旧印真相的主线剧情"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+    ('setting-factions', 'work-default', NULL, 'group', 1, '势力', '{"schemaVersion":1,"note":"故事中的组织、阵营与势力分布"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-locations', 'work-default', NULL, 'group', 2, '地点', '{"schemaVersion":1,"note":"书中存在的地点与场景"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-items', 'work-default', NULL, 'group', 3, '物品', '{"schemaVersion":1,"note":"故事中的道具、神器与关键物品"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-rules', 'work-default', NULL, 'group', 4, '世界规则', '{"schemaVersion":1,"note":"力量体系、设定与禁忌条款"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
   `INSERT OR IGNORE INTO chat_sessions (id, work_id, title, created_at, updated_at)
    VALUES ('chat-session-default', 'work-default', '自由对话', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
   `INSERT OR IGNORE INTO chat_messages (id, session_id, role, body, token_count, created_at)
