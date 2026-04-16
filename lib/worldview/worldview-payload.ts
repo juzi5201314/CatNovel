@@ -1,13 +1,12 @@
 // Worldview node type system - replaces legacy SettingNodeType
 // Break from legacy semantic types to structural types
 
-export type WorldviewNodeType = 'group' | 'entry' | 'reference';
+export type WorldviewNodeType = 'group' | 'entry';
 
 export interface WorldviewPayload {
   schemaVersion: 1;
   note?: string;      // For groups: description/summary
   value?: string;     // For entries: the key-value content
-  refTarget?: string;   // For references: target node id
 }
 
 // Legacy type for migration reference only
@@ -21,7 +20,7 @@ export type LegacySettingNodeType =
 
 export function createWorldviewPayload(
   type: WorldviewNodeType,
-  data: { note?: string; value?: string; refTarget?: string } = {}
+  data: { note?: string; value?: string } = {}
 ): WorldviewPayload {
   const base: WorldviewPayload = { schemaVersion: 1 };
 
@@ -30,8 +29,6 @@ export function createWorldviewPayload(
       return { ...base, note: data.note ?? '' };
     case 'entry':
       return { ...base, value: data.value ?? '' };
-    case 'reference':
-      return { ...base, refTarget: data.refTarget ?? '' };
     default:
       return base;
   }
@@ -50,7 +47,6 @@ export function parseWorldviewPayload(payloadJson: string): WorldviewPayload {
       schemaVersion: 1,
       note: parsed.note ?? '',
       value: parsed.value ?? '',
-      refTarget: parsed.refTarget ?? '',
     };
   } catch {
     // Fallback for invalid JSON
@@ -64,7 +60,6 @@ export function serializeWorldviewPayload(payload: WorldviewPayload): string {
 
   if (payload.note) clean.note = payload.note;
   if (payload.value) clean.value = payload.value;
-  if (payload.refTarget) clean.refTarget = payload.refTarget;
 
   return JSON.stringify(clean);
 }
@@ -76,10 +71,6 @@ export function isGroup(type: WorldviewNodeType): boolean {
 
 export function isEntry(type: WorldviewNodeType): boolean {
   return type === 'entry';
-}
-
-export function isReference(type: WorldviewNodeType): boolean {
-  return type === 'reference';
 }
 
 export function canHaveChildren(type: WorldviewNodeType): boolean {
@@ -104,14 +95,7 @@ export function canConvertType(
   return { valid: true };
 }
 
-// Reference resolution helper
-export function resolveReference(
-  refTargetId: string,
-  nodes: Array<{ id: string; title: string }>
-): { id: string; title: string } | null {
-  const target = nodes.find((n) => n.id === refTargetId);
-  return target ? { id: target.id, title: target.title } : null;
-}
+
 
 // AI context serialization
 export interface WorldviewContextEntry {
@@ -120,7 +104,6 @@ export interface WorldviewContextEntry {
   type: WorldviewNodeType;
   note?: string;
   value?: string;
-  refDisplay?: string; // Display name of referenced node
 }
 
 export function serializeWorldviewContext(
@@ -144,13 +127,6 @@ export function serializeWorldviewContext(
           ? `${node.title}: ${payload.value}`
           : node.title;
         break;
-      case 'reference': {
-        const target = resolveReference(payload.refTarget ?? '', nodes);
-        content = target
-          ? `${node.title} → @${target.title}`
-          : `${node.title} → @${payload.refTarget || 'unknown'}`;
-        break;
-      }
     }
 
     return content;

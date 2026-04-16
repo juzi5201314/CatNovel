@@ -1,6 +1,5 @@
 import type { SettingNodeRecord, WorldviewNodeType } from '@/lib/contracts/workspace';
-import type { WorldviewPayload } from './worldview-payload';
-import { parseWorldviewPayload, resolveReference } from './worldview-payload';
+import { parseWorldviewPayload } from './worldview-payload';
 
 export interface WorldviewContextEntry {
   id: string;
@@ -27,15 +26,6 @@ export function serializeWorldviewContext(
       case 'entry':
         content = payload.value ?? '';
         break;
-      case 'reference': {
-        const target = payload.refTarget
-          ? resolveReference(payload.refTarget, nodes)
-          : null;
-        content = target
-          ? `@${target.title}`
-          : `@${payload.refTarget || 'unknown'}`;
-        break;
-      }
     }
 
     return {
@@ -60,8 +50,6 @@ export function formatWorldviewContextForAI(
             : entry.title;
         case 'entry':
           return `${entry.title}: ${entry.content}`;
-        case 'reference':
-          return `${entry.title} → ${entry.content}`;
         default:
           return entry.title;
       }
@@ -73,14 +61,12 @@ export function buildWorldviewPromptContext(
   options: {
     includeGroups?: boolean;
     includeEntries?: boolean;
-    includeReferences?: boolean;
     maxLength?: number;
   } = {}
 ): string {
   const {
     includeGroups = true,
     includeEntries = true,
-    includeReferences = true,
     maxLength = 4000,
   } = options;
 
@@ -90,8 +76,6 @@ export function buildWorldviewPromptContext(
         return includeGroups;
       case 'entry':
         return includeEntries;
-      case 'reference':
-        return includeReferences;
       default:
         return false;
     }

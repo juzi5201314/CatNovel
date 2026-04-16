@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   type Node,
   type Edge,
+  type ReactFlowInstance,
   Handle,
   Position,
 } from '@xyflow/react';
@@ -23,6 +24,7 @@ import {
   buildWorldviewTree,
   findNodeInTree,
   buildWorldviewOutline,
+  getNodePath,
   type WorldviewTreeNode,
 } from '@/lib/worldview/worldview-tree';
 import {
@@ -158,12 +160,10 @@ function computeSubtreeLayout(
 function CustomNode({ data }: { data: NodeData }) {
   const [showTooltip, setShowTooltip] = useState(false);
 
-  const typeLabel = data.type === 'group' ? '组' : data.type === 'entry' ? '条' : '引';
+  const typeLabel = data.type === 'group' ? '组' : '条';
   const typeColor = data.type === 'group'
     ? 'bg-blue-100 border-blue-300 text-blue-800'
-    : data.type === 'entry'
-      ? 'bg-green-100 border-green-300 text-green-800'
-      : 'bg-purple-100 border-purple-300 text-purple-800';
+    : 'bg-green-100 border-green-300 text-green-800';
 
   const rootStyles = data.isRoot
     ? 'bg-gradient-to-br from-amber-50 to-amber-100 border-amber-400 shadow-md'
@@ -234,12 +234,30 @@ const nodeTypes = {
 interface SubtreeCanvasProps {
   rootNode: WorldviewTreeNode;
   onSelectNode: (nodeId: string) => void;
+  focusNodeId?: string | null;
 }
 
-function SubtreeCanvas({ rootNode, onSelectNode }: SubtreeCanvasProps) {
+function SubtreeCanvas({ rootNode, onSelectNode, focusNodeId }: SubtreeCanvasProps) {
+  const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+
   const { nodes: flowNodes, edges: flowEdges } = useMemo(() => {
     return computeSubtreeLayout([rootNode], { direction: 'DOWN' });
   }, [rootNode]);
+
+  useEffect(() => {
+    if (focusNodeId && reactFlowInstance.current) {
+      const nodeExists = flowNodes.some(n => n.id === focusNodeId);
+      if (nodeExists) {
+        setTimeout(() => {
+          reactFlowInstance.current?.fitView({
+            nodes: [{ id: focusNodeId }],
+            padding: 0.3,
+            duration: 500,
+          });
+        }, 100);
+      }
+    }
+  }, [focusNodeId, flowNodes]);
 
   const handleNodeClick = useCallback(
     (_: unknown, node: Node) => {
@@ -248,12 +266,17 @@ function SubtreeCanvas({ rootNode, onSelectNode }: SubtreeCanvasProps) {
     [onSelectNode]
   );
 
+  const handleInit = useCallback((instance: ReactFlowInstance) => {
+    reactFlowInstance.current = instance;
+  }, []);
+
   return (
     <div className="flex-1 relative h-full">
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}
         onNodeClick={handleNodeClick}
+        onInit={handleInit}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.2 }}
@@ -284,7 +307,7 @@ interface ChildNodeListProps {
   childNodes: WorldviewTreeNode[];
   onEditChild: (child: WorldviewTreeNode) => void;
   onDeleteChild: (childId: string) => void;
-  onMoveChild: (childId: string, direction: 'up' | 'down') => void;
+  onReorder: (orderedIds: string[]) => void;
   onExpandChild: (childId: string) => void;
   expandedChildren: Set<string>;
   depth?: number;
@@ -294,11 +317,62 @@ function ChildNodeList({
   childNodes,
   onEditChild,
   onDeleteChild,
-  onMoveChild,
+  onReorder,
   onExpandChild,
   expandedChildren,
   depth = 0,
 }: ChildNodeListProps) {
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const handleDragStart = useCallback((e: React.DragEvent, nodeId: string) => {
+    setDraggedId(nodeId);
+    e.dataTransfer.effectAllowed = 'move';
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedId(null);
+    setDragOverId(null);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, nodeId: string) => {
+    e.preventDefault();
+    if (nodeId !== draggedId) {
+      setDragOverId(nodeId);
+    }
+  }, [draggedId]);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setDragOverId(null);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    setDragOverId(null);
+
+    if (!draggedId || draggedId === targetId) {
+      return;
+    }
+
+    const draggedIndex = childNodes.findIndex((n) => n.id === draggedId);
+    const targetIndex = childNodes.findIndex((n) => n.id === targetId);
+
+    if (draggedIndex === -1 || targetIndex === -1) {
+      return;
+    }
+
+    const newOrder = [...childNodes];
+    const [removed] = newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, removed);
+
+    onReorder(newOrder.map((n) => n.id));
+  }, [draggedId, childNodes, onReorder]);
+
   if (childNodes.length === 0) {
     return (
       <div className="text-center text-muted-foreground text-xs py-4">
@@ -309,21 +383,40 @@ function ChildNodeList({
 
   return (
     <div className="space-y-1">
-      {childNodes.map((child, index) => {
+      {childNodes.map((child) => {
         const isExpanded = expandedChildren.has(child.id);
         const canExpand = child.children.length > 0;
-        const canMoveUp = index > 0;
-        const canMoveDown = index < childNodes.length - 1;
+        const isDragging = draggedId === child.id;
+        const isDragOver = dragOverId === child.id;
 
         return (
           <div key={child.id}>
             <div
+              draggable
+              onDragStart={(e) => handleDragStart(e, child.id)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(e) => handleDragOver(e, child.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, child.id)}
               className={cx(
                 'flex items-center gap-2 p-2 rounded-md border bg-background',
-                'hover:border-primary/50 transition-colors'
+                'hover:border-primary/50 transition-all duration-200',
+                isDragging && 'opacity-50',
+                isDragOver && 'border-primary bg-primary/5'
               )}
-              style={{ marginLeft: `${depth * 16}px` }}
+              style={{ marginLeft: `${depth * 16}px`, cursor: 'move' }}
             >
+              <div className="w-5 h-5 flex items-center justify-center text-xs text-muted-foreground/60 hover:text-muted-foreground cursor-grab active:cursor-grabbing">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <circle cx="3" cy="3" r="1" />
+                  <circle cx="3" cy="6" r="1" />
+                  <circle cx="3" cy="9" r="1" />
+                  <circle cx="9" cy="3" r="1" />
+                  <circle cx="9" cy="6" r="1" />
+                  <circle cx="9" cy="9" r="1" />
+                </svg>
+              </div>
+
               {canExpand && (
                 <button
                   onClick={() => onExpandChild(child.id)}
@@ -337,30 +430,12 @@ function ChildNodeList({
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">{child.title}</div>
                 <div className="text-xs text-muted-foreground">
-                  {child.nodeType === 'group' ? '分组' : child.nodeType === 'entry' ? '条目' : '引用'}
+                  {child.nodeType === 'group' ? '分组' : '条目'}
                   {child.children.length > 0 && ` · ${child.children.length} 个子节点`}
                 </div>
               </div>
 
               <div className="flex items-center gap-1">
-                {canMoveUp && (
-                  <button
-                    onClick={() => onMoveChild(child.id, 'up')}
-                    className="w-6 h-6 flex items-center justify-center text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                    title="上移"
-                  >
-                    ↑
-                  </button>
-                )}
-                {canMoveDown && (
-                  <button
-                    onClick={() => onMoveChild(child.id, 'down')}
-                    className="w-6 h-6 flex items-center justify-center text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                    title="下移"
-                  >
-                    ↓
-                  </button>
-                )}
                 <button
                   onClick={() => onEditChild(child)}
                   className="w-6 h-6 flex items-center justify-center text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
@@ -383,7 +458,7 @@ function ChildNodeList({
                 childNodes={child.children}
                 onEditChild={onEditChild}
                 onDeleteChild={onDeleteChild}
-                onMoveChild={onMoveChild}
+                onReorder={onReorder}
                 onExpandChild={onExpandChild}
                 expandedChildren={expandedChildren}
                 depth={depth + 1}
@@ -396,22 +471,212 @@ function ChildNodeList({
   );
 }
 
+interface ParentSelectorProps {
+  node: WorldviewTreeNode;
+  nodes: SettingNodeRecord[];
+  onMoveNode: (nodeId: string, newParentId: string | null) => Promise<void>;
+}
+
+function ParentSelector({ node, nodes, onMoveNode }: ParentSelectorProps) {
+  const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      inputRef.current?.focus();
+    } else {
+      setSearchQuery('');
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open]);
+
+  const eligibleParents = useMemo(() => {
+    return nodes.filter(
+      (n) =>
+        n.id !== node.id &&
+        n.nodeType === 'group'
+    );
+  }, [nodes, node.id]);
+
+  const filteredParents = useMemo(() => {
+    if (!searchQuery.trim()) return eligibleParents;
+    const query = searchQuery.toLowerCase();
+    return eligibleParents.filter((n) =>
+      n.title.toLowerCase().includes(query)
+    );
+  }, [eligibleParents, searchQuery]);
+
+  const currentParent = useMemo(() => {
+    if (!node.parentId) return null;
+    return nodes.find((n) => n.id === node.parentId);
+  }, [nodes, node.parentId]);
+
+  const handleSelect = async (parentId: string | null) => {
+    await onMoveNode(node.id, parentId);
+    setOpen(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="text-xs text-muted-foreground">父节点</label>
+      <button
+        onClick={() => setOpen(true)}
+        className={cx(
+          'w-full h-9 px-3 text-sm rounded-md bg-background border shadow-sm',
+          'flex items-center justify-between',
+          'hover:border-primary/50 transition-colors text-left'
+        )}
+      >
+        <span className={cx('truncate', !currentParent && 'text-muted-foreground')}>
+          {currentParent ? currentParent.title : '（根节点）'}
+        </span>
+        <svg className="w-4 h-4 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setOpen(false);
+          }}
+        >
+          <div className="bg-background rounded-xl shadow-2xl border border-border w-[420px] max-h-[70vh] flex flex-col animate-fade-in">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="font-semibold">选择父节点</h3>
+              <button
+                onClick={() => setOpen(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-4 border-b">
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索节点..."
+                  className="w-full h-10 pl-10 pr-4 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                {filteredParents.length} / {eligibleParents.length} 个节点
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2">
+              <button
+                onClick={() => handleSelect(null)}
+                className={cx(
+                  'w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-150',
+                  !node.parentId
+                    ? 'bg-primary/10 text-foreground font-medium ring-1 ring-primary/20'
+                    : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  {!node.parentId && (
+                    <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                  <span>（根节点）</span>
+                </div>
+              </button>
+
+              {filteredParents.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <svg className="w-10 h-10 mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <p className="text-sm">无匹配节点</p>
+                </div>
+              ) : (
+                <div className="space-y-1 mt-1">
+                  {filteredParents.map((parent) => {
+                    const isSelected = node.parentId === parent.id;
+                    return (
+                      <button
+                        key={parent.id}
+                        onClick={() => handleSelect(parent.id)}
+                        className={cx(
+                          'w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-150',
+                          isSelected
+                            ? 'bg-primary/10 text-foreground font-medium ring-1 ring-primary/20'
+                            : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground'
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          {isSelected && (
+                            <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                          <span className="flex-1 truncate">{parent.title}</span>
+                          <span className="text-xs text-muted-foreground/60 shrink-0">
+                            {parent.nodeType === 'group' ? '分组' : '条目'}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface NodeEditorProps {
   node: WorldviewTreeNode;
   nodes: SettingNodeRecord[];
   onClose: () => void;
+  onSelectNode: (nodeId: string) => void;
   onUpdateNode: (nodeId: string, updates: { title?: string; payload?: WorldviewPayload }) => Promise<void>;
   onDeleteNode: (nodeId: string) => Promise<void>;
   onCreateChild: (type: WorldviewNodeType, parentId: string) => Promise<void>;
   onMoveNode: (nodeId: string, newParentId: string | null) => Promise<void>;
   onConvertNode: (nodeId: string, newType: WorldviewNodeType) => Promise<void>;
-  onReorderChildren: (parentId: string, childId: string, direction: 'up' | 'down') => Promise<void>;
+  onReorderChildren: (parentId: string, orderedIds: string[]) => Promise<void>;
 }
 
 function NodeEditor({
   node,
   nodes,
   onClose,
+  onSelectNode,
   onUpdateNode,
   onDeleteNode,
   onCreateChild,
@@ -433,9 +698,9 @@ function NodeEditor({
     });
   }, []);
 
-  const handleMoveChild = useCallback(
-    async (childId: string, direction: 'up' | 'down') => {
-      await onReorderChildren(node.id, childId, direction);
+  const handleReorder = useCallback(
+    async (orderedIds: string[]) => {
+      await onReorderChildren(node.id, orderedIds);
     },
     [node.id, onReorderChildren]
   );
@@ -449,7 +714,9 @@ function NodeEditor({
     [onDeleteNode]
   );
 
-  const handleEditChild = useCallback((_child: WorldviewTreeNode) => {}, []);
+  const handleEditChild = useCallback((child: WorldviewTreeNode) => {
+    onSelectNode(child.id);
+  }, [onSelectNode]);
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -490,7 +757,6 @@ function NodeEditor({
             >
               <option value="group">分组</option>
               <option value="entry">条目</option>
-              <option value="reference">引用</option>
             </select>
             {node.children.length > 0 && (
               <p className="text-xs text-amber-600">
@@ -538,60 +804,11 @@ function NodeEditor({
           </div>
         )}
 
-        {node.nodeType === 'reference' && (
-          <div className="space-y-2">
-            <label className="text-xs text-muted-foreground">引用目标</label>
-            <select
-              value={node.payload.refTarget || ''}
-              onChange={(e) =>
-                onUpdateNode(node.id, {
-                  payload: {
-                    ...node.payload,
-                    refTarget: e.target.value,
-                  },
-                })
-              }
-              className="w-full h-9 px-3 text-sm rounded-md bg-background border shadow-sm"
-            >
-              <option value="">选择目标...</option>
-              {nodes
-                .filter((n) => n.id !== node.id)
-                .map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {n.title}
-                  </option>
-                ))}
-            </select>
-          </div>
-        )}
-
-        <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">父节点</label>
-          <select
-            value={node.parentId || ''}
-            onChange={(e) => onMoveNode(node.id, e.target.value || null)}
-            className="w-full h-9 px-3 text-sm rounded-md bg-background border shadow-sm"
-          >
-            <option value="">（根节点）</option>
-            {nodes
-              .filter(
-                (n) =>
-                  n.id !== node.id &&
-                  (n.nodeType === 'group' ||
-                    n.nodeType === 'character' ||
-                    n.nodeType === 'location' ||
-                    n.nodeType === 'item' ||
-                    n.nodeType === 'world' ||
-                    n.nodeType === 'plot' ||
-                    n.nodeType === 'rule')
-              )
-              .map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.title}
-                </option>
-              ))}
-          </select>
-        </div>
+        <ParentSelector
+          node={node}
+          nodes={nodes}
+          onMoveNode={onMoveNode}
+        />
 
         {node.nodeType === 'group' && (
           <div className="space-y-3">
@@ -610,12 +827,6 @@ function NodeEditor({
                 >
                   + 条目
                 </button>
-                <button
-                  onClick={() => onCreateChild('reference', node.id)}
-                  className="px-3 h-7 text-xs bg-background border rounded-md hover:bg-muted transition-colors"
-                >
-                  + 引用
-                </button>
               </div>
             </div>
 
@@ -623,7 +834,7 @@ function NodeEditor({
               childNodes={node.children}
               onEditChild={handleEditChild}
               onDeleteChild={handleDeleteChild}
-              onMoveChild={handleMoveChild}
+              onReorder={handleReorder}
               onExpandChild={toggleExpandChild}
               expandedChildren={expandedChildren}
             />
@@ -662,6 +873,7 @@ export function WorldviewDialog({
 }: WorldviewDialogProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeRootId, setActiveRootId] = useState<string | null>(null);
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -685,7 +897,7 @@ export function WorldviewDialog({
 
   const handleCreateNode = useCallback(
     async (type: WorldviewNodeType, parentId: string | null) => {
-      const title = type === 'group' ? '新分组' : type === 'entry' ? '新条目' : '新引用';
+      const title = type === 'group' ? '新分组' : '新条目';
       await onMutate('create-worldview-node', {
         workId,
         nodeType: type,
@@ -716,8 +928,11 @@ export function WorldviewDialog({
       if (selectedNodeId === nodeId) {
         setSelectedNodeId(null);
       }
+      if (focusNodeId === nodeId) {
+        setFocusNodeId(null);
+      }
     },
-    [onMutate, selectedNodeId]
+    [onMutate, selectedNodeId, focusNodeId]
   );
 
   const handleMoveNode = useCallback(
@@ -742,14 +957,14 @@ export function WorldviewDialog({
   );
 
   const handleReorderChildren = useCallback(
-    async (parentId: string, childId: string, direction: 'up' | 'down') => {
-      await onMutate('reorder-worldview-children', {
-        parentId,
-        childId,
-        direction,
+    async (parentId: string, orderedIds: string[]) => {
+      await onMutate('reorder-worldview-siblings', {
+        workId,
+        parentId: parentId || null,
+        orderedIds,
       });
     },
-    [onMutate]
+    [onMutate, workId]
   );
 
   const toggleExpanded = useCallback((id: string) => {
@@ -769,6 +984,8 @@ export function WorldviewDialog({
       if (e.key === 'Escape') {
         if (selectedNodeId) {
           setSelectedNodeId(null);
+        } else if (focusNodeId) {
+          setFocusNodeId(null);
         } else {
           onClose();
         }
@@ -776,7 +993,7 @@ export function WorldviewDialog({
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onClose, selectedNodeId]);
+  }, [onClose, selectedNodeId, focusNodeId]);
 
   const filteredOutline = useMemo(() => {
     if (!searchQuery.trim()) return outline;
@@ -825,14 +1042,17 @@ export function WorldviewDialog({
                   <button
                     key={item.id}
                     onClick={() => {
-                      setSelectedNodeId(item.id);
-                      if (item.depth === 0) {
-                        setActiveRootId(item.id);
+                      const path = getNodePath(tree, item.id);
+                      const rootId = path[0]?.id;
+                      if (rootId) {
+                        setActiveRootId(rootId);
                       }
+                      setSelectedNodeId(null);
+                      setFocusNodeId(item.id);
                     }}
                     className={cx(
                       'w-full text-left px-3 py-2 rounded-md text-sm transition-colors',
-                      selectedNodeId === item.id
+                      focusNodeId === item.id
                         ? 'bg-primary text-primary-foreground'
                         : 'hover:bg-muted'
                     )}
@@ -845,14 +1065,20 @@ export function WorldviewDialog({
                             e.stopPropagation();
                             toggleExpanded(item.id);
                           }}
-                          className="text-xs cursor-pointer"
+                          className={cx(
+                            'text-xs cursor-pointer',
+                            focusNodeId === item.id ? 'text-primary-foreground' : ''
+                          )}
                         >
                           {item.expanded ? '▼' : '▶'}
                         </span>
                       )}
                       <span className="truncate">{item.title}</span>
-                      <span className="text-xs opacity-60 ml-auto">
-                        {item.type === 'group' ? '组' : item.type === 'entry' ? '条' : '引'}
+                      <span className={cx(
+                        'text-xs opacity-60 ml-auto',
+                        focusNodeId === item.id ? 'text-primary-foreground' : ''
+                      )}>
+                        {item.type === 'group' ? '组' : '条'}
                       </span>
                     </div>
                   </button>
@@ -882,6 +1108,7 @@ export function WorldviewDialog({
               node={selectedNode}
               nodes={nodes}
               onClose={() => setSelectedNodeId(null)}
+              onSelectNode={setSelectedNodeId}
               onUpdateNode={handleUpdateNode}
               onDeleteNode={handleDeleteNode}
               onCreateChild={handleCreateNode}
@@ -898,7 +1125,10 @@ export function WorldviewDialog({
                     {tree.map((root) => (
                       <button
                         key={root.id}
-                        onClick={() => setActiveRootId(root.id)}
+                        onClick={() => {
+                          setActiveRootId(root.id);
+                          setFocusNodeId(null);
+                        }}
                         className={cx(
                           'px-3 py-1 text-xs rounded-md whitespace-nowrap transition-colors',
                           effectiveActiveRootId === root.id
@@ -916,7 +1146,11 @@ export function WorldviewDialog({
               {activeRootNode ? (
                 <SubtreeCanvas
                   rootNode={activeRootNode}
-                  onSelectNode={setSelectedNodeId}
+                  onSelectNode={(nodeId) => {
+                    setSelectedNodeId(nodeId);
+                    setFocusNodeId(null);
+                  }}
+                  focusNodeId={focusNodeId}
                 />
               ) : (
                 <div className="flex-1 flex items-center justify-center">

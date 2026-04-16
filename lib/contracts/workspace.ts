@@ -15,7 +15,7 @@ export type SettingNodeType =
   | 'plot'
   | 'rule';
 
-export type WorldviewNodeType = 'group' | 'entry' | 'reference';
+export type WorldviewNodeType = 'group' | 'entry';
 
 export type ChatRole = 'system' | 'user' | 'assistant';
 
