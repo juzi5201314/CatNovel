@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { getDatabase } from '../../../db/client.ts';
+import { getDatabase, withImmediateTransaction } from '../../../db/client.ts';
 import type {
   ChatMessageRecord,
   ChatRole,
@@ -145,8 +145,7 @@ export function appendChatMessage(input: {
   const now = new Date().toISOString();
   const db = getDatabase();
 
-  db.exec('BEGIN IMMEDIATE');
-  try {
+  withImmediateTransaction(db, () => {
     db.prepare(
       `INSERT INTO chat_messages (id, session_id, role, body, token_count, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -157,12 +156,7 @@ export function appendChatMessage(input: {
          SET updated_at = ?
        WHERE id = ?`,
     ).run(now, input.sessionId);
-
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+  });
 
   return getChatMessage(id);
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { getDatabase } from '../../../db/client.ts';
+import { getDatabase, withImmediateTransaction } from '../../../db/client.ts';
 import type {
   ProviderFamily,
   ProviderProfileRecord,
@@ -273,8 +273,7 @@ export function resetProviderProfilesForTests(workId = 'work-default') {
   const db = getDatabase();
   const now = new Date().toISOString();
 
-  db.exec('BEGIN IMMEDIATE');
-  try {
+  withImmediateTransaction(db, () => {
     db.prepare('DELETE FROM ai_provider_profiles WHERE work_id = ?').run(workId);
 
     const insert = db.prepare(
@@ -310,10 +309,5 @@ export function resetProviderProfilesForTests(workId = 'work-default') {
         now,
       );
     }
-
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+  });
 }
