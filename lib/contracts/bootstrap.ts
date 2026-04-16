@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { providerFamilies, workspaceLocales } from './workspace.ts';
+
 export const volumeSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -22,7 +24,7 @@ export const chapterSummarySchema = z.object({
 export const providerSummarySchema = z.object({
   id: z.string(),
   label: z.string(),
-  family: z.enum(["openai-compatible", "openai-responses", "gemini-native", "claude-native"]),
+  family: z.enum(providerFamilies),
   enabled: z.boolean(),
 });
 
@@ -35,7 +37,7 @@ export const bootstrapPayloadSchema = z.object({
   workspace: z.object({
     workId: z.string(),
     workTitle: z.string(),
-    locale: z.enum(["zh", "en", "ru"]),
+    locale: z.enum(workspaceLocales),
     synopsis: z.string(),
     stats: z.object({
       volumeCount: z.number().int().nonnegative(),

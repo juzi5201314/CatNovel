@@ -1,21 +1,31 @@
-export type WorkspaceLocale = 'zh' | 'en' | 'ru';
+export const workspaceLocales = ['zh', 'en', 'ru'] as const;
 
-export type ProviderFamily =
-  | 'openai-compatible'
-  | 'openai-responses'
-  | 'gemini-native'
-  | 'claude-native'
-  | 'custom-endpoint';
+export type WorkspaceLocale = (typeof workspaceLocales)[number];
 
-export type SettingNodeType =
-  | 'character'
-  | 'location'
-  | 'item'
-  | 'world'
-  | 'plot'
-  | 'rule';
+export const providerFamilies = [
+  'openai-compatible',
+  'openai-responses',
+  'gemini-native',
+  'claude-native',
+  'custom-endpoint',
+] as const;
 
-export type WorldviewNodeType = 'group' | 'entry';
+export type ProviderFamily = (typeof providerFamilies)[number];
+
+export const settingNodeTypes = [
+  'character',
+  'location',
+  'item',
+  'world',
+  'plot',
+  'rule',
+] as const;
+
+export type SettingNodeType = (typeof settingNodeTypes)[number];
+
+export const worldviewNodeTypes = ['group', 'entry'] as const;
+
+export type WorldviewNodeType = (typeof worldviewNodeTypes)[number];
 
 export type ChatRole = 'system' | 'user' | 'assistant';
 
