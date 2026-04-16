@@ -351,24 +351,26 @@ function ParentSelectorDialog({
     onClose();
   };
 
-  return (
+    return (
     <div
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-background rounded-xl shadow-2xl border border-border w-[420px] max-h-[70vh] flex flex-col animate-fade-in">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold">{title}</h3>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </button>
+      <div className="bg-background rounded-xl shadow-2xl border border-border w-[420px] max-h-[70vh] flex flex-col animate-fade-in relative">
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 z-10 w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          title="关闭 (Esc)"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+
+        <div className="flex items-center px-5 py-4 border-b">
+          <h3 className="font-semibold pr-8">{title}</h3>
         </div>
 
         <div className="p-4 border-b">
@@ -1028,18 +1030,19 @@ function NodeEditor({
   }, [onSelectNode]);
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      <div className="flex items-center gap-4 p-4 border-b">
-        <button
-          onClick={onClose}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M4 8h8M4 8l3-3M4 8l3 3" />
-          </svg>
-          返回画布
-        </button>
-        <h2 className="text-lg font-semibold">编辑节点</h2>
+    <div className="flex flex-col h-full bg-background relative">
+      <button
+        onClick={onClose}
+        className="absolute top-3 right-3 z-10 w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        title="返回画布"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M4 4l8 8M12 4l-8 8" />
+        </svg>
+      </button>
+
+      <div className="flex items-center p-4 border-b">
+        <h2 className="text-lg font-semibold pr-8">编辑节点</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -1394,20 +1397,20 @@ export function WorldviewDialog({
   return (
     <>
       <div className="settings-overlay">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-[60] w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors bg-background/80 backdrop-blur-sm shadow-sm border"
+          title="关闭 (Esc)"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+
         <div className="settings-layout">
           <div className="border-r flex flex-col overflow-hidden bg-muted/20">
             <div className="p-4 border-b">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold">世界观</h2>
-                <button
-                  onClick={onClose}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M4 4l8 8M12 4l-8 8" />
-                  </svg>
-                </button>
-              </div>
+              <h2 className="text-lg font-semibold mb-3">世界观</h2>
               <input
                 type="text"
                 value={searchQuery}

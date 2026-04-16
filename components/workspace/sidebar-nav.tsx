@@ -104,8 +104,17 @@ function VolumeManagerPanel({
       ref={panelRef}
       className="fixed left-[248px] top-[200px] w-[300px] bg-background rounded-lg shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_10px_40px_rgba(0,0,0,0.12)] z-[100] overflow-hidden"
     >
-      <div className="p-3 border-b border-muted-foreground/10">
+      <div className="p-3 border-b border-muted-foreground/10 flex items-center justify-between">
         <h3 className="text-sm font-semibold">章节与卷管理</h3>
+        <button
+          onClick={onClose}
+          className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          title="关闭"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
       </div>
 
       <div className="max-h-[400px] overflow-y-auto p-2 space-y-2">
@@ -306,8 +315,17 @@ function WorkManagerPanel({
       ref={panelRef}
       className="fixed left-[248px] top-[120px] w-[280px] bg-background rounded-lg shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_10px_40px_rgba(0,0,0,0.12)] z-[100] overflow-hidden"
     >
-      <div className="p-3 border-b border-muted-foreground/10">
+      <div className="p-3 border-b border-muted-foreground/10 flex items-center justify-between">
         <h3 className="text-sm font-semibold">作品管理</h3>
+        <button
+          onClick={onClose}
+          className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          title="关闭"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
       </div>
 
       <div className="max-h-[320px] overflow-y-auto p-2 space-y-1">

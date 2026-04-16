@@ -86,9 +86,18 @@ export function ModelSettingsDialog({
 
   return (
     <div className="settings-overlay">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b">
-        <div className="flex items-center gap-4">
+      <button
+        onClick={onCloseAction}
+        className="absolute top-4 right-4 z-[60] w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors bg-background/80 backdrop-blur-sm shadow-sm border"
+        title="关闭 (Esc)"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M4 4l8 8M12 4l-8 8" />
+        </svg>
+      </button>
+
+      <div className="flex items-center px-6 py-4 border-b">
+        <div className="flex items-center gap-4 pr-12">
           <h2 className="text-lg font-semibold">{copy.modelSettings}</h2>
           <ActiveModelSelector
             copy={copy}
@@ -97,14 +106,6 @@ export function ModelSettingsDialog({
             onChangeAction={onActiveModelChangeAction}
           />
         </div>
-        <button
-          onClick={onCloseAction}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M4 4l8 8M12 4l-8 8" />
-          </svg>
-        </button>
       </div>
 
       {/* Two-column layout */}
