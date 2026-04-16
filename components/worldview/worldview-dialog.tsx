@@ -532,6 +532,7 @@ function CustomNode({ data }: CustomNodeProps) {
       className={cx(
         'relative rounded-lg border p-2 flex flex-col items-center justify-center transition-all duration-200',
         'hover:shadow-lg hover:border-gray-400 cursor-pointer',
+        rootStyles,
         data.isRoot ? 'min-w-[180px] min-h-[70px]' : 'min-w-[140px] min-h-[50px]'
       )}
       onMouseEnter={() => setShowTooltip(true)}
@@ -838,6 +839,7 @@ function ChildNodeList({
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, child.id)}
               className={cx(
+                'bg-background border rounded-md p-2 flex items-center gap-2',
                 'hover:border-gray-400/50 transition-all duration-200',
                 isDragging && 'opacity-50',
                 isDragOver && 'border-gray-600 bg-gray-50'
