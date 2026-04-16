@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ProviderFamily, ProviderProfileRecord } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { cx } from '@/lib/design/cx';
+
+type EditableTextField = 'label' | 'endpoint' | 'apiKey';
 
 type HistoryState = {
   label: string;
@@ -68,18 +69,18 @@ export function ProviderEditor({
   copy,
   provider,
   activeModel,
-  onFieldChange,
-  onDelete,
-  onModelsChange,
-  onSetAsActive,
+  onFieldChangeAction,
+  onDeleteAction,
+  onModelsChangeAction,
+  onSetAsActiveAction,
 }: {
   copy: AppMessages;
   provider: ProviderProfileRecord;
   activeModel: { profileId: string; modelId: string } | null;
-  onFieldChange: (field: string, value: string | boolean) => void;
-  onDelete: () => void;
-  onModelsChange: () => void;
-  onSetAsActive?: (modelId: string) => void;
+  onFieldChangeAction: (field: string, value: string | boolean) => void;
+  onDeleteAction: () => void;
+  onModelsChangeAction: () => void;
+  onSetAsActiveAction?: (modelId: string) => void;
 }) {
   const [showApiKey, setShowApiKey] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -119,7 +120,15 @@ export function ProviderEditor({
     setLocalLabel(provider.label);
     setLocalEndpoint(provider.endpoint);
     setLocalApiKey(provider.apiKey);
-  }, [provider.id]);
+  }, [
+    provider.apiKey,
+    provider.enabled,
+    provider.endpoint,
+    provider.family,
+    provider.id,
+    provider.label,
+    provider.modelIds,
+  ]);
 
   const canUndo = historyIndex > 0;
 
@@ -159,13 +168,13 @@ export function ProviderEditor({
       }),
     });
 
-    onFieldChange('label', prevState.label);
-    onFieldChange('endpoint', prevState.endpoint);
-    onFieldChange('apiKey', prevState.apiKey);
-    onFieldChange('family', prevState.family);
-    onFieldChange('enabled', prevState.enabled);
-    onModelsChange();
-  }, [canUndo, history, historyIndex, provider.id, onFieldChange, onModelsChange]);
+    onFieldChangeAction('label', prevState.label);
+    onFieldChangeAction('endpoint', prevState.endpoint);
+    onFieldChangeAction('apiKey', prevState.apiKey);
+    onFieldChangeAction('family', prevState.family);
+    onFieldChangeAction('enabled', prevState.enabled);
+    onModelsChangeAction();
+  }, [canUndo, history, historyIndex, onFieldChangeAction, onModelsChangeAction, provider.id]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -188,11 +197,6 @@ export function ProviderEditor({
       modelIds: [...provider.modelIds],
     };
 
-    const newState: HistoryState = {
-      ...currentState,
-      [field]: Array.isArray(value) ? [...value] : value,
-    };
-
     saveToHistory(currentState);
 
     try {
@@ -202,40 +206,18 @@ export function ProviderEditor({
         body: JSON.stringify({ profileId: provider.id, [field]: value }),
       });
       if (!Array.isArray(value)) {
-        onFieldChange(field, value);
+        onFieldChangeAction(field, value);
       }
     } catch {
       // silent — optimistic update
     }
-  }, [provider.id, provider.family, provider.enabled, provider.modelIds, localLabel, localEndpoint, localApiKey, onFieldChange, saveToHistory]);
+  }, [localApiKey, localEndpoint, localLabel, onFieldChangeAction, provider.enabled, provider.family, provider.id, provider.modelIds, saveToHistory]);
 
-  const handleBlur = (field: string, localValue: string) => {
-    const current = (provider as any)[field] as string;
+  const handleBlur = (field: EditableTextField, localValue: string) => {
+    const current = provider[field];
     if (localValue !== current) {
       handlePatch(field, localValue);
     }
-  };
-
-  const handleRemoveModel = async (modelId: string) => {
-    const newModelIds = provider.modelIds.filter((m) => m !== modelId);
-    if (newModelIds.length === 0) return;
-
-    const currentState: HistoryState = {
-      label: localLabel,
-      endpoint: localEndpoint,
-      apiKey: localApiKey,
-      family: provider.family,
-      enabled: provider.enabled,
-      modelIds: [...provider.modelIds],
-    };
-    saveToHistory(currentState);
-
-    await fetch('/api/ai', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ profileId: provider.id, modelIds: newModelIds }),
-    });
-    onModelsChange();
   };
 
   const handleAddModel = async () => {
@@ -259,7 +241,7 @@ export function ProviderEditor({
       body: JSON.stringify({ profileId: provider.id, modelIds: newModelIds }),
     });
     setDraftModelId('');
-    onModelsChange();
+    onModelsChangeAction();
   };
 
   const handleFetchModels = async () => {
@@ -303,7 +285,7 @@ export function ProviderEditor({
       }
       
       // 确保数据已保存后再通知父组件刷新
-      onModelsChange();
+      onModelsChangeAction();
     } catch (error) {
       setTestStatus('failed');
       setTestMessage(`${copy.fetchFailed}: ${error instanceof Error ? error.message : 'Unknown'}`);
@@ -340,7 +322,7 @@ export function ProviderEditor({
       setConfirmDelete(true);
       return;
     }
-    onDelete();
+    onDeleteAction();
     setConfirmDelete(false);
   };
 
@@ -514,7 +496,7 @@ export function ProviderEditor({
                         body: JSON.stringify({ profileId: provider.id, modelIds: reorderedIds }),
                       });
                       if (!res.ok) throw new Error('Failed to reorder models');
-                      onModelsChange();
+                      onModelsChangeAction();
                     } catch {
                       // 静默失败，下次刷新会恢复正确顺序
                     }
@@ -537,8 +519,8 @@ export function ProviderEditor({
                           ? "bg-white border border-green-300 text-green-600 cursor-not-allowed opacity-60"
                           : "bg-white border border-green-500 text-green-600 hover:bg-green-50"
                       )}
-                      onClick={() => onSetAsActive?.(currentModelId)}
-                      disabled={isActive || !onSetAsActive}
+                       onClick={() => onSetAsActiveAction?.(currentModelId)}
+                       disabled={isActive || !onSetAsActiveAction}
                     >
                       {copy.setAsActive}
                     </Button>

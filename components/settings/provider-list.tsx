@@ -1,12 +1,10 @@
 'use client';
 
-import { useState } from 'react';
 import type { ProviderFamily, ProviderProfileRecord } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { cx } from '@/lib/design/cx';
 
 const familyLabels: Record<ProviderFamily, string> = {
@@ -21,27 +19,27 @@ export function ProviderList({
   copy,
   providers,
   selectedId,
-  onSelect,
-  onAdd,
+  onSelectAction,
+  onAddAction,
 }: {
   copy: AppMessages;
   providers: ProviderProfileRecord[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
-  onAdd: () => void;
+  onSelectAction: (id: string) => void;
+  onAddAction: () => void;
 }) {
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b flex items-center justify-between">
         <span className="text-mono-label">{copy.addProvider.replace('添加', '供应商').replace('Add', 'Providers')}</span>
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-lg" onClick={onAdd}>+</Button>
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-lg" onClick={onAddAction}>+</Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {providers.map((provider) => (
           <button
             key={provider.id}
-            onClick={() => onSelect(provider.id)}
+            onClick={() => onSelectAction(provider.id)}
             className={cx(
               "w-full text-left p-3 rounded-lg transition-all text-sm",
               provider.id === selectedId

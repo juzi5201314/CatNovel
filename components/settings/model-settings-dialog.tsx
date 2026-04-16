@@ -1,50 +1,40 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { ActiveModelSelection, ProviderFamily, ProviderProfileRecord } from '@/lib/contracts/workspace';
+import type { ActiveModelSelection, ProviderProfileRecord } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
 import { ActiveModelSelector } from './active-model-selector';
 import { ProviderEditor } from './provider-editor';
 import { ProviderList } from './provider-list';
-import { cx } from '@/lib/design/cx';
 
 export function ModelSettingsDialog({
   copy,
   providers,
   activeModel,
-  onActiveModelChange,
-  onProvidersChange,
-  onClose,
+  onActiveModelChangeAction,
+  onProvidersChangeAction,
+  onCloseAction,
 }: {
   copy: AppMessages;
   providers: ProviderProfileRecord[];
   activeModel: ActiveModelSelection | null;
-  onActiveModelChange: (selection: ActiveModelSelection) => void;
-  onProvidersChange: () => void;
-  onClose: () => void;
+  onActiveModelChangeAction: (selection: ActiveModelSelection) => void;
+  onProvidersChangeAction: () => void;
+  onCloseAction: () => void;
 }) {
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
-    activeModel?.profileId ?? providers[0]?.id ?? null,
-  );
-
-  const selectedProvider = providers.find((p) => p.id === selectedProviderId) ?? null;
-
-  // Sync selected provider with active model on open
-  useEffect(() => {
-    if (activeModel?.profileId) {
-      setSelectedProviderId(activeModel.profileId);
-    }
-  }, []);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const resolvedSelectedProviderId = selectedProviderId ?? activeModel?.profileId ?? providers[0]?.id ?? null;
+  const selectedProvider = providers.find((p) => p.id === resolvedSelectedProviderId) ?? null;
 
   // Escape to close
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseAction();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [onCloseAction]);
 
   const handleAddProvider = useCallback(async () => {
     try {
@@ -64,11 +54,11 @@ export function ModelSettingsDialog({
       if (data.profile?.id) {
         setSelectedProviderId(data.profile.id);
       }
-      onProvidersChange();
+      onProvidersChangeAction();
     } catch {
       // silent
     }
-  }, [onProvidersChange]);
+  }, [onProvidersChangeAction]);
 
   const handleDeleteProvider = useCallback(async () => {
     if (!selectedProviderId) return;
@@ -79,20 +69,20 @@ export function ModelSettingsDialog({
       if (activeModel?.profileId === selectedProviderId) {
         const nextProvider = providers.find((p) => p.id !== selectedProviderId);
         if (nextProvider) {
-          onActiveModelChange({ profileId: nextProvider.id, modelId: nextProvider.modelIds[0] });
+          onActiveModelChangeAction({ profileId: nextProvider.id, modelId: nextProvider.modelIds[0] });
         }
       }
 
       setSelectedProviderId(providers.find((p) => p.id !== selectedProviderId)?.id ?? null);
-      onProvidersChange();
+      onProvidersChangeAction();
     } catch {
       // silent
     }
-  }, [selectedProviderId, activeModel, providers, onActiveModelChange, onProvidersChange]);
+  }, [activeModel, onActiveModelChangeAction, onProvidersChangeAction, providers, selectedProviderId]);
 
-  const handleFieldChange = useCallback((_field: string, _value: string | boolean) => {
-    onProvidersChange();
-  }, [onProvidersChange]);
+  const handleFieldChange = useCallback(() => {
+    onProvidersChangeAction();
+  }, [onProvidersChangeAction]);
 
   return (
     <div className="settings-overlay">
@@ -104,11 +94,11 @@ export function ModelSettingsDialog({
             copy={copy}
             providers={providers}
             activeModel={activeModel}
-            onChange={onActiveModelChange}
+            onChangeAction={onActiveModelChangeAction}
           />
         </div>
         <button
-          onClick={onClose}
+          onClick={onCloseAction}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -123,9 +113,9 @@ export function ModelSettingsDialog({
           <ProviderList
             copy={copy}
             providers={providers}
-            selectedId={selectedProviderId}
-            onSelect={setSelectedProviderId}
-            onAdd={handleAddProvider}
+            selectedId={resolvedSelectedProviderId}
+            onSelectAction={setSelectedProviderId}
+            onAddAction={handleAddProvider}
           />
         </div>
 
@@ -136,10 +126,10 @@ export function ModelSettingsDialog({
               copy={copy}
               provider={selectedProvider}
               activeModel={activeModel}
-              onFieldChange={handleFieldChange}
-              onDelete={handleDeleteProvider}
-              onModelsChange={onProvidersChange}
-              onSetAsActive={(modelId) => onActiveModelChange({ profileId: selectedProvider.id, modelId })}
+              onFieldChangeAction={handleFieldChange}
+              onDeleteAction={handleDeleteProvider}
+              onModelsChangeAction={onProvidersChangeAction}
+              onSetAsActiveAction={(modelId: string) => onActiveModelChangeAction({ profileId: selectedProvider.id, modelId })}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

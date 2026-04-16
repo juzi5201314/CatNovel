@@ -1,35 +1,24 @@
 import type {
   BookMetadataRecord,
   SettingNodeRecord,
-  SettingNodeType,
-  WorkspaceLocale,
 } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { cx } from '@/lib/design/cx';
-import {
-  parseSettingSummary,
-  settingTypeLabels,
-  t,
-} from '../workspace/workspace-data';
 
 export function SettingsPanel({
-  locale,
   copy,
   nodes,
   activeNodeId,
   activeNodeTitle,
   activeNodeSummary,
   draftNodeTitle,
-  draftNodeType,
   metadata,
   onNodeChange,
   onDraftNodeTitleChange,
-  onDraftNodeTypeChange,
   onCreateNode,
   onActiveNodeTitleChange,
   onActiveNodeSummaryChange,
@@ -38,18 +27,15 @@ export function SettingsPanel({
   onMetadataChange,
   onSaveMetadata,
 }: {
-  locale: WorkspaceLocale;
   copy: AppMessages;
   nodes: SettingNodeRecord[];
   activeNodeId: string | null;
   activeNodeTitle: string;
   activeNodeSummary: string;
   draftNodeTitle: string;
-  draftNodeType: SettingNodeType;
   metadata: BookMetadataRecord | null;
   onNodeChange: (id: string) => void;
   onDraftNodeTitleChange: (value: string) => void;
-  onDraftNodeTypeChange: (value: SettingNodeType) => void;
   onCreateNode: () => void;
   onActiveNodeTitleChange: (value: string) => void;
   onActiveNodeSummaryChange: (value: string) => void;

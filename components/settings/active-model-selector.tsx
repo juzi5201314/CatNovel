@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActiveModelSelection, ProviderProfileRecord } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
@@ -10,29 +10,37 @@ export function ActiveModelSelector({
   copy,
   providers,
   activeModel,
-  onChange,
+  onChangeAction,
 }: {
   copy: AppMessages;
   providers: ProviderProfileRecord[];
   activeModel: ActiveModelSelection | null;
-  onChange: (selection: ActiveModelSelection) => void;
+  onChangeAction: (selection: ActiveModelSelection) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const handleOpen = useCallback(() => {
+    setSearchQuery('');
+    setOpen(true);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setSearchQuery('');
+    setOpen(false);
+  }, []);
+
   useEffect(() => {
-    if (!open) {
-      setSearchQuery('');
-      return;
-    }
+    if (!open) return;
+
     inputRef.current?.focus();
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') handleClose();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [open]);
+  }, [handleClose, open]);
 
   const allModels = useMemo(() =>
     providers
@@ -59,17 +67,19 @@ export function ActiveModelSelector({
 
   const hasAvailableModels = allModels.length > 0;
 
-  const activeLabel = activeModel
-    ? (() => {
-        const profile = providers.find((p) => p.id === activeModel.profileId);
-        return profile ? `${profile.label} / ${activeModel.modelId}` : activeModel.modelId;
-      })()
-    : '—';
+  const activeLabel = useMemo(() => {
+    if (!activeModel) {
+      return '—';
+    }
+
+    const profile = providers.find((p) => p.id === activeModel.profileId);
+    return profile ? `${profile.label} / ${activeModel.modelId}` : activeModel.modelId;
+  }, [activeModel, providers]);
 
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className={cx(
           "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
           hasAvailableModels
@@ -90,14 +100,14 @@ export function ActiveModelSelector({
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setOpen(false);
+            if (e.target === e.currentTarget) handleClose();
           }}
         >
           <div className="bg-background rounded-xl shadow-2xl border border-border w-[560px] max-h-[80vh] flex flex-col animate-fade-in">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h3 className="font-semibold">{copy.modelSettings}</h3>
               <button
-                onClick={() => setOpen(false)}
+                onClick={handleClose}
                 className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -151,8 +161,8 @@ export function ActiveModelSelector({
                       <button
                         key={`${item.profileId}::${item.modelId}`}
                         onClick={() => {
-                          onChange({ profileId: item.profileId, modelId: item.modelId });
-                          setOpen(false);
+                          onChangeAction({ profileId: item.profileId, modelId: item.modelId });
+                          handleClose();
                         }}
                         className={cx(
                           "w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-150 group",
