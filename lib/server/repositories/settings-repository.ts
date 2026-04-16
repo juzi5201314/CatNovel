@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { getDatabase } from '../../../db/client.ts';
+import { getDatabase, withImmediateTransaction } from '../../../db/client.ts';
 import type {
   BookMetadataRecord,
   SettingNodeRecord,
@@ -198,34 +198,33 @@ export function updateSettingNode(
   return getSettingNode(nodeId);
 }
 
-function collectDescendantIds(nodeId: string, acc: string[] = []) {
+function collectDescendantIds(nodeId: string) {
   const db = getDatabase();
-  const children = db
-    .prepare('SELECT id FROM settings_nodes WHERE parent_id = ?')
+  const rows = db
+    .prepare(
+      `WITH RECURSIVE descendants(id) AS (
+        SELECT id FROM settings_nodes WHERE parent_id = ?
+        UNION ALL
+        SELECT settings_nodes.id
+        FROM settings_nodes
+        INNER JOIN descendants ON settings_nodes.parent_id = descendants.id
+      )
+      SELECT id FROM descendants`,
+    )
     .all(nodeId) as Array<{ id: string }>;
 
-  for (const child of children) {
-    acc.push(child.id);
-    collectDescendantIds(child.id, acc);
-  }
-
-  return acc;
+  return rows.map((row) => row.id);
 }
 
 export function deleteSettingNode(nodeId: string) {
   const ids = [nodeId, ...collectDescendantIds(nodeId)];
   const db = getDatabase();
-  db.exec('BEGIN IMMEDIATE');
-  try {
+  withImmediateTransaction(db, () => {
     const statement = db.prepare('DELETE FROM settings_nodes WHERE id = ?');
     for (const id of ids.reverse()) {
       statement.run(id);
     }
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+  });
 }
 
 export function getBookMetadata(workId: string) {
@@ -365,22 +364,38 @@ export function reorderSiblings(
   orderedIds: string[]
 ) {
   const db = getDatabase();
-  db.exec('BEGIN IMMEDIATE');
+  withImmediateTransaction(db, () => {
+    if (orderedIds.length === 0) {
+      return;
+    }
 
-  try {
+    const placeholders = orderedIds.map(() => '?').join(', ');
+    const matchedRows = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM settings_nodes
+         WHERE work_id = ?
+           AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
+           AND id IN (${placeholders})`,
+      )
+      .get(workId, parentId, parentId, ...orderedIds) as { count: number };
+
+    if (matchedRows.count !== orderedIds.length) {
+      throw new Error('Ordered worldview nodes must share the same parent');
+    }
+
     const statement = db.prepare(
-      'UPDATE settings_nodes SET sort_index = ? WHERE id = ? AND work_id = ?'
+      `UPDATE settings_nodes
+       SET sort_index = ?
+       WHERE id = ?
+         AND work_id = ?
+         AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))`,
     );
 
     for (let i = 0; i < orderedIds.length; i++) {
-      statement.run(i, orderedIds[i], workId);
+      statement.run(i, orderedIds[i], workId, parentId, parentId);
     }
-
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+  });
 }
 
 export function wouldCreateCycle(nodeId: string, proposedParentId: string): boolean {

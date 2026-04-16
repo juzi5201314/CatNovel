@@ -1,15 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { getDatabase } from "../../../db/client.ts";
-
-export type VolumeRecord = {
-  id: string;
-  workId: string;
-  title: string;
-  sortIndex: number;
-  createdAt: string;
-  updatedAt: string;
-};
+import { getDatabase, withImmediateTransaction } from "../../../db/client.ts";
+import type { VolumeRecord } from '../../contracts/workspace.ts';
 
 export function listVolumes(workId: string) {
   const db = getDatabase();
@@ -25,7 +17,7 @@ export function listVolumes(workId: string) {
      FROM volumes
      WHERE work_id = ?
      ORDER BY sort_index ASC, created_at ASC`,
-  ).all(workId) as VolumeRecord[];
+  ).all(workId) as unknown as VolumeRecord[];
 }
 
 export function getVolumeById(volumeId: string) {
@@ -98,15 +90,10 @@ export function deleteVolume(volumeId: string) {
     return;
   }
 
-  db.exec("BEGIN IMMEDIATE");
-  try {
+  withImmediateTransaction(db, () => {
     db.prepare("DELETE FROM chapter_order WHERE chapter_id IN (SELECT id FROM chapters WHERE volume_id = ?)")
       .run(volumeId);
     db.prepare("DELETE FROM chapters WHERE volume_id = ?").run(volumeId);
     db.prepare("DELETE FROM volumes WHERE id = ?").run(volumeId);
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }

@@ -1,15 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { getDatabase } from "../../../db/client.ts";
-
-export type WorkRecord = {
-  id: string;
-  title: string;
-  locale: "zh" | "en" | "ru";
-  synopsis: string;
-  createdAt: string;
-  updatedAt: string;
-};
+import type { WorkRecord } from '../../contracts/workspace.ts';
 
 export function listWorks() {
   const db = getDatabase();
@@ -24,7 +16,7 @@ export function listWorks() {
       updated_at AS updatedAt
      FROM works
      ORDER BY updated_at DESC`,
-  ).all() as WorkRecord[];
+  ).all() as unknown as WorkRecord[];
 }
 
 export function getWorkById(workId: string) {
