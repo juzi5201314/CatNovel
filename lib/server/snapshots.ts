@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SQLInputValue } from "node:sqlite";
 
-import { getDatabase } from "../../db/client.ts";
+import { getDatabase, withImmediateTransaction } from "../../db/client.ts";
 
 const workScopedTables = [
   "chapters",
@@ -91,18 +91,17 @@ function insertRows(table: SnapshotTable, rows: Record<string, unknown>[]) {
   }
 
   const db = getDatabase();
+  const columns = Object.keys(rows[0]);
+  const placeholders = columns.map(() => '?').join(', ');
+  const statement = db.prepare(
+    `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
+  );
 
   for (const row of rows) {
     const entries = Object.entries(row);
     if (entries.length === 0) {
       continue;
     }
-
-    const columns = entries.map(([column]) => column);
-    const placeholders = columns.map(() => "?").join(", ");
-    const statement = db.prepare(
-      `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`,
-    );
     const values = entries.map(([, value]) => value as SQLInputValue);
     statement.run(...values);
   }
@@ -165,9 +164,7 @@ export function createSnapshot(options?: { workId?: string; label?: string }) {
     snapshotTables.map((table) => [table, queryRows(table, workId)]),
   ) as Record<SnapshotTable, Record<string, unknown>[]>;
 
-  db.exec("BEGIN IMMEDIATE");
-
-  try {
+  withImmediateTransaction(db, () => {
     db.prepare(
       `INSERT INTO snapshots (id, work_id, label, created_at)
        VALUES (?, ?, ?, ?)`,
@@ -187,12 +184,7 @@ export function createSnapshot(options?: { workId?: string; label?: string }) {
         JSON.stringify(rows),
       );
     }
-
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 
   return {
     id: snapshotId,
@@ -233,9 +225,7 @@ export function restoreSnapshot(snapshotId: string) {
     )
     .all(snapshotId) as Array<{ itemType: SnapshotTable; payloadJson: string }>;
 
-  db.exec("BEGIN IMMEDIATE");
-
-  try {
+  withImmediateTransaction(db, () => {
     deleteCurrentState(snapshot.workId);
 
     for (const table of insertOrder) {
@@ -247,12 +237,7 @@ export function restoreSnapshot(snapshotId: string) {
       const rows = JSON.parse(item.payloadJson) as Record<string, unknown>[];
       insertRows(table, rows);
     }
-
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 
   return {
     snapshotId,

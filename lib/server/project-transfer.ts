@@ -3,7 +3,12 @@ import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { SQLInputValue } from "node:sqlite";
 
-import { closeDatabase, getDatabase, getDatabaseStatus } from "../../db/client.ts";
+import {
+  closeDatabase,
+  getDatabase,
+  getDatabaseStatus,
+  withImmediateTransaction,
+} from "../../db/client.ts";
 import { canonicalTables } from "../../db/schema.ts";
 
 export interface ProjectArchive {
@@ -96,9 +101,7 @@ export function importProjectArchive(input: unknown) {
   const archive = normalizeArchive(input);
   const db = getDatabase();
 
-  db.exec("BEGIN IMMEDIATE");
-
-  try {
+  withImmediateTransaction(db, () => {
     for (const table of importDeleteOrder) {
       if (!assertKnownTable(table)) {
         continue;
@@ -136,12 +139,7 @@ export function importProjectArchive(input: unknown) {
         statement.run(...values);
       }
     }
-
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 
   return {
     importedAt: new Date().toISOString(),

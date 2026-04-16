@@ -1,12 +1,16 @@
 import { z } from 'zod';
 
+import {
+  settingNodeTypes,
+  workspaceLocales,
+  worldviewNodeTypes,
+} from '../../contracts/workspace.ts';
 import type {
   ActiveModelSelection,
   ChatRole,
   SettingNodeType,
   WorkspaceCollections,
   WorkspaceLocale,
-  WorldviewNodeType,
 } from '../../contracts/workspace.ts';
 import {
   appendChatMessage,
@@ -34,7 +38,6 @@ import {
   createSettingNode,
   deleteSettingNode,
   getBookMetadata,
-  getChildren,
   hasChildren,
   listSettingsNodes,
   moveSettingNode,
@@ -57,18 +60,11 @@ import {
 } from '../repositories/work-repository.ts';
 import { deriveChapterMetrics } from './workspace-metrics.ts';
 
-const localeSchema = z.enum(['zh', 'en', 'ru']);
+const localeSchema = z.enum(workspaceLocales);
 const roleSchema = z.enum(['system', 'user', 'assistant']);
-const settingNodeTypeSchema = z.enum([
-  'character',
-  'location',
-  'item',
-  'world',
-  'plot',
-  'rule',
-]);
+const settingNodeTypeSchema = z.enum(settingNodeTypes);
 
-const worldviewNodeTypeSchema = z.enum(['group', 'entry', 'reference']);
+const worldviewNodeTypeSchema = z.enum(worldviewNodeTypes);
 
 const mutationSchema = z.discriminatedUnion('action', [
   z.object({
@@ -262,7 +258,7 @@ export function getWorkspaceCollections(context: ContextSelection = {}): Workspa
     chatSessions,
     activeSessionId: activeSession?.id ?? null,
     chatMessages: activeSession ? listChatMessages(activeSession.id) : [],
-    activeModel: getActiveModelPreference(activeWork.id),
+    activeModel: getActiveModelPreference(),
   };
 }
 
@@ -390,7 +386,7 @@ export function applyWorkspaceMutation(input: unknown) {
         action: mutation.action,
         settingNode: createSettingNode({
           workId: mutation.workId,
-          nodeType: mutation.nodeType as WorldviewNodeType,
+          nodeType: mutation.nodeType,
           title: mutation.title,
           parentId: mutation.parentId ?? null,
           payloadJson: mutation.payloadJson,
@@ -413,14 +409,13 @@ export function applyWorkspaceMutation(input: unknown) {
       );
       return { action: mutation.action, reordered: mutation.orderedIds };
     case 'convert-worldview-node': {
-      const node = getChildren(mutation.nodeId);
       if (hasChildren(mutation.nodeId) && mutation.nodeType !== 'group') {
         throw new Error('Cannot convert to non-group type while node has children');
       }
       return {
         action: mutation.action,
         settingNode: updateSettingNode(mutation.nodeId, {
-          nodeType: mutation.nodeType as WorldviewNodeType,
+          nodeType: mutation.nodeType,
           payloadJson: mutation.payloadJson,
         }),
       };

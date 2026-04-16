@@ -1,17 +1,11 @@
-export type SupportedExportFormat =
-  | 'txt'
-  | 'md'
-  | 'docx'
-  | 'epub'
-  | 'pdf'
-  | 'json';
+import type { ChapterExportFormat, ProjectExportFormat } from '../../contracts/transfer.ts';
 
 export interface ExportChapter {
   title: string;
   content: string;
 }
 
-export function buildProjectExport(format: SupportedExportFormat) {
+export function buildProjectExport(format: ProjectExportFormat) {
   return {
     format,
     fileName: `catnovel-project.${format}`,
@@ -23,7 +17,7 @@ export function buildProjectExport(format: SupportedExportFormat) {
 }
 
 export function buildChapterBatchExport(
-  format: Exclude<SupportedExportFormat, 'json'>,
+  format: ChapterExportFormat,
   chapters: ExportChapter[],
 ) {
   return {

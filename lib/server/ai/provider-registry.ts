@@ -110,7 +110,7 @@ export function resetProviderProfilesForTests() {
   resetProviderProfilesInDatabase();
 }
 
-export function getActiveModelPreference(workId = 'work-default'): ActiveModelSelection | null {
+export function getActiveModelPreference(): ActiveModelSelection | null {
   const raw = getPreference('active_model');
   if (!raw) return null;
   try {
@@ -122,6 +122,6 @@ export function getActiveModelPreference(workId = 'work-default'): ActiveModelSe
   }
 }
 
-export function setActiveModelPreference(selection: ActiveModelSelection, workId = 'work-default'): void {
+export function setActiveModelPreference(selection: ActiveModelSelection): void {
   setPreference('active_model', JSON.stringify(selection));
 }

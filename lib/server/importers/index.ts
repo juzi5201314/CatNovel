@@ -1,10 +1,4 @@
-export type SupportedImportFormat =
-  | 'txt'
-  | 'md'
-  | 'epub'
-  | 'docx'
-  | 'doc'
-  | 'pdf';
+import { importFileFormats, type ImportFileFormat } from '../../contracts/transfer.ts';
 
 export interface ImportPayload {
   fileName: string;
@@ -12,7 +6,7 @@ export interface ImportPayload {
 }
 
 export interface ParsedImportDocument {
-  format: SupportedImportFormat;
+  format: ImportFileFormat;
   title: string;
   chapters: Array<{
     title: string;
@@ -20,20 +14,14 @@ export interface ParsedImportDocument {
   }>;
 }
 
-export function detectImportFormat(fileName: string): SupportedImportFormat {
+export function detectImportFormat(fileName: string): ImportFileFormat {
   const extension = fileName.split('.').pop()?.toLowerCase();
 
-  switch (extension) {
-    case 'txt':
-    case 'md':
-    case 'epub':
-    case 'docx':
-    case 'doc':
-    case 'pdf':
-      return extension;
-    default:
-      throw new Error(`Unsupported import format: ${fileName}`);
+  if (extension && importFileFormats.includes(extension as ImportFileFormat)) {
+    return extension as ImportFileFormat;
   }
+
+  throw new Error(`Unsupported import format: ${fileName}`);
 }
 
 export function parseImportFile(payload: ImportPayload): ParsedImportDocument {
