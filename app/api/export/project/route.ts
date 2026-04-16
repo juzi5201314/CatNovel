@@ -1,15 +1,13 @@
 import { buildProjectExport } from "../../../../lib/server/exporters";
 import { exportProjectArchive } from "../../../../lib/server/project-transfer";
+import { projectExportFormats, type ProjectExportFormat } from '@/lib/contracts/transfer';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const format = (searchParams.get("format") ?? "json") as
-    | "txt"
-    | "md"
-    | "docx"
-    | "epub"
-    | "pdf"
-    | "json";
+  const requestedFormat = searchParams.get('format');
+  const format: ProjectExportFormat = requestedFormat && projectExportFormats.includes(requestedFormat as ProjectExportFormat)
+    ? requestedFormat as ProjectExportFormat
+    : 'json';
   const exportPayload =
     format === "json"
       ? {
