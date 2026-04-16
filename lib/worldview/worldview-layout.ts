@@ -1,6 +1,6 @@
 import type { Node, Edge } from '@xyflow/react';
 import type { WorldviewTreeNode } from './worldview-tree';
-import { tree, hierarchy } from 'd3-hierarchy';
+import { tree, hierarchy, type HierarchyNode, type HierarchyPointNode } from 'd3-hierarchy';
 
 export interface LayoutedNode extends Node {
   position: { x: number; y: number };
@@ -17,10 +17,10 @@ interface TreeLayoutOptions {
 
 function treeToD3Hierarchy(
   treeData: WorldviewTreeNode[],
-): { root: any; edges: Edge[] } {
+): { root: HierarchyNode<WorldviewTreeNode>; edges: Edge[] } {
   const edges: Edge[] = [];
   
-  let rootNode: any;
+  let rootNode: WorldviewTreeNode;
   if (treeData.length === 1) {
     rootNode = treeData[0];
   } else {
@@ -41,7 +41,7 @@ function treeToD3Hierarchy(
 
   const root = hierarchy(rootNode, (d: WorldviewTreeNode) => d.children);
 
-  root.each((node: any) => {
+  root.each((node: HierarchyNode<WorldviewTreeNode>) => {
     if (node.children) {
       for (const child of node.children) {
         edges.push({
@@ -59,7 +59,7 @@ function treeToD3Hierarchy(
 }
 
 function d3LayoutToReactFlow(
-  root: any,
+  root: HierarchyPointNode<WorldviewTreeNode>,
   edges: Edge[],
   treeData: WorldviewTreeNode[],
   options: Required<TreeLayoutOptions>
@@ -67,7 +67,7 @@ function d3LayoutToReactFlow(
   const nodes: LayoutedNode[] = [];
   const { direction, nodeWidth, nodeHeight, rootNodeWidth, rootNodeHeight } = options;
 
-  root.each((node: any) => {
+  root.each((node) => {
     const data = node.data as WorldviewTreeNode;
     const isRoot = data.parentId === null && treeData.length === 1;
     const isVirtualRoot = data.id === '__virtual_root__';
@@ -138,10 +138,10 @@ export async function computeWorldviewLayout(
       : [nodeHeight + spacing * 1.5, nodeWidth + spacing]
   );
   
-  treeLayout(root);
+  const layoutedRoot = treeLayout(root);
 
-  let { nodes, edges: flowEdges } = d3LayoutToReactFlow(
-    root,
+  const { nodes, edges: flowEdges } = d3LayoutToReactFlow(
+    layoutedRoot,
     edges,
     treeData,
     {

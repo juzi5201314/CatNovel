@@ -6,6 +6,10 @@ import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 
 import type { BootstrapPayload } from '@/lib/contracts/bootstrap';
 import type {
+  AgentEvent,
+  AgentRunStatus,
+} from '@/lib/contracts/agent-events';
+import type {
   ChapterExportFormat,
   ImportFileFormat,
   ProjectExportFormat,
@@ -17,6 +21,7 @@ import type {
 import type { SupportedLocale } from '@/lib/i18n/messages';
 
 import { AiSidebar } from '../ai/ai-sidebar';
+import type { StreamingMessage, ToolCallItem } from '../ai/chat-session-list';
 import { EditorPanel } from '../editor/editor-panel';
 import { ModelSettingsDialog } from '../settings/model-settings-dialog';
 import { SnapshotPanel } from '../snapshots/snapshot-panel';
@@ -76,6 +81,8 @@ type AiGenerateResponse = {
     totalTokens: number;
   };
 };
+
+const freeChatAgentModeStorageKey = 'catnovel:free-chat-agent-mode';
 
 function deriveChapterSelection(collections: WorkspaceCollections, preferredId?: string | null) {
   return collections.chapters.find((chapter) => chapter.id === preferredId) ?? collections.chapters[0] ?? null;
@@ -195,6 +202,11 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
 
   const [sessionDraftTitle, setSessionDraftTitle] = useState('');
   const [freeChatPrompt, setFreeChatPrompt] = useState('');
+  const [isFreeChatAgentMode, setIsFreeChatAgentMode] = useState(false);
+  const [freeChatAgentStatus, setFreeChatAgentStatus] = useState<AgentRunStatus>('idle');
+  const [freeChatActiveToolName, setFreeChatActiveToolName] = useState<string | null>(null);
+  const [freeChatStreamingMessage, setFreeChatStreamingMessage] = useState<StreamingMessage | null>(null);
+  const [freeChatToolCalls, setFreeChatToolCalls] = useState<ToolCallItem[]>([]);
   const [pendingGhostText, setPendingGhostText] = useState('');
   const [snapshotDraftLabel, setSnapshotDraftLabel] = useState('Draft checkpoint');
   const [snapshots, setSnapshots] = useState(initialSnapshots);
@@ -320,6 +332,164 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setSnapshots(payload.list);
   }, []);
 
+  const resetFreeChatAgentState = useCallback(() => {
+    setFreeChatAgentStatus('idle');
+    setFreeChatActiveToolName(null);
+    setFreeChatStreamingMessage(null);
+    setFreeChatToolCalls([]);
+  }, []);
+
+  // 使用 queueMicrotask 避免在渲染期间同步调用 setState
+  useEffect(() => {
+    queueMicrotask(() => {
+      resetFreeChatAgentState();
+    });
+  }, [activeSessionId, resetFreeChatAgentState]);
+
+  const handleFreeChatAgentEvent = useCallback((event: AgentEvent) => {
+    switch (event.type) {
+      case 'ai_start': {
+        setFreeChatAgentStatus('streaming');
+        setFreeChatActiveToolName(null);
+        setFreeChatStreamingMessage({
+          id: event.messageId,
+          role: 'assistant',
+          text: '',
+          isComplete: false,
+        });
+        return;
+      }
+      case 'ai_chunk': {
+        setFreeChatAgentStatus('streaming');
+        setFreeChatActiveToolName(null);
+        setFreeChatStreamingMessage({
+          id: event.messageId,
+          role: 'assistant',
+          text: event.accumulatedText,
+          isComplete: false,
+        });
+        return;
+      }
+      case 'ai_tool_call': {
+        setFreeChatAgentStatus('tool_running');
+        setFreeChatActiveToolName(event.toolName);
+        setFreeChatToolCalls((current) => {
+          const nextItem: ToolCallItem = {
+            id: event.toolCallId,
+            toolName: event.toolName,
+            args: event.args,
+            status: 'running',
+          };
+          const index = current.findIndex((item) => item.id === event.toolCallId);
+
+          if (index === -1) {
+            return [...current, nextItem];
+          }
+
+          return current.map((item, itemIndex) => itemIndex === index ? nextItem : item);
+        });
+        return;
+      }
+      case 'ai_tool_result': {
+        setFreeChatActiveToolName(null);
+        setFreeChatToolCalls((current) => current.map((item) => (
+          item.id === event.toolCallId
+            ? {
+                ...item,
+                status: event.isError ? 'error' : 'success',
+                result: event.result,
+                error: event.isError ? String(event.result) : undefined,
+              }
+            : item
+        )));
+        return;
+      }
+      case 'ai_complete': {
+        setFreeChatAgentStatus('completed');
+        setFreeChatActiveToolName(null);
+        setFreeChatStreamingMessage({
+          id: event.messageId,
+          role: 'assistant',
+          text: event.fullText,
+          isComplete: true,
+        });
+        return;
+      }
+      case 'ai_error': {
+        setFreeChatAgentStatus('errored');
+        setFreeChatActiveToolName(null);
+        return;
+      }
+      default:
+        return;
+    }
+  }, []);
+
+  const consumeAgentEventStream = useCallback(async (response: Response) => {
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(payload?.error ?? 'Agent request failed.');
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('Agent stream is unavailable.');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalText = '';
+
+    const parseEventBlock = (block: string) => {
+      const lines = block.split('\n');
+      const dataLine = lines.find((line) => line.startsWith('data: '))?.slice(6).trim();
+
+      if (!dataLine) {
+        return;
+      }
+
+      const event = JSON.parse(dataLine) as AgentEvent;
+      handleFreeChatAgentEvent(event);
+
+      if (event.type === 'ai_chunk') {
+        finalText = event.accumulatedText;
+      }
+
+      if (event.type === 'ai_complete') {
+        finalText = event.fullText;
+      }
+
+      if (event.type === 'ai_error') {
+        throw new Error(event.error);
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() ?? '';
+
+      for (const block of blocks) {
+        if (block.trim()) {
+          parseEventBlock(block);
+        }
+      }
+
+      if (done) {
+        if (buffer.trim()) {
+          parseEventBlock(buffer);
+        }
+        break;
+      }
+    }
+
+    return {
+      finalText,
+    };
+  }, [handleFreeChatAgentEvent]);
+
   const handleCreateSnapshot = useCallback(async () => {
     if (!activeWorkId) return;
     await readJson(await fetch('/api/snapshots', {
@@ -419,6 +589,10 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setEditorBody(parseChapterText(chapter.bodyJson));
     setPendingGhostText('');
   };
+
+  const handleFreeChatModeChange = useCallback((enabled: boolean) => {
+    setIsFreeChatAgentMode(enabled);
+  }, []);
 
   const handleCreateChapter = useCallback((volumeId?: string) => {
     const nextVolumeId = volumeId ?? collections.volumes[0]?.id;
@@ -580,6 +754,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
               <AiSidebar
                 copy={copy}
                 freeChatPrompt={freeChatPrompt}
+                agentModeStorageKey={freeChatAgentModeStorageKey}
                 messages={collections.chatMessages}
                 activeModel={activeModel}
                 activeSessionId={activeSessionId}
@@ -588,44 +763,87 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
                 onFreeChatPromptChange={setFreeChatPrompt}
                 onSendFreeChat={async () => {
                   if (!activeSessionId || !freeChatPrompt.trim() || !activeModel) return;
+                  const trimmedPrompt = freeChatPrompt.trim();
+
+                  resetFreeChatAgentState();
                   await mutateWorkspace({
                     action: 'append-chat-message',
                     sessionId: activeSessionId,
                     role: 'user',
-                    body: freeChatPrompt,
+                    body: trimmedPrompt,
                     tokenCount: 0,
                   }, { preserveEditor: true });
 
-                  const response = await readJson<AiGenerateResponse>(await fetch('/api/ai', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({
-                      action: 'generate',
-                      profileId: activeModel.profileId,
-                      modelId: activeModel.modelId,
-                      taskClass: '自由对话',
-                      prompt: freeChatPrompt,
-                      chapter: editorBody,
-                      settings: aiContextSettings,
-                      summaries: [],
-                      manualSelections: [],
-                    }),
-                  }));
+                  try {
+                    if (isFreeChatAgentMode) {
+                      const response = await fetch('/api/ai/agent', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                          profileId: activeModel.profileId,
+                          prompt: trimmedPrompt,
+                          sessionId: activeSessionId,
+                          chapter: editorBody,
+                          settings: aiContextSettings,
+                          summaries: [],
+                          manualSelections: [],
+                        }),
+                      });
 
-                  await mutateWorkspace({
-                    action: 'append-chat-message',
-                    sessionId: activeSessionId,
-                    role: 'assistant',
-                    body: response.output,
-                    tokenCount: response.tokenUsage.totalTokens,
-                  }, { preserveEditor: true });
-                  setFreeChatPrompt('');
+                      const agentResult = await consumeAgentEventStream(response);
+
+                      if (agentResult.finalText.trim()) {
+                        await mutateWorkspace({
+                          action: 'append-chat-message',
+                          sessionId: activeSessionId,
+                          role: 'assistant',
+                          body: agentResult.finalText,
+                          tokenCount: 0,
+                        }, { preserveEditor: true });
+                      }
+                    } else {
+                      const response = await readJson<AiGenerateResponse>(await fetch('/api/ai', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                          action: 'generate',
+                          profileId: activeModel.profileId,
+                          modelId: activeModel.modelId,
+                          taskClass: '自由对话',
+                          prompt: trimmedPrompt,
+                          chapter: editorBody,
+                          settings: aiContextSettings,
+                          summaries: [],
+                          manualSelections: [],
+                        }),
+                      }));
+
+                      await mutateWorkspace({
+                        action: 'append-chat-message',
+                        sessionId: activeSessionId,
+                        role: 'assistant',
+                        body: response.output,
+                        tokenCount: response.tokenUsage.totalTokens,
+                      }, { preserveEditor: true });
+                    }
+
+                    setFreeChatPrompt('');
+                  } catch (error) {
+                    setFreeChatAgentStatus('errored');
+                    toast.error(error instanceof Error ? error.message : 'AI 请求失败。');
+                  }
                 }}
                 onSessionChange={(sid) => refreshWorkspace(undefined, sid)}
                 onSessionDraftTitleChange={setSessionDraftTitle}
+                onAgentModeChange={handleFreeChatModeChange}
                 providers={collections.providerProfiles}
                 sessions={collections.chatSessions}
                 sessionDraftTitle={sessionDraftTitle}
+                isAgentMode={isFreeChatAgentMode}
+                agentStatus={freeChatAgentStatus}
+                activeToolName={freeChatActiveToolName}
+                streamingMessage={freeChatStreamingMessage}
+                toolCalls={freeChatToolCalls}
               />
             )}
             {rightSidebarTab === 'snapshots' && (
