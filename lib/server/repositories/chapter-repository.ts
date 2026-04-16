@@ -1,23 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { getDatabase } from "../../../db/client.ts";
-
-export type ChapterRecord = {
-  id: string;
-  workId: string;
-  volumeId: string;
-  title: string;
-  bodyJson: string;
-  plaintext: string;
-  excerpt: string;
-  wordCount: number;
-  characterCount: number;
-  readingMinutes: number;
-  status: string;
-  lastAutosavedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+import { getDatabase, withImmediateTransaction } from "../../../db/client.ts";
+import type { ChapterRecord } from '../../contracts/workspace.ts';
 
 export function listChapters(workId: string) {
   const db = getDatabase();
@@ -42,7 +26,7 @@ export function listChapters(workId: string) {
      INNER JOIN chapter_order o ON o.chapter_id = c.id
      WHERE c.work_id = ?
      ORDER BY o.sort_index ASC`,
-  ).all(workId) as ChapterRecord[];
+  ).all(workId) as unknown as ChapterRecord[];
 }
 
 export function getChapterById(chapterId: string) {
@@ -89,8 +73,7 @@ export function createChapter(input: {
     )
     .get(input.workId) as { nextIndex: number };
 
-  db.exec("BEGIN IMMEDIATE");
-  try {
+  withImmediateTransaction(db, () => {
     db.prepare(
       `INSERT INTO chapters (
          id,
@@ -126,11 +109,7 @@ export function createChapter(input: {
     db.prepare(
       "INSERT INTO chapter_order (work_id, chapter_id, sort_index) VALUES (?, ?, ?)",
     ).run(input.workId, chapterId, orderRow.nextIndex);
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 
   return getChapterById(chapterId) as ChapterRecord;
 }
@@ -200,13 +179,8 @@ export function updateChapter(
 
 export function deleteChapter(chapterId: string) {
   const db = getDatabase();
-  db.exec("BEGIN IMMEDIATE");
-  try {
+  withImmediateTransaction(db, () => {
     db.prepare("DELETE FROM chapter_order WHERE chapter_id = ?").run(chapterId);
     db.prepare("DELETE FROM chapters WHERE id = ?").run(chapterId);
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
