@@ -8,7 +8,6 @@ import type { BootstrapPayload } from '@/lib/contracts/bootstrap';
 import type {
   ActiveModelSelection,
   BookMetadataRecord,
-  SettingNodeType,
   WorkspaceCollections,
 } from '@/lib/contracts/workspace';
 import type { SupportedLocale } from '@/lib/i18n/messages';
@@ -16,16 +15,18 @@ import type { SupportedLocale } from '@/lib/i18n/messages';
 import { AiSidebar } from '../ai/ai-sidebar';
 import { EditorPanel } from '../editor/editor-panel';
 import { ModelSettingsDialog } from '../settings/model-settings-dialog';
-import { SettingsPanel } from '../settings/settings-panel';
 import { SnapshotPanel } from '../snapshots/snapshot-panel';
+import { WorldviewDialog } from '../worldview/worldview-dialog';
 import { resolveMessages } from '../../lib/i18n/messages';
 import { SidebarNav } from './sidebar-nav';
 import {
   parseChapterText,
-  parseSettingSummary,
   serializeChapterText,
-  serializeSettingSummary,
 } from './workspace-data';
+import {
+  formatWorldviewContextForAI,
+  serializeWorldviewContext,
+} from '@/lib/worldview/worldview-context';
 import { WorkspaceHeader } from './workspace-header';
 import { cx } from '@/lib/design/cx';
 
@@ -47,10 +48,6 @@ const emptyBookMetadata: BookMetadataRecord = {
 
 function deriveChapterSelection(collections: WorkspaceCollections, preferredId?: string | null) {
   return collections.chapters.find((chapter) => chapter.id === preferredId) ?? collections.chapters[0] ?? null;
-}
-
-function deriveNodeSelection(collections: WorkspaceCollections, preferredId?: string | null) {
-  return collections.settingsNodes.find((node) => node.id === preferredId) ?? collections.settingsNodes[0] ?? null;
 }
 
 function deriveSessionSelection(collections: WorkspaceCollections, preferredId?: string | null) {
@@ -84,21 +81,20 @@ export function WorkspaceShell({
   initialCollections: WorkspaceCollections;
   initialSnapshots: Array<{ id: string; label: string; createdAt: string }>;
 }) {
-  const initialChapter = deriveChapterSelection(initialCollections);
-  const initialNode = deriveNodeSelection(initialCollections);
-  const initialSession = deriveSessionSelection(initialCollections);
+const initialChapter = deriveChapterSelection(initialCollections);
+const initialSession = deriveSessionSelection(initialCollections);
   const initialActiveModel = deriveActiveModel(initialCollections, initialCollections.activeModel);
 
   const [collections, setCollections] = useState(initialCollections);
   const [locale, setLocale] = useState<SupportedLocale>(initialBootstrap.workspace.locale);
   const [activeWorkId, setActiveWorkId] = useState(initialCollections.activeWorkId ?? initialBootstrap.workspace.workId);
-  const [activeChapterId, setActiveChapterId] = useState(initialChapter?.id ?? null);
-  const [activeNodeId, setActiveNodeId] = useState(initialNode?.id ?? null);
-  const [activeSessionId, setActiveSessionId] = useState(initialSession?.id ?? null);
+const [activeChapterId, setActiveChapterId] = useState(initialChapter?.id ?? null);
+const [activeSessionId, setActiveSessionId] = useState(initialSession?.id ?? null);
   const [activeModel, setActiveModel] = useState<ActiveModelSelection | null>(initialActiveModel);
-  const [rightSidebarTab, setRightSidebarTab] = useState<'ai' | 'settings' | 'snapshots'>('ai');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+const [rightSidebarTab, setRightSidebarTab] = useState<'ai' | 'snapshots'>('ai');
+const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
 
   const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -168,10 +164,7 @@ export function WorkspaceShell({
   const [editorBody, setEditorBody] = useState(initialChapter ? parseChapterText(initialChapter.bodyJson) : '');
   const [saveState, setSaveState] = useState('idle');
   const [metadataDraft, setMetadataDraft] = useState<BookMetadataRecord>(initialCollections.bookMetadata ?? emptyBookMetadata);
-  const [draftNodeTitle, setDraftNodeTitle] = useState('');
-  const [draftNodeType, setDraftNodeType] = useState<SettingNodeType>('character');
-  const [activeNodeTitle, setActiveNodeTitle] = useState(initialNode?.title ?? '');
-  const [activeNodeSummary, setActiveNodeSummary] = useState(initialNode ? parseSettingSummary(initialNode.payloadJson) : '');
+
   const [sessionDraftTitle, setSessionDraftTitle] = useState('');
   const [freeChatPrompt, setFreeChatPrompt] = useState('');
   const [pendingGhostText, setPendingGhostText] = useState('');
@@ -182,12 +175,11 @@ export function WorkspaceShell({
   const copy = resolveMessages(locale);
   const activeWork = collections.works.find((work) => work.id === activeWorkId) ?? collections.works[0] ?? null;
   const activeChapter = deriveChapterSelection(collections, activeChapterId);
-  const activeNode = deriveNodeSelection(collections, activeNodeId);
 
-  const aiContextSettings = useMemo(
-    () => collections.settingsNodes.map((node) => `${node.title}\n${parseSettingSummary(node.payloadJson)}`),
-    [collections.settingsNodes],
-  );
+  const aiContextSettings = useMemo(() => {
+    const entries = serializeWorldviewContext(collections.settingsNodes);
+    return formatWorldviewContextForAI(entries);
+  }, [collections.settingsNodes]);
 
   const handleManualSave = async () => {
     if (!activeChapter) return;
@@ -211,11 +203,12 @@ export function WorkspaceShell({
     'mod+s': handleManualSave,
     'mod+b': () => setIsSidebarOpen(prev => !prev),
     'mod+j': () => {
-      const tabs: Array<'ai' | 'settings' | 'snapshots'> = ['ai', 'settings', 'snapshots'];
+      const tabs: Array<'ai' | 'snapshots'> = ['ai', 'snapshots'];
       const nextIndex = (tabs.indexOf(rightSidebarTab) + 1) % tabs.length;
       setRightSidebarTab(tabs[nextIndex]);
     },
     'mod+,': () => setIsSettingsOpen(true),
+    'mod+shift+w': () => setIsWorldviewOpen(true),
   });
 
   async function refreshWorkspace(nextWorkId?: string, nextSessionId?: string) {
@@ -226,21 +219,17 @@ export function WorkspaceShell({
     const payload = await readJson<{ bootstrap: BootstrapPayload; collections: WorkspaceCollections }>(await fetch(`/api/bootstrap?${search.toString()}`, { cache: 'no-store' }));
     const resolvedWorkId = nextWorkId ?? payload.collections.activeWorkId ?? payload.bootstrap.workspace.workId;
     const resolvedChapter = deriveChapterSelection(payload.collections, activeChapterId);
-    const resolvedNode = deriveNodeSelection(payload.collections, activeNodeId);
     const resolvedSession = deriveSessionSelection(payload.collections, nextSessionId ?? activeSessionId);
 
     setCollections(payload.collections);
     setLocale(payload.bootstrap.workspace.locale);
     setActiveWorkId(resolvedWorkId ?? null);
     setActiveChapterId(resolvedChapter?.id ?? null);
-    setActiveNodeId(resolvedNode?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
     setActiveModel(deriveActiveModel(payload.collections, payload.collections.activeModel ?? activeModel));
     setMetadataDraft(payload.collections.bookMetadata ?? emptyBookMetadata);
     setSelectedChapterTitle(resolvedChapter?.title ?? '');
     setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
-    setActiveNodeTitle(resolvedNode?.title ?? '');
-    setActiveNodeSummary(resolvedNode ? parseSettingSummary(resolvedNode.payloadJson) : '');
   }
 
   async function mutateWorkspace(payload: Record<string, unknown>, options: any = {}) {
@@ -252,14 +241,12 @@ export function WorkspaceShell({
 
     const resolvedWorkId = activeWorkId ?? result.collections.activeWorkId ?? initialBootstrap.workspace.workId;
     const resolvedChapter = deriveChapterSelection(result.collections, options.chapterId ?? activeChapterId);
-    const resolvedNode = deriveNodeSelection(result.collections, options.nodeId ?? activeNodeId);
     const resolvedSession = deriveSessionSelection(result.collections, options.sessionId ?? activeSessionId);
 
     setCollections(result.collections);
     setLocale(result.bootstrap.workspace.locale);
     setActiveWorkId(resolvedWorkId);
     setActiveChapterId(resolvedChapter?.id ?? null);
-    setActiveNodeId(resolvedNode?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
     setActiveModel(deriveActiveModel(result.collections, result.collections.activeModel ?? activeModel));
     setMetadataDraft(result.collections.bookMetadata ?? emptyBookMetadata);
@@ -267,8 +254,6 @@ export function WorkspaceShell({
     if (!options.preserveEditor) {
       setSelectedChapterTitle(resolvedChapter?.title ?? '');
       setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
-      setActiveNodeTitle(resolvedNode?.title ?? '');
-      setActiveNodeSummary(resolvedNode ? parseSettingSummary(resolvedNode.payloadJson) : '');
     }
     return result;
   }
@@ -474,11 +459,10 @@ export function WorkspaceShell({
             </button>
             <button
               role="tab"
-              aria-selected={rightSidebarTab === 'settings'}
-              className={cx("flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors", rightSidebarTab === 'settings' ? "bg-background border-b-2 border-primary" : "bg-muted/50 text-muted-foreground")}
-              onClick={() => setRightSidebarTab('settings')}
+              className="flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => setIsWorldviewOpen(true)}
             >
-              Settings
+              世界观
             </button>
             <button
               role="tab"
@@ -525,7 +509,7 @@ export function WorkspaceShell({
                       chapter: editorBody,
                       settings: aiContextSettings,
                       summaries: [],
-                      manualSelections: [activeNodeSummary].filter(Boolean),
+                      manualSelections: [],
                     }),
                   }));
 
@@ -544,35 +528,6 @@ export function WorkspaceShell({
                 sessions={collections.chatSessions}
                 sessionDraftTitle={sessionDraftTitle}
                 workLabel={activeWork?.title ?? '—'}
-              />
-            )}
-            {rightSidebarTab === 'settings' && (
-              <SettingsPanel
-                activeNodeId={activeNodeId}
-                activeNodeSummary={activeNodeSummary}
-                activeNodeTitle={activeNodeTitle}
-                copy={copy}
-                draftNodeTitle={draftNodeTitle}
-                draftNodeType={draftNodeType}
-                locale={locale}
-                metadata={metadataDraft}
-                nodes={collections.settingsNodes}
-                onActiveNodeSummaryChange={setActiveNodeSummary}
-                onActiveNodeTitleChange={setActiveNodeTitle}
-                onCreateNode={() => mutateWorkspace({ action: 'create-setting-node', workId: activeWorkId, nodeType: draftNodeType, title: draftNodeTitle, payloadJson: serializeSettingSummary('') })}
-                onDeleteNode={() => mutateWorkspace({ action: 'delete-setting-node', nodeId: activeNode.id })}
-                onDraftNodeTitleChange={setDraftNodeTitle}
-                onDraftNodeTypeChange={setDraftNodeType}
-                onMetadataChange={(field, value) => setMetadataDraft((current) => ({ ...current, [field]: value }))}
-                onNodeChange={(nid) => {
-                  const node = collections.settingsNodes.find((entry) => entry.id === nid);
-                  if (!node) return;
-                  setActiveNodeId(nid);
-                  setActiveNodeTitle(node.title);
-                  setActiveNodeSummary(parseSettingSummary(node.payloadJson));
-                }}
-                onSaveMetadata={() => mutateWorkspace({ action: 'update-book-metadata', ...metadataDraft, workId: activeWorkId })}
-                onSaveNode={() => mutateWorkspace({ action: 'update-setting-node', nodeId: activeNode.id, title: activeNodeTitle, payloadJson: serializeSettingSummary(activeNodeSummary) })}
               />
             )}
             {rightSidebarTab === 'snapshots' && (
@@ -604,6 +559,17 @@ export function WorkspaceShell({
           onActiveModelChange={handleActiveModelChange}
           onProvidersChange={() => refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined)}
           onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
+      {isWorldviewOpen && (
+        <WorldviewDialog
+          copy={copy}
+          workId={activeWorkId ?? ''}
+          nodes={collections.settingsNodes}
+          onClose={() => setIsWorldviewOpen(false)}
+          onMutate={async (action, payload) => {
+            await mutateWorkspace({ action, ...payload }, { preserveEditor: true });
+          }}
         />
       )}
     </main>
