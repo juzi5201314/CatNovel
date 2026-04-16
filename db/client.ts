@@ -29,6 +29,18 @@ function runStatement(db: DatabaseSync, statement: string) {
   db.prepare(statement).run();
 }
 
+export function withImmediateTransaction<T>(db: DatabaseSync, run: () => T): T {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = run();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 function shouldIgnoreMigrationError(error: unknown) {
   if (!(error instanceof Error)) {
     return false;
@@ -69,8 +81,7 @@ function bootstrapDatabase(db: DatabaseSync) {
     }
 
     const now = new Date().toISOString();
-    db.exec("BEGIN IMMEDIATE");
-    try {
+    withImmediateTransaction(db, () => {
       for (const statement of migration.statements) {
         try {
           runStatement(db, statement);
@@ -81,23 +92,14 @@ function bootstrapDatabase(db: DatabaseSync) {
         }
       }
       insertMigration.run(migration.id, now);
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
 
-  db.exec("BEGIN IMMEDIATE");
-  try {
+  withImmediateTransaction(db, () => {
     for (const statement of seedStatements) {
       runStatement(db, statement);
     }
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 export function getDatabase() {
