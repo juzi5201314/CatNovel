@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useMemo } from 'react';
 import type {
   ActiveModelSelection,
   ChapterRecord,
   ProviderProfileRecord,
   VolumeRecord,
   WorkRecord,
-  WorkspaceLocale,
 } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
@@ -421,7 +421,6 @@ function WorkManagerPanel({
 
 export function SidebarNav({
   copy,
-  locale,
   works,
   volumes,
   chapters,
@@ -429,27 +428,24 @@ export function SidebarNav({
   activeChapterId,
   draftWorkTitle,
   draftVolumeTitle,
-  draftChapterTitle,
   activeModel,
   providers,
-  onWorkTitleChange,
-  onVolumeTitleChange,
-  onChapterTitleChange,
-  onWorkChange,
-  onChapterChange,
-  onCreateWork,
-  onCreateVolume,
-  onCreateChapter,
-  onOpenSettings,
-  onUpdateWork,
-  onDeleteWork,
-  onUpdateVolume,
-  onDeleteVolume,
-  onDeleteChapter,
-  onUpdateChapter,
+  onWorkTitleChangeAction,
+  onVolumeTitleChangeAction,
+  onWorkChangeAction,
+  onChapterChangeAction,
+  onCreateWorkAction,
+  onCreateVolumeAction,
+  onCreateChapterAction,
+  onOpenSettingsAction,
+  onUpdateWorkAction,
+  onDeleteWorkAction,
+  onUpdateVolumeAction,
+  onDeleteVolumeAction,
+  onDeleteChapterAction,
+  onUpdateChapterAction,
 }: {
   copy: AppMessages;
-  locale: WorkspaceLocale;
   works: WorkRecord[];
   volumes: VolumeRecord[];
   chapters: ChapterRecord[];
@@ -457,24 +453,22 @@ export function SidebarNav({
   activeChapterId: string;
   draftWorkTitle: string;
   draftVolumeTitle: string;
-  draftChapterTitle: string;
   activeModel: ActiveModelSelection | null;
   providers: ProviderProfileRecord[];
-  onWorkTitleChange: (value: string) => void;
-  onVolumeTitleChange: (value: string) => void;
-  onChapterTitleChange: (value: string) => void;
-  onWorkChange: (workId: string) => void;
-  onChapterChange: (chapterId: string) => void;
-  onCreateWork: () => void;
-  onCreateVolume: () => void;
-  onCreateChapter: (volumeId?: string) => void;
-  onOpenSettings: () => void;
-  onUpdateWork: (workId: string, title: string) => void;
-  onDeleteWork: (workId: string) => void;
-  onUpdateVolume: (volumeId: string, title: string) => void;
-  onDeleteVolume: (volumeId: string) => void;
-  onDeleteChapter: (chapterId: string) => void;
-  onUpdateChapter: (chapterId: string, title: string) => void;
+  onWorkTitleChangeAction: (value: string) => void;
+  onVolumeTitleChangeAction: (value: string) => void;
+  onWorkChangeAction: (workId: string) => void;
+  onChapterChangeAction: (chapterId: string) => void;
+  onCreateWorkAction: () => void;
+  onCreateVolumeAction: () => void;
+  onCreateChapterAction: (volumeId?: string) => void;
+  onOpenSettingsAction: () => void;
+  onUpdateWorkAction: (workId: string, title: string) => void;
+  onDeleteWorkAction: (workId: string) => void;
+  onUpdateVolumeAction: (volumeId: string, title: string) => void;
+  onDeleteVolumeAction: (volumeId: string) => void;
+  onDeleteChapterAction: (chapterId: string) => void;
+  onUpdateChapterAction: (chapterId: string, title: string) => void;
 }) {
   const [collapsedVolumes, setCollapsedVolumes] = useState<Record<string, boolean>>({});
   const [isWorkManagerOpen, setIsWorkManagerOpen] = useState(false);
@@ -512,6 +506,31 @@ export function SidebarNav({
   };
 
   const activeWork = works.find((w) => w.id === activeWorkId);
+  const chaptersByVolume = useMemo(() => {
+    const grouped = new Map<string, ChapterRecord[]>();
+
+    for (const volume of volumes) {
+      grouped.set(volume.id, []);
+    }
+
+    for (const chapter of chapters) {
+      const list = grouped.get(chapter.volumeId);
+      if (list) {
+        list.push(chapter);
+      }
+    }
+
+    return grouped;
+  }, [chapters, volumes]);
+
+  const activeModelLabel = useMemo(() => {
+    if (!activeModel) {
+      return copy.modelSettings;
+    }
+
+    const profile = providers.find((provider) => provider.id === activeModel.profileId);
+    return profile ? `${profile.label} / ${activeModel.modelId}` : copy.modelSettings;
+  }, [activeModel, copy.modelSettings, providers]);
 
   return (
     <div className="flex flex-col h-full bg-muted/30 overflow-hidden">
@@ -551,11 +570,11 @@ export function SidebarNav({
                 works={works}
                 activeWorkId={activeWorkId}
                 draftWorkTitle={draftWorkTitle}
-                onWorkChange={onWorkChange}
-                onWorkTitleChange={onWorkTitleChange}
-                onCreateWork={onCreateWork}
-                onUpdateWork={onUpdateWork}
-                onDeleteWork={onDeleteWork}
+                onWorkChange={onWorkChangeAction}
+                onWorkTitleChange={onWorkTitleChangeAction}
+                onCreateWork={onCreateWorkAction}
+                onUpdateWork={onUpdateWorkAction}
+                onDeleteWork={onDeleteWorkAction}
                 onClose={() => setIsWorkManagerOpen(false)}
               />
             )}
@@ -582,11 +601,11 @@ export function SidebarNav({
                   volumes={volumes}
                   chapters={chapters}
                   draftVolumeTitle={draftVolumeTitle}
-                  onVolumeTitleChange={onVolumeTitleChange}
-                  onCreateVolume={onCreateVolume}
-                  onUpdateVolume={onUpdateVolume}
-                  onDeleteVolume={onDeleteVolume}
-                  onDeleteChapter={onDeleteChapter}
+                  onVolumeTitleChange={onVolumeTitleChangeAction}
+                  onCreateVolume={onCreateVolumeAction}
+                  onUpdateVolume={onUpdateVolumeAction}
+                  onDeleteVolume={onDeleteVolumeAction}
+                  onDeleteChapter={onDeleteChapterAction}
                   onClose={() => setIsVolumeManagerOpen(false)}
                 />
               )}
@@ -596,7 +615,7 @@ export function SidebarNav({
           <div className="space-y-4">
             {volumes.map((volume) => {
               const isCollapsed = collapsedVolumes[volume.id];
-              const volumeChapters = chapters.filter((c) => c.volumeId === volume.id);
+              const volumeChapters = chaptersByVolume.get(volume.id) ?? [];
 
               return (
                 <div key={volume.id} className="space-y-1">
@@ -633,7 +652,7 @@ export function SidebarNav({
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     if (editingChapterTitle.trim()) {
-                                      onUpdateChapter(chapter.id, editingChapterTitle.trim());
+                                       onUpdateChapterAction(chapter.id, editingChapterTitle.trim());
                                     }
                                     setEditingChapterId(null);
                                     setEditingChapterTitle('');
@@ -645,7 +664,7 @@ export function SidebarNav({
                                 }}
                                 onBlur={() => {
                                   if (editingChapterTitle.trim()) {
-                                    onUpdateChapter(chapter.id, editingChapterTitle.trim());
+                                     onUpdateChapterAction(chapter.id, editingChapterTitle.trim());
                                   }
                                   setEditingChapterId(null);
                                   setEditingChapterTitle('');
@@ -657,7 +676,7 @@ export function SidebarNav({
                           ) : (
                             <>
                   <button
-                    onClick={() => onChapterChange(chapter.id)}
+                     onClick={() => onChapterChangeAction(chapter.id)}
                     onDoubleClick={() => {
                       setEditingChapterId(chapter.id);
                       setEditingChapterTitle(chapter.title);
@@ -683,7 +702,7 @@ export function SidebarNav({
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (confirm(`确定要删除章节 "${chapter.title}" 吗？此操作不可恢复。`)) {
-                                    onDeleteChapter(chapter.id);
+                                     onDeleteChapterAction(chapter.id);
                                   }
                                 }}
                                 title="删除章节"
@@ -702,7 +721,7 @@ export function SidebarNav({
                         variant="ghost"
                         size="sm"
                         className="w-full h-7 text-xs text-muted-foreground hover:text-foreground opacity-60 hover:opacity-100 transition-opacity"
-                        onClick={() => onCreateChapter(volume.id)}
+                         onClick={() => onCreateChapterAction(volume.id)}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mr-1">
                           <line x1="12" y1="5" x2="12" y2="19" />
@@ -723,7 +742,7 @@ export function SidebarNav({
         <Button
           variant="ghost"
           size="sm"
-          onClick={onOpenSettings}
+          onClick={onOpenSettingsAction}
           className={cx(
             "w-full h-9 px-3 text-xs justify-start gap-2.5",
             "hover:bg-background/80 hover:text-foreground",
@@ -736,10 +755,7 @@ export function SidebarNav({
             <path d="M2 12l10 5 10-5" />
           </svg>
           <span className="flex-1 truncate text-left font-medium">
-            {activeModel ? (() => {
-              const profile = providers.find((p) => p.id === activeModel.profileId);
-              return profile ? `${profile.label} / ${activeModel.modelId}` : copy.modelSettings;
-            })() : copy.modelSettings}
+            {activeModelLabel}
           </span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-muted-foreground/50">
             <path d="M9 18l6-6-6-6" />

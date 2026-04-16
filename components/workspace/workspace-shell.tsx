@@ -6,8 +6,12 @@ import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 
 import type { BootstrapPayload } from '@/lib/contracts/bootstrap';
 import type {
+  ChapterExportFormat,
+  ImportFileFormat,
+  ProjectExportFormat,
+} from '@/lib/contracts/transfer';
+import type {
   ActiveModelSelection,
-  BookMetadataRecord,
   WorkspaceCollections,
 } from '@/lib/contracts/workspace';
 import type { SupportedLocale } from '@/lib/i18n/messages';
@@ -36,14 +40,41 @@ async function readJson<T>(response: Response) {
   return payload;
 }
 
-const emptyBookMetadata: BookMetadataRecord = {
-  workId: 'work-default',
-  authorName: '',
-  premise: '',
-  targetReaders: '',
-  serializedStatus: 'ongoing',
-  tagsJson: '[]',
-  updatedAt: '',
+type WorkspaceBootstrapResponse = {
+  bootstrap: BootstrapPayload;
+  collections: WorkspaceCollections;
+};
+
+type WorkspaceMutationResponse = WorkspaceBootstrapResponse & {
+  ok?: boolean;
+  result?: unknown;
+};
+
+type WorkspaceMutationOptions = {
+  preserveEditor?: boolean;
+  chapterId?: string | null;
+  sessionId?: string | null;
+};
+
+type ExportPayloadResponse = {
+  exportPayload: {
+    format: ProjectExportFormat | ChapterExportFormat;
+    fileName: string;
+    content: string;
+  };
+};
+
+type ImportParseResponse = {
+  parsedDocument: {
+    format: ImportFileFormat;
+  };
+};
+
+type AiGenerateResponse = {
+  output: string;
+  tokenUsage: {
+    totalTokens: number;
+  };
 };
 
 function deriveChapterSelection(collections: WorkspaceCollections, preferredId?: string | null) {
@@ -156,14 +187,11 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     };
   }, []);
 
-  const [editorModes, setEditorModes] = useState({ slash: true, bubble: true, highlight: true, pageBreak: false });
   const [workDraftTitle, setWorkDraftTitle] = useState('');
   const [volumeDraftTitle, setVolumeDraftTitle] = useState('');
-  const [chapterDraftTitle, setChapterDraftTitle] = useState('');
   const [selectedChapterTitle, setSelectedChapterTitle] = useState(initialChapter?.title ?? '');
   const [editorBody, setEditorBody] = useState(initialChapter ? parseChapterText(initialChapter.bodyJson) : '');
   const [saveState, setSaveState] = useState('idle');
-  const [metadataDraft, setMetadataDraft] = useState<BookMetadataRecord>(initialCollections.bookMetadata ?? emptyBookMetadata);
 
   const [sessionDraftTitle, setSessionDraftTitle] = useState('');
   const [freeChatPrompt, setFreeChatPrompt] = useState('');
@@ -181,59 +209,11 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     return formatWorldviewContextForAI(entries);
   }, [collections.settingsNodes]);
 
-  const handleManualSave = async () => {
-    if (!activeChapter) return;
-    setSaveState('saving');
-    try {
-      await mutateWorkspace({
-        action: 'autosave-chapter',
-        chapterId: activeChapter.id,
-        title: selectedChapterTitle,
-        bodyJson: serializeChapterText(editorBody),
-      }, { preserveEditor: true });
-      setSaveState('saved');
-      toast.success('Chapter saved manually.');
-    } catch (error) {
-      setSaveState('failed');
-      toast.error('Failed to save. Check connection.');
-    }
-  };
-
-  useKeyboardShortcuts({
-    'mod+s': handleManualSave,
-    'mod+b': () => setIsSidebarOpen(prev => !prev),
-    'mod+j': () => {
-      const tabs: Array<'ai' | 'snapshots'> = ['ai', 'snapshots'];
-      const nextIndex = (tabs.indexOf(rightSidebarTab) + 1) % tabs.length;
-      setRightSidebarTab(tabs[nextIndex]);
-    },
-    'mod+,': () => setIsSettingsOpen(true),
-    'mod+shift+w': () => setIsWorldviewOpen(true),
-  });
-
-  async function refreshWorkspace(nextWorkId?: string, nextSessionId?: string) {
-    const search = new URLSearchParams();
-    if (nextWorkId) search.set('workId', nextWorkId);
-    if (nextSessionId) search.set('sessionId', nextSessionId);
-
-    const payload = await readJson<{ bootstrap: BootstrapPayload; collections: WorkspaceCollections }>(await fetch(`/api/bootstrap?${search.toString()}`, { cache: 'no-store' }));
-    const resolvedWorkId = nextWorkId ?? payload.collections.activeWorkId ?? payload.bootstrap.workspace.workId;
-    const resolvedChapter = deriveChapterSelection(payload.collections, activeChapterId);
-    const resolvedSession = deriveSessionSelection(payload.collections, nextSessionId ?? activeSessionId);
-
-    setCollections(payload.collections);
-    setLocale(payload.bootstrap.workspace.locale);
-    setActiveWorkId(resolvedWorkId ?? null);
-    setActiveChapterId(resolvedChapter?.id ?? null);
-    setActiveSessionId(resolvedSession?.id ?? null);
-    setActiveModel(deriveActiveModel(payload.collections, payload.collections.activeModel ?? activeModel));
-    setMetadataDraft(payload.collections.bookMetadata ?? emptyBookMetadata);
-    setSelectedChapterTitle(resolvedChapter?.title ?? '');
-    setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
-  }
-
-  async function mutateWorkspace(payload: Record<string, unknown>, options: any = {}) {
-    const result = await readJson<any>(await fetch('/api/bootstrap', {
+  const mutateWorkspace = useCallback(async (
+    payload: Record<string, unknown>,
+    options: WorkspaceMutationOptions = {},
+  ) => {
+    const result = await readJson<WorkspaceMutationResponse>(await fetch('/api/bootstrap', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ...payload, currentWorkId: activeWorkId, currentSessionId: activeSessionId }),
@@ -249,22 +229,98 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setActiveChapterId(resolvedChapter?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
     setActiveModel(deriveActiveModel(result.collections, result.collections.activeModel ?? activeModel));
-    setMetadataDraft(result.collections.bookMetadata ?? emptyBookMetadata);
 
     if (!options.preserveEditor) {
       setSelectedChapterTitle(resolvedChapter?.title ?? '');
       setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
     }
-    return result;
-  }
 
-  async function refreshSnapshots(workId?: string) {
+    return result;
+  }, [
+    activeChapterId,
+    activeModel,
+    activeSessionId,
+    activeWorkId,
+    initialBootstrap.workspace.workId,
+    setActiveChapterId,
+    setActiveModel,
+    setActiveSessionId,
+    setActiveWorkId,
+    setCollections,
+    setEditorBody,
+    setLocale,
+    setSelectedChapterTitle,
+  ]);
+
+  const handleManualSave = useCallback(async () => {
+    if (!activeChapter) return;
+    setSaveState('saving');
+    try {
+      await mutateWorkspace({
+        action: 'autosave-chapter',
+        chapterId: activeChapter.id,
+        title: selectedChapterTitle,
+        bodyJson: serializeChapterText(editorBody),
+       }, { preserveEditor: true });
+       setSaveState('saved');
+       toast.success('Chapter saved manually.');
+    } catch {
+      setSaveState('failed');
+      toast.error('Failed to save. Check connection.');
+    }
+  }, [activeChapter, editorBody, mutateWorkspace, selectedChapterTitle]);
+
+  useKeyboardShortcuts({
+    'mod+s': handleManualSave,
+    'mod+b': () => setIsSidebarOpen(prev => !prev),
+    'mod+j': () => {
+      const tabs: Array<'ai' | 'snapshots'> = ['ai', 'snapshots'];
+      const nextIndex = (tabs.indexOf(rightSidebarTab) + 1) % tabs.length;
+      setRightSidebarTab(tabs[nextIndex]);
+    },
+    'mod+,': () => setIsSettingsOpen(true),
+    'mod+shift+w': () => setIsWorldviewOpen(true),
+  });
+
+  const refreshWorkspace = useCallback(async (nextWorkId?: string, nextSessionId?: string) => {
+    const search = new URLSearchParams();
+    if (nextWorkId) search.set('workId', nextWorkId);
+    if (nextSessionId) search.set('sessionId', nextSessionId);
+
+    const payload = await readJson<WorkspaceBootstrapResponse>(await fetch(`/api/bootstrap?${search.toString()}`, { cache: 'no-store' }));
+    const resolvedWorkId = nextWorkId ?? payload.collections.activeWorkId ?? payload.bootstrap.workspace.workId;
+    const resolvedChapter = deriveChapterSelection(payload.collections, activeChapterId);
+    const resolvedSession = deriveSessionSelection(payload.collections, nextSessionId ?? activeSessionId);
+
+    setCollections(payload.collections);
+    setLocale(payload.bootstrap.workspace.locale);
+    setActiveWorkId(resolvedWorkId ?? null);
+    setActiveChapterId(resolvedChapter?.id ?? null);
+    setActiveSessionId(resolvedSession?.id ?? null);
+    setActiveModel(deriveActiveModel(payload.collections, payload.collections.activeModel ?? activeModel));
+    setSelectedChapterTitle(resolvedChapter?.title ?? '');
+    setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
+  }, [
+    activeChapterId,
+    activeModel,
+    activeSessionId,
+    setActiveChapterId,
+    setActiveModel,
+    setActiveSessionId,
+    setActiveWorkId,
+    setCollections,
+    setEditorBody,
+    setLocale,
+    setSelectedChapterTitle,
+  ]);
+
+  const refreshSnapshots = useCallback(async (workId?: string) => {
     const query = workId ? `?workId=${workId}` : '';
     const payload = await readJson<{ list: Array<{ id: string; label: string; createdAt: string }> }>(await fetch(`/api/snapshots${query}`, { cache: 'no-store' }));
     setSnapshots(payload.list);
-  }
+  }, []);
 
-  async function handleCreateSnapshot() {
+  const handleCreateSnapshot = useCallback(async () => {
     if (!activeWorkId) return;
     await readJson(await fetch('/api/snapshots', {
       method: 'POST',
@@ -272,26 +328,26 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       body: JSON.stringify({ workId: activeWorkId, label: snapshotDraftLabel }),
     }));
     await refreshSnapshots(activeWorkId);
-  }
+  }, [activeWorkId, refreshSnapshots, snapshotDraftLabel]);
 
-  async function handleRestoreSnapshot(snapshotId: string) {
+  const handleRestoreSnapshot = useCallback(async (snapshotId: string) => {
     await readJson(await fetch(`/api/snapshots/${snapshotId}/restore`, { method: 'POST' }));
     await refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined);
     await refreshSnapshots(activeWorkId ?? undefined);
-  }
+  }, [activeSessionId, activeWorkId, refreshSnapshots, refreshWorkspace]);
 
-  async function handleDeleteSnapshot(snapshotId: string) {
+  const handleDeleteSnapshot = useCallback(async (snapshotId: string) => {
     await readJson(await fetch(`/api/snapshots/${snapshotId}`, { method: 'DELETE' }));
     await refreshSnapshots(activeWorkId ?? undefined);
-  }
+  }, [activeWorkId, refreshSnapshots]);
 
-  async function handleExportProject(format: any) {
-    const payload = await readJson<any>(await fetch(`/api/export/project?format=${format}`));
+  const handleExportProject = useCallback(async (format: ProjectExportFormat) => {
+    const payload = await readJson<ExportPayloadResponse>(await fetch(`/api/export/project?format=${format}`));
     setAuditLog((current) => [`project-export:${payload.exportPayload.fileName}`, ...current].slice(0, 12));
-  }
+  }, []);
 
-  async function handleImportProject() {
-    const archivePayload = await readJson<any>(await fetch('/api/export/project?format=json'));
+  const handleImportProject = useCallback(async () => {
+    const archivePayload = await readJson<ExportPayloadResponse>(await fetch('/api/export/project?format=json'));
     const archive = JSON.parse(archivePayload.exportPayload.content);
     await readJson(await fetch('/api/import/project', {
       method: 'POST',
@@ -300,25 +356,25 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     }));
     await refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined);
     await refreshSnapshots(activeWorkId ?? undefined);
-  }
+  }, [activeSessionId, activeWorkId, refreshSnapshots, refreshWorkspace]);
 
-  async function handleExportChapters(format: any) {
-    const payload = await readJson<any>(await fetch('/api/export/chapters', {
+  const handleExportChapters = useCallback(async (format: ChapterExportFormat) => {
+    const payload = await readJson<ExportPayloadResponse>(await fetch('/api/export/chapters', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ format, chapters: collections.chapters.map((c) => ({ title: c.title, content: parseChapterText(c.bodyJson) })) }),
     }));
     setAuditLog((current) => [`chapter-export:${payload.exportPayload.fileName}`, ...current].slice(0, 12));
-  }
+  }, [collections.chapters]);
 
-  async function handleParseImportFile(format: any) {
-    const payload = await readJson<any>(await fetch('/api/import/parse-file', {
+  const handleParseImportFile = useCallback(async (format: ImportFileFormat) => {
+    const payload = await readJson<ImportParseResponse>(await fetch('/api/import/parse-file', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ fileName: `sample.${format}`, content: '雨落在旧城的玻璃顶棚上。' }),
     }));
     setAuditLog((current) => [`import-parse:${payload.parsedDocument.format}`, ...current].slice(0, 12));
-  }
+  }, []);
 
   useEffect(() => {
     if (!activeChapter) return;
@@ -335,7 +391,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           bodyJson: serializeChapterText(editorBody),
         }, { preserveEditor: true });
         setSaveState('saved');
-      } catch (error) {
+      } catch {
         setSaveState('failed');
         toast.error('Autosave failed. Check your connection.', {
           action: {
@@ -346,12 +402,14 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       }
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [activeChapter, editorBody, selectedChapterTitle]);
+  }, [activeChapter, editorBody, handleManualSave, mutateWorkspace, selectedChapterTitle]);
 
-  const handleSwitchWork = (workId: string) => refreshWorkspace(workId);
+  const handleSwitchWork = useCallback((workId: string) => {
+    void refreshWorkspace(workId);
+  }, [refreshWorkspace]);
   const handleSwitchLocale = (nextLocale: SupportedLocale) => {
     setLocale(nextLocale);
-    mutateWorkspace({ action: 'update-work', workId: activeWorkId, locale: nextLocale });
+    void mutateWorkspace({ action: 'update-work', workId: activeWorkId, locale: nextLocale });
   };
   const handleSwitchChapter = (chapterId: string) => {
     const chapter = collections.chapters.find((entry) => entry.id === chapterId);
@@ -362,10 +420,58 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setPendingGhostText('');
   };
 
-  const handleActiveModelChange = useCallback((selection: ActiveModelSelection) => {
+  const handleCreateChapter = useCallback((volumeId?: string) => {
+    const nextVolumeId = volumeId ?? collections.volumes[0]?.id;
+    if (!activeWorkId || !nextVolumeId) return;
+
+    const chapterCount = collections.chapters.filter((chapter) => chapter.volumeId === nextVolumeId).length;
+    void mutateWorkspace({
+      action: 'create-chapter',
+      workId: activeWorkId,
+      volumeId: nextVolumeId,
+      title: `第${chapterCount + 1}章`,
+      bodyJson: serializeChapterText(''),
+    });
+  }, [activeWorkId, collections.chapters, collections.volumes, mutateWorkspace]);
+
+  const handleCreateVolume = useCallback(() => {
+    if (!activeWorkId || !volumeDraftTitle.trim()) return;
+    void mutateWorkspace({ action: 'create-volume', workId: activeWorkId, title: volumeDraftTitle });
+  }, [activeWorkId, mutateWorkspace, volumeDraftTitle]);
+
+  const handleCreateWork = useCallback(() => {
+    if (!workDraftTitle.trim()) return;
+    void mutateWorkspace({ action: 'create-work', title: workDraftTitle, locale, synopsis: '' });
+  }, [locale, mutateWorkspace, workDraftTitle]);
+
+  const handleUpdateWork = useCallback((workId: string, title: string) => {
+    void mutateWorkspace({ action: 'update-work', workId, title });
+  }, [mutateWorkspace]);
+
+  const handleDeleteWork = useCallback((workId: string) => {
+    void mutateWorkspace({ action: 'delete-work', workId });
+  }, [mutateWorkspace]);
+
+  const handleUpdateVolume = useCallback((volumeId: string, title: string) => {
+    void mutateWorkspace({ action: 'update-volume', volumeId, title });
+  }, [mutateWorkspace]);
+
+  const handleDeleteVolume = useCallback((volumeId: string) => {
+    void mutateWorkspace({ action: 'delete-volume', volumeId });
+  }, [mutateWorkspace]);
+
+  const handleDeleteChapter = useCallback((chapterId: string) => {
+    void mutateWorkspace({ action: 'delete-chapter', chapterId });
+  }, [mutateWorkspace]);
+
+  const handleUpdateChapter = useCallback((chapterId: string, title: string) => {
+    void mutateWorkspace({ action: 'update-chapter', chapterId, title });
+  }, [mutateWorkspace]);
+
+  const handleActiveModelChange = (selection: ActiveModelSelection) => {
     setActiveModel(selection);
-    mutateWorkspace({ action: 'set-active-model', profileId: selection.profileId, modelId: selection.modelId }, { preserveEditor: true });
-  }, [activeWorkId, activeSessionId]);
+    void mutateWorkspace({ action: 'set-active-model', profileId: selection.profileId, modelId: selection.modelId }, { preserveEditor: true });
+  };
 
   return (
     <main className="app-shell">
@@ -392,25 +498,22 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
               activeWorkId={activeWorkId ?? ''}
               chapters={collections.chapters}
               copy={copy}
-              draftChapterTitle={chapterDraftTitle}
               draftVolumeTitle={volumeDraftTitle}
               draftWorkTitle={workDraftTitle}
-              locale={locale}
-              onChapterChange={handleSwitchChapter}
-              onChapterTitleChange={setChapterDraftTitle}
-              onCreateChapter={(volumeId) => mutateWorkspace({ action: 'create-chapter', workId: activeWorkId, volumeId: volumeId ?? collections.volumes[0]?.id, title: `第${(collections.chapters.filter(c => c.volumeId === volumeId).length + 1)}章`, bodyJson: serializeChapterText('') })}
-              onCreateVolume={() => mutateWorkspace({ action: 'create-volume', workId: activeWorkId, title: volumeDraftTitle })}
-              onCreateWork={() => mutateWorkspace({ action: 'create-work', title: workDraftTitle, locale, synopsis: '' })}
-              onUpdateWork={(workId, title) => mutateWorkspace({ action: 'update-work', workId, title })}
-              onDeleteWork={(workId) => mutateWorkspace({ action: 'delete-work', workId })}
-              onUpdateVolume={(volumeId, title) => mutateWorkspace({ action: 'update-volume', volumeId, title })}
-              onDeleteVolume={(volumeId) => mutateWorkspace({ action: 'delete-volume', volumeId })}
-              onDeleteChapter={(chapterId) => mutateWorkspace({ action: 'delete-chapter', chapterId })}
-              onUpdateChapter={(chapterId, title) => mutateWorkspace({ action: 'update-chapter', chapterId, title })}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-              onVolumeTitleChange={setVolumeDraftTitle}
-              onWorkChange={handleSwitchWork}
-              onWorkTitleChange={setWorkDraftTitle}
+              onChapterChangeAction={handleSwitchChapter}
+              onCreateChapterAction={handleCreateChapter}
+              onCreateVolumeAction={handleCreateVolume}
+              onCreateWorkAction={handleCreateWork}
+              onUpdateWorkAction={handleUpdateWork}
+              onDeleteWorkAction={handleDeleteWork}
+              onUpdateVolumeAction={handleUpdateVolume}
+              onDeleteVolumeAction={handleDeleteVolume}
+              onDeleteChapterAction={handleDeleteChapter}
+              onUpdateChapterAction={handleUpdateChapter}
+              onOpenSettingsAction={() => setIsSettingsOpen(true)}
+              onVolumeTitleChangeAction={setVolumeDraftTitle}
+              onWorkChangeAction={handleSwitchWork}
+              onWorkTitleChangeAction={setWorkDraftTitle}
               providers={collections.providerProfiles}
               volumes={collections.volumes}
               works={collections.works}
@@ -423,11 +526,9 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
             chapter={activeChapter}
             body={editorBody}
             draftTitle={selectedChapterTitle}
-            editorModes={editorModes}
             isSidebarOpen={isSidebarOpen}
             onBodyChange={(value) => { setEditorBody(value); setSaveState('modified'); }}
             onTitleChange={(value) => { setSelectedChapterTitle(value); setSaveState('modified'); }}
-            onToggleMode={(mode) => setEditorModes((current) => ({ ...current, [mode]: !current[mode] }))}
             onAcceptGhostText={() => { setEditorBody((c) => `${c}\n\n${pendingGhostText}`.trim()); setPendingGhostText(''); setSaveState('modified'); }}
             onRejectGhostText={() => setPendingGhostText('')}
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -477,10 +578,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           <div className="flex-1 overflow-y-auto">
             {rightSidebarTab === 'ai' && (
               <AiSidebar
-                chapterTitle={activeChapter?.title ?? '—'}
                 copy={copy}
                 freeChatPrompt={freeChatPrompt}
-                locale={locale}
                 messages={collections.chatMessages}
                 activeModel={activeModel}
                 activeSessionId={activeSessionId}
@@ -497,7 +596,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
                     tokenCount: 0,
                   }, { preserveEditor: true });
 
-                  const response = await readJson<any>(await fetch('/api/ai', {
+                  const response = await readJson<AiGenerateResponse>(await fetch('/api/ai', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({
@@ -527,13 +626,10 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
                 providers={collections.providerProfiles}
                 sessions={collections.chatSessions}
                 sessionDraftTitle={sessionDraftTitle}
-                workLabel={activeWork?.title ?? '—'}
               />
             )}
             {rightSidebarTab === 'snapshots' && (
               <SnapshotPanel
-                locale={locale}
-                copy={copy}
                 snapshots={snapshots}
                 draftLabel={snapshotDraftLabel}
                 auditLog={auditLog}
@@ -556,9 +652,9 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           copy={copy}
           providers={collections.providerProfiles}
           activeModel={activeModel}
-          onActiveModelChange={handleActiveModelChange}
-          onProvidersChange={() => refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined)}
-          onClose={() => setIsSettingsOpen(false)}
+          onActiveModelChangeAction={handleActiveModelChange}
+          onProvidersChangeAction={() => refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined)}
+          onCloseAction={() => setIsSettingsOpen(false)}
         />
       )}
       {isWorldviewOpen && (
