@@ -6,6 +6,7 @@ import type {
   SettingNodeType,
   WorkspaceCollections,
   WorkspaceLocale,
+  WorldviewNodeType,
 } from '../../contracts/workspace.ts';
 import {
   appendChatMessage,
@@ -33,9 +34,14 @@ import {
   createSettingNode,
   deleteSettingNode,
   getBookMetadata,
+  getChildren,
+  hasChildren,
   listSettingsNodes,
+  moveSettingNode,
+  reorderSiblings,
   updateBookMetadata,
   updateSettingNode,
+  wouldCreateCycle,
 } from '../repositories/settings-repository.ts';
 import {
   createVolume,
@@ -61,6 +67,8 @@ const settingNodeTypeSchema = z.enum([
   'plot',
   'rule',
 ]);
+
+const worldviewNodeTypeSchema = z.enum(['group', 'entry', 'reference']);
 
 const mutationSchema = z.discriminatedUnion('action', [
   z.object({
@@ -139,6 +147,31 @@ const mutationSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('delete-setting-node'),
     nodeId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal('create-worldview-node'),
+    workId: z.string().min(1),
+    nodeType: worldviewNodeTypeSchema,
+    title: z.string().min(1),
+    parentId: z.string().min(1).nullable().optional(),
+    payloadJson: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal('move-worldview-node'),
+    nodeId: z.string().min(1),
+    parentId: z.string().min(1).nullable(),
+  }),
+  z.object({
+    action: z.literal('reorder-worldview-siblings'),
+    workId: z.string().min(1),
+    parentId: z.string().min(1).nullable().optional(),
+    orderedIds: z.array(z.string().min(1)),
+  }),
+  z.object({
+    action: z.literal('convert-worldview-node'),
+    nodeId: z.string().min(1),
+    nodeType: worldviewNodeTypeSchema,
+    payloadJson: z.string().optional(),
   }),
   z.object({
     action: z.literal('update-book-metadata'),
@@ -352,6 +385,46 @@ export function applyWorkspaceMutation(input: unknown) {
     case 'delete-setting-node':
       deleteSettingNode(mutation.nodeId);
       return { action: mutation.action, deleted: mutation.nodeId };
+    case 'create-worldview-node':
+      return {
+        action: mutation.action,
+        settingNode: createSettingNode({
+          workId: mutation.workId,
+          nodeType: mutation.nodeType as WorldviewNodeType,
+          title: mutation.title,
+          parentId: mutation.parentId ?? null,
+          payloadJson: mutation.payloadJson,
+        }),
+      };
+    case 'move-worldview-node': {
+      if (mutation.parentId !== null && wouldCreateCycle(mutation.nodeId, mutation.parentId)) {
+        throw new Error('Cannot move node under itself or its descendant');
+      }
+      return {
+        action: mutation.action,
+        settingNode: moveSettingNode(mutation.nodeId, mutation.parentId),
+      };
+    }
+    case 'reorder-worldview-siblings':
+      reorderSiblings(
+        mutation.workId,
+        mutation.parentId ?? null,
+        mutation.orderedIds
+      );
+      return { action: mutation.action, reordered: mutation.orderedIds };
+    case 'convert-worldview-node': {
+      const node = getChildren(mutation.nodeId);
+      if (hasChildren(mutation.nodeId) && mutation.nodeType !== 'group') {
+        throw new Error('Cannot convert to non-group type while node has children');
+      }
+      return {
+        action: mutation.action,
+        settingNode: updateSettingNode(mutation.nodeId, {
+          nodeType: mutation.nodeType as WorldviewNodeType,
+          payloadJson: mutation.payloadJson,
+        }),
+      };
+    }
     case 'update-book-metadata':
       return {
         action: mutation.action,
