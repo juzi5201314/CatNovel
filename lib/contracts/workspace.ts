@@ -15,6 +15,8 @@ export type SettingNodeType =
   | 'plot'
   | 'rule';
 
+export type WorldviewNodeType = 'group' | 'entry' | 'reference';
+
 export type ChatRole = 'system' | 'user' | 'assistant';
 
 export interface WorkRecord {
@@ -56,7 +58,8 @@ export interface SettingNodeRecord {
   id: string;
   workId: string;
   parentId: string | null;
-  nodeType: SettingNodeType;
+  nodeType: SettingNodeType | WorldviewNodeType;
+  sortIndex: number;
   title: string;
   payloadJson: string;
   createdAt: string;

@@ -272,6 +272,17 @@ export const schemaMigrations = [
          END`,
     ],
   },
+  {
+    id: "0004_worldview_nodes",
+    statements: [
+      `ALTER TABLE settings_nodes ADD COLUMN sort_index INTEGER NOT NULL DEFAULT 0`,
+      `UPDATE settings_nodes SET node_type = 'group'`,
+      `CREATE INDEX IF NOT EXISTS idx_settings_nodes_work_parent_sort
+         ON settings_nodes (work_id, parent_id, sort_index, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_settings_nodes_work_title
+         ON settings_nodes (work_id, title)`,
+    ],
+  },
 ] as const;
 
 export const seedStatements = [
@@ -288,14 +299,13 @@ export const seedStatements = [
   `INSERT OR IGNORE INTO book_metadata (work_id, author_name, premise, target_readers, serialized_status, tags_json, updated_at)
    VALUES ('work-default', 'CatNovel', '一个围绕都市异闻与创作现场展开的长篇网文项目。', 'webnovel-core', 'ongoing', '["都市","悬疑","成长"]', '2026-04-10T00:00:00.000Z')`,
 
-  `INSERT OR IGNORE INTO settings_nodes (id, work_id, parent_id, node_type, title, payload_json, created_at, updated_at)
+  `INSERT OR IGNORE INTO settings_nodes (id, work_id, parent_id, node_type, sort_index, title, payload_json, created_at, updated_at)
    VALUES
-    ('setting-character-root', 'work-default', NULL, 'character', '主角团', '{"summary":"主角、盟友与反派的动机。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-location-root', 'work-default', NULL, 'location', '迷雾城', '{"summary":"旧城、桥区与禁区入口。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-item-root', 'work-default', NULL, 'item', '旧印', '{"summary":"会重写因果的旧印。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-world-root', 'work-default', NULL, 'world', '世界规则', '{"summary":"力量体系与禁忌条款。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-plot-root', 'work-default', NULL, 'plot', '主线冲突', '{"summary":"主角追索旧印真相。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('setting-rule-root', 'work-default', NULL, 'rule', '连载规则', '{"summary":"章节节奏、高潮与伏笔回收。"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
+    ('setting-characters', 'work-default', NULL, 'group', 0, '角色', '{"schemaVersion":1,"note":"主角、盟友与反派的动机与关系"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-locations', 'work-default', NULL, 'group', 1, '地点', '{"schemaVersion":1,"note":"旧城、桥区与禁区入口"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-items', 'work-default', NULL, 'group', 2, '物品', '{"schemaVersion":1,"note":"会重写因果的旧印与其他道具"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-rules', 'work-default', NULL, 'group', 3, '世界规则', '{"schemaVersion":1,"note":"力量体系与禁忌条款"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
+    ('setting-plot', 'work-default', NULL, 'group', 4, '主线冲突', '{"schemaVersion":1,"note":"主角追索旧印真相的主线剧情"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
   `INSERT OR IGNORE INTO chat_sessions (id, work_id, title, created_at, updated_at)
    VALUES ('chat-session-default', 'work-default', '自由对话', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
   `INSERT OR IGNORE INTO chat_messages (id, session_id, role, body, token_count, created_at)
