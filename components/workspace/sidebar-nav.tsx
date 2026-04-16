@@ -444,6 +444,7 @@ export function SidebarNav({
   onDeleteVolumeAction,
   onDeleteChapterAction,
   onUpdateChapterAction,
+  onOpenWorldviewAction,
 }: {
   copy: AppMessages;
   works: WorkRecord[];
@@ -469,6 +470,7 @@ export function SidebarNav({
   onDeleteVolumeAction: (volumeId: string) => void;
   onDeleteChapterAction: (chapterId: string) => void;
   onUpdateChapterAction: (chapterId: string, title: string) => void;
+  onOpenWorldviewAction: () => void;
 }) {
   const [collapsedVolumes, setCollapsedVolumes] = useState<Record<string, boolean>>({});
   const [isWorkManagerOpen, setIsWorkManagerOpen] = useState(false);
@@ -523,14 +525,8 @@ export function SidebarNav({
     return grouped;
   }, [chapters, volumes]);
 
-  const activeModelLabel = useMemo(() => {
-    if (!activeModel) {
-      return copy.modelSettings;
-    }
-
-    const profile = providers.find((provider) => provider.id === activeModel.profileId);
-    return profile ? `${profile.label} / ${activeModel.modelId}` : copy.modelSettings;
-  }, [activeModel, copy.modelSettings, providers]);
+  void activeModel;
+  void providers;
 
   return (
     <div className="flex flex-col h-full bg-muted/30 overflow-hidden">
@@ -738,7 +734,7 @@ export function SidebarNav({
         </div>
       </div>
 
-      <div className="flex-none p-3 border-t border-muted-foreground/10 bg-muted/20">
+      <div className="flex-none p-3 border-t border-muted-foreground/10 bg-muted/20 space-y-2">
         <Button
           variant="ghost"
           size="sm"
@@ -755,7 +751,29 @@ export function SidebarNav({
             <path d="M2 12l10 5 10-5" />
           </svg>
           <span className="flex-1 truncate text-left font-medium">
-            {activeModelLabel}
+            {copy.modelSettings}
+          </span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-muted-foreground/50">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onOpenWorldviewAction}
+          className={cx(
+            "w-full h-9 px-3 text-xs justify-start gap-2.5",
+            "hover:bg-background/80 hover:text-foreground",
+            "active:scale-[0.98] transition-all duration-200"
+          )}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-muted-foreground">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+          </svg>
+          <span className="flex-1 truncate text-left font-medium">
+            世界观
           </span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-muted-foreground/50">
             <path d="M9 18l6-6-6-6" />

@@ -1,4 +1,5 @@
-import type { SupportedLocale } from '../../lib/i18n/messages';
+import type { SupportedLocale, AppMessages } from '../../lib/i18n/messages';
+import type { ActiveModelSelection, ProviderProfileRecord } from '@/lib/contracts/workspace';
 
 const localeLabels: Record<SupportedLocale, string> = {
   zh: '简体中文',
@@ -10,13 +11,27 @@ export function WorkspaceHeader({
   locale,
   activeWorkLabel,
   activeChapterTitle,
+  activeModel,
+  providers,
+  copy,
   onLocaleChange,
+  onOpenModelSelector,
 }: {
   locale: SupportedLocale;
   activeWorkLabel: string;
   activeChapterTitle: string;
+  activeModel: ActiveModelSelection | null;
+  providers: ProviderProfileRecord[];
+  copy: AppMessages;
   onLocaleChange: (locale: SupportedLocale) => void;
+  onOpenModelSelector: () => void;
 }) {
+  const hasAvailableModels = providers.some((p) => p.enabled && p.modelIds.length > 0);
+  const activeModelLabel = (() => {
+    if (!activeModel) return '—';
+    const profile = providers.find((p) => p.id === activeModel.profileId);
+    return profile ? `${profile.label} / ${activeModel.modelId}` : activeModel.modelId;
+  })();
   return (
     <header className="app-header">
       <div className="flex items-center gap-4">
@@ -35,6 +50,21 @@ export function WorkspaceHeader({
       </div>
 
       <div className="flex items-center gap-4">
+        <button
+          onClick={onOpenModelSelector}
+          className={hasAvailableModels
+            ? "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-muted/50 hover:bg-muted text-foreground transition-colors"
+            : "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors"
+          }
+        >
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground pt-[1px]">Model</span>
+          <span className={hasAvailableModels ? "truncate max-w-[200px]" : "truncate max-w-[200px] font-medium"}>
+            {hasAvailableModels ? activeModelLabel : copy.noAvailableModels}
+          </span>
+        </button>
+
+        <div className="h-4 w-[1px] bg-border" />
+
         <div className="relative">
           <select
             value={locale}

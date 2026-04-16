@@ -652,9 +652,13 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       <div>
         <WorkspaceHeader
           activeChapterTitle={activeChapter?.title ?? '—'}
+          activeModel={activeModel}
           activeWorkLabel={activeWork?.title ?? 'CatNovel'}
+          copy={copy}
           locale={locale}
           onLocaleChange={handleSwitchLocale}
+          onOpenModelSelector={() => setIsSettingsOpen(true)}
+          providers={collections.providerProfiles}
         />
       </div>
 
@@ -665,7 +669,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
             isSidebarOpen ? "w-[240px] opacity-100" : "w-0 opacity-0 border-none"
           )}
         >
-          <div className="w-[240px]">
+          <div className="w-[240px] h-full">
             <SidebarNav
               activeChapterId={activeChapterId ?? ''}
               activeModel={activeModel}
@@ -685,6 +689,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
               onDeleteChapterAction={handleDeleteChapter}
               onUpdateChapterAction={handleUpdateChapter}
               onOpenSettingsAction={() => setIsSettingsOpen(true)}
+              onOpenWorldviewAction={() => setIsWorldviewOpen(true)}
               onVolumeTitleChangeAction={setVolumeDraftTitle}
               onWorkChangeAction={handleSwitchWork}
               onWorkTitleChangeAction={setWorkDraftTitle}
@@ -732,13 +737,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
             >
               AI
             </button>
-            <button
-              role="tab"
-              className="flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => setIsWorldviewOpen(true)}
-            >
-              世界观
-            </button>
+
             <button
               role="tab"
               aria-selected={rightSidebarTab === 'snapshots'}
