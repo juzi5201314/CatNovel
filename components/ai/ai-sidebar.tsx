@@ -4,9 +4,11 @@ import type {
   ChatSessionRecord,
   ProviderProfileRecord,
 } from '@/lib/contracts/workspace';
+import type { AgentRunStatus } from '@/lib/contracts/agent-events';
 import type { AppMessages } from '@/lib/i18n/messages';
 
 import { ChatSessionList } from './chat-session-list';
+import type { StreamingMessage, ToolCallItem } from './chat-session-list';
 
 export function AiSidebar({
   copy,
@@ -17,12 +19,19 @@ export function AiSidebar({
   messages,
   sessionDraftTitle,
   freeChatPrompt,
+  agentModeStorageKey,
+  isAgentMode,
+  agentStatus,
+  activeToolName,
+  streamingMessage,
+  toolCalls,
   onOpenSettings,
   onCreateSession,
   onSessionDraftTitleChange,
   onSessionChange,
   onFreeChatPromptChange,
   onSendFreeChat,
+  onAgentModeChange,
 }: {
   copy: AppMessages;
   providers: ProviderProfileRecord[];
@@ -32,12 +41,19 @@ export function AiSidebar({
   messages: ChatMessageRecord[];
   sessionDraftTitle: string;
   freeChatPrompt: string;
+  agentModeStorageKey: string;
+  isAgentMode: boolean;
+  agentStatus: AgentRunStatus;
+  activeToolName: string | null;
+  streamingMessage: StreamingMessage | null;
+  toolCalls: ToolCallItem[];
   onOpenSettings: () => void;
   onCreateSession: () => void;
   onSessionDraftTitleChange: (value: string) => void;
   onSessionChange: (sessionId: string) => void;
   onFreeChatPromptChange: (value: string) => void;
   onSendFreeChat: () => void;
+  onAgentModeChange: (value: boolean) => void;
 }) {
   const activeModelLabel = activeModel
     ? (() => {
@@ -69,11 +85,19 @@ export function AiSidebar({
           messages={messages}
           draftTitle={sessionDraftTitle}
           draftPrompt={freeChatPrompt}
+          supportsAgentMode
+          agentModeStorageKey={agentModeStorageKey}
+          isAgentMode={isAgentMode}
+          agentStatus={agentStatus}
+          activeToolName={activeToolName}
+          streamingMessage={streamingMessage}
+          toolCalls={toolCalls}
           onCreateSession={onCreateSession}
           onDraftTitleChange={onSessionDraftTitleChange}
           onDraftPromptChange={onFreeChatPromptChange}
           onSessionChange={onSessionChange}
           onSendPrompt={onSendFreeChat}
+          onAgentModeChange={onAgentModeChange}
         />
       </div>
     </div>

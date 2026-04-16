@@ -10,12 +10,15 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types tests/**/*.test.ts",
+    "test": "node --test --experimental-strip-types \"tests/**/*.test.ts\" \"tests/*.test.ts\"",
     "backup": "node --experimental-strip-types scripts/backup-database.ts",
     "restore": "node --experimental-strip-types scripts/restore-database.ts",
     "recover": "node --experimental-strip-types scripts/recover-database.ts"
   },
   "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.67.3",
+    "@mariozechner/pi-ai": "^0.67.3",
+    "@sinclair/typebox": "^0.34.49",
     "@xyflow/react": "^12.10.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

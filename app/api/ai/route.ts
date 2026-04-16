@@ -15,6 +15,15 @@ import {
   resetTokenUsageArchiveForTests,
 } from '../../../lib/server/ai/token-usage-archive.ts';
 
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate',
+} as const;
+
+const sseHeaders = {
+  'content-type': 'text/event-stream; charset=utf-8',
+  'cache-control': 'no-cache, no-transform',
+} as const;
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const resource = searchParams.get('resource') ?? 'profiles';
@@ -23,14 +32,14 @@ export async function GET(request: Request) {
     return Response.json({
       records: listTokenUsageRecords(),
     }, {
-      headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
+      headers: noStoreHeaders,
     });
   }
 
   return Response.json({
     profiles: listProviderProfiles(),
   }, {
-    headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
+    headers: noStoreHeaders,
   });
 }
 
@@ -93,10 +102,7 @@ export async function POST(request: Request) {
 
     if (payload.stream) {
       return new Response(createGenerationStream(result), {
-        headers: {
-          'content-type': 'text/event-stream; charset=utf-8',
-          'cache-control': 'no-cache, no-transform',
-        },
+        headers: sseHeaders,
       });
     }
 
