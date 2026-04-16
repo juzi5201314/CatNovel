@@ -1,4 +1,6 @@
-export const supportedLocales = ["zh", "en", "ru"] as const;
+import { workspaceLocales } from '@/lib/contracts/workspace';
+
+export const supportedLocales = workspaceLocales;
 
 export type SupportedLocale = (typeof supportedLocales)[number];
 

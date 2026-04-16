@@ -11,8 +11,6 @@ export interface WorldviewContextEntry {
 export function serializeWorldviewContext(
   nodes: SettingNodeRecord[]
 ): WorldviewContextEntry[] {
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-
   return nodes.map((node) => {
     const type = node.nodeType as WorldviewNodeType;
     const payload = parseWorldviewPayload(node.payloadJson);

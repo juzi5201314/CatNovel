@@ -83,6 +83,7 @@ export function canConvertType(
   to: WorldviewNodeType,
   hasChildren: boolean
 ): { valid: boolean; reason?: string } {
+  void from;
   // Cannot convert if would orphan children
   if (hasChildren && to !== 'group') {
     return {

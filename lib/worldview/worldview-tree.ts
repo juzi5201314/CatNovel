@@ -67,7 +67,7 @@ export function flattenWorldviewTree(
 
   function traverse(nodes: WorldviewTreeNode[]) {
     for (const node of nodes) {
-      const { children, payload, depth, ...record } = node;
+      const { children, ...record } = node;
       result.push(record);
       traverse(children);
     }
