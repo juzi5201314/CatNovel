@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, createContext, useContext } from 'react';
 import {
   ReactFlow,
   Background,
@@ -32,11 +32,17 @@ import {
   createWorldviewPayload,
   type WorldviewPayload,
 } from '@/lib/worldview/worldview-payload';
+import {
+  computeWorldviewLayout,
+  type LayoutedNode,
+} from '@/lib/worldview/worldview-layout';
+
+// 布局方向 Context
+const LayoutDirectionContext = createContext<'DOWN' | 'RIGHT'>('DOWN');
 
 // ============================================
 // 类型定义
 // ============================================
-
 interface WorldviewDialogProps {
   copy: AppMessages;
   workId: string;
@@ -45,9 +51,6 @@ interface WorldviewDialogProps {
   onMutate: (action: string, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
 }
 
-interface LayoutedNode extends Node {
-  position: { x: number; y: number };
-}
 
 type NodeData = {
   title: string;
@@ -64,113 +67,6 @@ interface NodeContextMenuState {
   y: number;
   nodeId: string | null;
   nodeData: NodeData | null;
-}
-
-// ============================================
-// 布局计算函数
-// ============================================
-
-function computeSubtreeLayout(
-  subtree: WorldviewTreeNode[],
-  options: {
-    direction?: 'DOWN' | 'RIGHT';
-    nodeWidth?: number;
-    nodeHeight?: number;
-    spacing?: number;
-  } = {}
-): { nodes: LayoutedNode[]; edges: Edge[] } {
-  const {
-    direction = 'DOWN',
-    nodeWidth = 160,
-    nodeHeight = 60,
-    rootNodeWidth = 200,
-    rootNodeHeight = 80,
-    spacing = 40,
-  } = options as { direction: 'DOWN' | 'RIGHT'; nodeWidth: number; nodeHeight: number; rootNodeWidth: number; rootNodeHeight: number; spacing: number };
-
-  const nodes: LayoutedNode[] = [];
-  const edges: Edge[] = [];
-  let isFirstNode = true;
-
-  function layoutSubtree(
-    nodesToLayout: WorldviewTreeNode[],
-    startX: number,
-    startY: number
-  ): number {
-    if (nodesToLayout.length === 0) return startX;
-
-    const levelOffset = direction === 'DOWN' ? nodeHeight + spacing : nodeWidth + spacing;
-    const crossOffset = direction === 'DOWN' ? nodeWidth + spacing : nodeHeight + spacing;
-
-    let currentX = startX;
-
-    for (const node of nodesToLayout) {
-      const isRoot = isFirstNode;
-      isFirstNode = false;
-
-      const position =
-        direction === 'DOWN'
-          ? { x: currentX, y: startY }
-          : { x: startX, y: currentX };
-
-      const width = isRoot ? rootNodeWidth : nodeWidth;
-      const height = isRoot ? rootNodeHeight : nodeHeight;
-
-      nodes.push({
-        id: node.id,
-        type: 'custom',
-        position,
-        data: {
-          title: node.title,
-          type: node.nodeType,
-          hasChildren: node.children.length > 0,
-          isRoot,
-          note: node.payload.note,
-          value: node.payload.value,
-        } as NodeData,
-        width,
-        height,
-        draggable: false,
-        selectable: true,
-      });
-
-      for (const child of node.children) {
-        edges.push({
-          id: `${node.id}-${child.id}`,
-          source: node.id,
-          target: child.id,
-          type: 'smoothstep',
-        });
-      }
-
-      if (node.children.length > 0) {
-        const childrenWidth = layoutSubtree(
-          node.children,
-          currentX,
-          startY + levelOffset
-        );
-        currentX = Math.max(currentX + crossOffset, childrenWidth);
-      } else {
-        currentX += crossOffset;
-      }
-    }
-
-    return currentX;
-  }
-
-  layoutSubtree(subtree, 0, 0);
-
-  if (nodes.length > 0) {
-    const minX = Math.min(...nodes.map((n) => n.position.x));
-    const minY = Math.min(...nodes.map((n) => n.position.y));
-
-    for (const node of nodes) {
-      node.position.x -= minX;
-      node.position.y -= minY;
-    }
-  }
-
-  return { nodes, edges };
 }
 
 // ============================================
@@ -323,11 +219,9 @@ function NodeContextMenu({
                       }}
                       className={cx(
                         'w-full px-3 py-2 text-sm text-left flex items-center gap-2',
-                        'hover:bg-blue-50 hover:text-blue-700 transition-colors'
-                      )}
-                    >
-                      <span className="w-2 h-2 rounded-full bg-blue-400" />
-                      添加分组
+                        'hover:bg-gray-50 hover:text-gray-900 transition-colors'
+                      )}>
+                      <span className="w-2 h-2 rounded-full bg-gray-500" />
                     </button>
                     <button
                       onClick={(e) => {
@@ -512,20 +406,19 @@ function ParentSelectorDialog({
             className={cx(
               'w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-150',
               !currentParentId
-                ? 'bg-primary/10 text-foreground font-medium ring-1 ring-primary/20'
+                ? 'bg-gray-100 text-gray-900 font-medium ring-1 ring-gray-300'
                 : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground'
             )}
           >
             <div className="flex items-center gap-2">
               {!currentParentId && (
-                <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-4 h-4 text-gray-900 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               )}
               <span>（根节点）</span>
             </div>
           </button>
-
           {filteredParents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
               <svg className="w-10 h-10 mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -544,13 +437,13 @@ function ParentSelectorDialog({
                     className={cx(
                       'w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-150',
                       isSelected
-                        ? 'bg-primary/10 text-foreground font-medium ring-1 ring-primary/20'
+                        ? 'bg-gray-100 text-gray-900 font-medium ring-1 ring-gray-300'
                         : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground'
                     )}
                   >
                     <div className="flex items-center gap-2">
                       {isSelected && (
-                        <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <svg className="w-4 h-4 text-gray-900 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                         </svg>
                       )}
@@ -569,7 +462,6 @@ function ParentSelectorDialog({
     </div>
   );
 }
-
 interface MoveNodeDialogProps {
   nodeId: string;
   nodes: SettingNodeRecord[];
@@ -606,8 +498,6 @@ function MoveNodeDialog({ nodeId, nodes, onMove, onClose }: MoveNodeDialogProps)
 
 // ============================================
 // 自定义节点组件（带右键菜单支持）
-// ============================================
-
 interface CustomNodeProps {
   data: NodeData;
   id: string;
@@ -615,10 +505,16 @@ interface CustomNodeProps {
 
 function CustomNode({ data }: CustomNodeProps) {
   const [showTooltip, setShowTooltip] = useState(false);
-
+  
+  // 从父组件 SubtreeCanvas 通过 React Context 获取布局方向
+  const direction = useContext(LayoutDirectionContext);
+  
+  // 根据布局方向确定 Handle 位置
+  const targetPosition = direction === 'DOWN' ? Position.Top : Position.Left;
+  const sourcePosition = direction === 'DOWN' ? Position.Bottom : Position.Right;
   const typeLabel = data.type === 'group' ? '组' : '条';
   const typeColor = data.type === 'group'
-    ? 'bg-blue-100 border-blue-300 text-blue-800'
+    ? 'bg-gray-100 border-gray-300 text-gray-700'
     : 'bg-green-100 border-green-300 text-green-800';
 
   const rootStyles = data.isRoot
@@ -635,14 +531,13 @@ function CustomNode({ data }: CustomNodeProps) {
     <div
       className={cx(
         'relative rounded-lg border p-2 flex flex-col items-center justify-center transition-all duration-200',
-        'hover:shadow-lg hover:border-primary/50 cursor-pointer',
-        rootStyles,
+        'hover:shadow-lg hover:border-gray-400 cursor-pointer',
         data.isRoot ? 'min-w-[180px] min-h-[70px]' : 'min-w-[140px] min-h-[50px]'
       )}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
-      <Handle type="target" position={Position.Top} className="!bg-gray-400" />
+      <Handle type="target" position={targetPosition} className="!bg-gray-400" />
 
       <div className="flex items-center gap-2 w-full">
         <span className={cx(
@@ -660,13 +555,7 @@ function CustomNode({ data }: CustomNodeProps) {
         </span>
       </div>
 
-      {data.hasChildren && (
-        <span className="text-xs text-gray-500 mt-1">
-          {data.isRoot ? '点击展开子节点' : '有子节点'}
-        </span>
-      )}
-
-      <Handle type="source" position={Position.Bottom} className="!bg-gray-400" />
+      <Handle type="source" position={sourcePosition} className="!bg-gray-400" />
 
       {showTooltip && tooltipContent && (
         <div className={cx(
@@ -684,6 +573,7 @@ function CustomNode({ data }: CustomNodeProps) {
 }
 
 // ============================================
+// ============================================
 // 子树画布组件
 // ============================================
 
@@ -696,26 +586,67 @@ interface SubtreeCanvasProps {
 
 function SubtreeCanvas({ rootNode, onSelectNode, focusNodeId, onContextMenu }: SubtreeCanvasProps) {
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+  const [flowNodes, setFlowNodes] = useState<LayoutedNode[]>([]);
+  const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
+  const [isLayouting, setIsLayouting] = useState(true);
+  const [layoutDirection, setLayoutDirection] = useState<'DOWN' | 'RIGHT'>('DOWN');
 
-  const { nodes: flowNodes, edges: flowEdges } = useMemo(() => {
-    return computeSubtreeLayout([rootNode], { direction: 'DOWN' });
-  }, [rootNode]);
-
+  // 异步计算布局
   useEffect(() => {
-    if (focusNodeId && reactFlowInstance.current) {
-      const nodeExists = flowNodes.some(n => n.id === focusNodeId);
-      if (nodeExists) {
-        setTimeout(() => {
+    let cancelled = false;
+    
+    async function computeLayout() {
+      setIsLayouting(true);
+      try {
+        const { nodes, edges } = await computeWorldviewLayout([rootNode], { 
+          direction: layoutDirection,
+          nodeWidth: 160,
+          nodeHeight: 60,
+          spacing: 40,
+          rootNodeWidth: 200,
+          rootNodeHeight: 80,
+        });
+        if (!cancelled) {
+          setFlowNodes(nodes);
+          setFlowEdges(edges);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLayouting(false);
+        }
+      }
+    }
+    
+    computeLayout();
+    
+    return () => {
+      cancelled = true;
+    };
+  }, [rootNode, layoutDirection]);
+
+  // 聚焦节点或布局完成后适应视图
+  useEffect(() => {
+    if (!reactFlowInstance.current || flowNodes.length === 0) return;
+    
+    setTimeout(() => {
+      if (focusNodeId) {
+        const nodeExists = flowNodes.some(n => n.id === focusNodeId);
+        if (nodeExists) {
           reactFlowInstance.current?.fitView({
             nodes: [{ id: focusNodeId }],
             padding: 0.3,
             duration: 500,
           });
-        }, 100);
+          return;
+        }
       }
-    }
-  }, [focusNodeId, flowNodes]);
-
+      // 没有聚焦节点时适应整个视图
+      reactFlowInstance.current?.fitView({
+        padding: 0.2,
+        duration: 500,
+      });
+    }, 100);
+  }, [focusNodeId, flowNodes, layoutDirection]);
   const handleNodeClick = useCallback(
     (_: unknown, node: Node) => {
       onSelectNode(node.id);
@@ -733,44 +664,80 @@ function SubtreeCanvas({ rootNode, onSelectNode, focusNodeId, onContextMenu }: S
   }, []);
 
   return (
-    <div className="flex-1 relative h-full">
-      <ReactFlow
-        nodes={flowNodes}
-        edges={flowEdges}
-        onNodeClick={handleNodeClick}
-        onNodeContextMenu={onContextMenu}
-        onInit={handleInit}
-        onPaneContextMenu={handlePaneContextMenu}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        attributionPosition="bottom-left"
-        nodesDraggable={false}
-        nodesConnectable={false}
-        panOnDrag
-        zoomOnScroll
-        zoomOnPinch
-        panOnScroll={false}
-      >
-        <Background gap={12} size={1} />
-        <Controls />
-      </ReactFlow>
+    <LayoutDirectionContext.Provider value={layoutDirection}>
+      <div className="flex-1 relative h-full">
+        {isLayouting && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-10">
+            <div className="text-sm text-muted-foreground">布局计算中...</div>
+          </div>
+        )}
+        <ReactFlow
+          nodes={flowNodes}
+          edges={flowEdges}
+          onNodeClick={handleNodeClick}
+          onNodeContextMenu={onContextMenu}
+          onInit={handleInit}
+          onPaneContextMenu={handlePaneContextMenu}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          attributionPosition="bottom-left"
+          nodesDraggable={false}
+          nodesConnectable={false}
+          panOnDrag
+          zoomOnScroll
+          zoomOnPinch
+          panOnScroll={false}
+        >
+          <Background gap={12} size={1} />
+          <Controls />
+        </ReactFlow>
+        <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border rounded-lg px-3 py-2 shadow-sm">
+          <span className="text-sm font-medium text-foreground">{rootNode.title}</span>
+        </div>
 
-      <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border rounded-lg px-3 py-2 shadow-sm">
-        <span className="text-sm font-medium text-foreground">{rootNode.title}</span>
-      </div>
+      {/* 布局方向切换按钮 */}
+      <button
+        onClick={() => setLayoutDirection(prev => prev === 'DOWN' ? 'RIGHT' : 'DOWN')}
+        className={cx(
+          'absolute top-4 right-4 w-9 h-9 flex items-center justify-center',
+          'bg-background/90 backdrop-blur-sm border rounded-lg shadow-sm',
+          'text-muted-foreground hover:text-foreground hover:bg-muted',
+          'transition-colors'
+        )}
+        title={layoutDirection === 'DOWN' ? '切换为横向布局' : '切换为纵向布局'}
+      >
+        {layoutDirection === 'DOWN' ? (
+          // 纵向图标（树向下）
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 3v6" />
+            <path d="M12 9l-4 4" />
+            <path d="M12 9l4 4" />
+            <path d="M8 13v6" />
+            <path d="M16 13v6" />
+          </svg>
+        ) : (
+          // 横向图标（树向右）
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 12h6" />
+            <path d="M9 12l4-4" />
+            <path d="M9 12l4 4" />
+            <path d="M13 8h6" />
+            <path d="M13 16h6" />
+          </svg>
+        )}
+      </button>
 
       <div className="absolute bottom-4 left-4 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
         点击节点进行编辑 · 右键节点打开菜单
       </div>
     </div>
+  </LayoutDirectionContext.Provider>
   );
 }
-
 const nodeTypes = {
   custom: CustomNode,
 };
-
 // ============================================
 // 子节点列表组件
 // ============================================
@@ -871,10 +838,9 @@ function ChildNodeList({
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, child.id)}
               className={cx(
-                'flex items-center gap-2 p-2 rounded-md border bg-background',
-                'hover:border-primary/50 transition-all duration-200',
+                'hover:border-gray-400/50 transition-all duration-200',
                 isDragging && 'opacity-50',
-                isDragOver && 'border-primary bg-primary/5'
+                isDragOver && 'border-gray-600 bg-gray-50'
               )}
               style={{ marginLeft: `${depth * 16}px`, cursor: 'move' }}
             >
@@ -888,7 +854,6 @@ function ChildNodeList({
                   <circle cx="9" cy="9" r="1" />
                 </svg>
               </div>
-
               {canExpand && (
                 <button
                   onClick={() => onExpandChild(child.id)}
@@ -973,11 +938,10 @@ function ParentSelector({ node, nodes, onMoveNode }: ParentSelectorProps) {
         className={cx(
           'w-full h-9 px-3 text-sm rounded-md bg-background border shadow-sm',
           'flex items-center justify-between',
-          'hover:border-primary/50 transition-colors text-left'
+          'hover:border-gray-400 transition-colors text-left'
         )}
       >
         <span className={cx('truncate', !currentParent && 'text-muted-foreground')}>
-          {currentParent ? currentParent.title : '（根节点）'}
         </span>
         <svg className="w-4 h-4 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -1472,7 +1436,7 @@ export function WorldviewDialog({
                       className={cx(
                         'w-full text-left px-3 py-2 rounded-md text-sm transition-colors',
                         focusNodeId === item.id
-                          ? 'bg-primary text-primary-foreground'
+                          ? 'bg-gray-900 text-white'
                           : 'hover:bg-muted'
                       )}
                       style={{ paddingLeft: `${item.depth * 16 + 12}px` }}
@@ -1486,7 +1450,7 @@ export function WorldviewDialog({
                             }}
                             className={cx(
                               'text-xs cursor-pointer',
-                              focusNodeId === item.id ? 'text-primary-foreground' : ''
+                              focusNodeId === item.id ? 'text-white' : ''
                             )}
                           >
                             {item.expanded ? '▼' : '▶'}
@@ -1495,7 +1459,7 @@ export function WorldviewDialog({
                         <span className="truncate">{item.title}</span>
                         <span className={cx(
                           'text-xs opacity-60 ml-auto',
-                          focusNodeId === item.id ? 'text-primary-foreground' : ''
+                          focusNodeId === item.id ? 'text-white' : ''
                         )}>
                           {item.type === 'group' ? '组' : '条'}
                         </span>
@@ -1551,7 +1515,7 @@ export function WorldviewDialog({
                           className={cx(
                             'px-3 py-1 text-xs rounded-md whitespace-nowrap transition-colors',
                             effectiveActiveRootId === root.id
-                              ? 'bg-primary text-primary-foreground'
+                              ? 'bg-gray-900 text-white'
                               : 'bg-background border hover:bg-muted'
                           )}
                         >
@@ -1578,7 +1542,7 @@ export function WorldviewDialog({
                       <p className="text-muted-foreground mb-4">暂无节点</p>
                       <button
                         onClick={() => handleCreateNode('group', null)}
-                        className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+                        className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
                       >
                         创建第一个分组
                       </button>

@@ -1,95 +1,159 @@
 import type { Node, Edge } from '@xyflow/react';
 import type { WorldviewTreeNode } from './worldview-tree';
+import { tree, hierarchy } from 'd3-hierarchy';
 
 export interface LayoutedNode extends Node {
   position: { x: number; y: number };
 }
 
-export function computeWorldviewLayout(
-  tree: WorldviewTreeNode[],
-  options: {
-    direction?: 'DOWN' | 'RIGHT';
-    nodeWidth?: number;
-    nodeHeight?: number;
-    spacing?: number;
-  } = {}
-): { nodes: LayoutedNode[]; edges: Edge[] } {
-  const {
-    direction = 'DOWN',
-    nodeWidth = 200,
-    nodeHeight = 80,
-    spacing = 50,
-  } = options;
+interface TreeLayoutOptions {
+  direction?: 'DOWN' | 'RIGHT';
+  nodeWidth?: number;
+  nodeHeight?: number;
+  spacing?: number;
+  rootNodeWidth?: number;
+  rootNodeHeight?: number;
+}
 
-  // Simple hierarchical layout without ELK for now
-  // Can be replaced with ELK for more sophisticated layouts
-  const nodes: LayoutedNode[] = [];
+function treeToD3Hierarchy(
+  treeData: WorldviewTreeNode[],
+): { root: any; edges: Edge[] } {
   const edges: Edge[] = [];
-
-  function layoutSubtree(
-    subtree: WorldviewTreeNode[],
-    startX: number,
-    startY: number,
-    depth: number
-  ): number {
-    if (subtree.length === 0) return startX;
-
-    const levelOffset = direction === 'DOWN' ? nodeHeight + spacing : nodeWidth + spacing;
-    const crossOffset = direction === 'DOWN' ? nodeWidth + spacing : nodeHeight + spacing;
-
-    let currentX = startX;
-    const childY = startY + levelOffset;
-
-    for (const node of subtree) {
-      // Position this node
-      const position =
-        direction === 'DOWN'
-          ? { x: currentX, y: startY }
-          : { x: startX, y: currentX };
-
-      nodes.push({
-        id: node.id,
-        type: node.nodeType,
-        position,
-        data: {
-          title: node.title,
-          payload: node.payload,
-          hasChildren: node.children.length > 0,
-        },
-        width: nodeWidth,
-        height: nodeHeight,
-      });
-
-      // Create edges to children
-      for (const child of node.children) {
-        edges.push({
-          id: `${node.id}-${child.id}`,
-          source: node.id,
-          target: child.id,
-          type: 'smoothstep',
-        });
-      }
-
-      // Layout children
-      if (node.children.length > 0) {
-        const childrenWidth = layoutSubtree(
-          node.children,
-          currentX,
-          childY,
-          depth + 1
-        );
-        currentX = Math.max(currentX + crossOffset, childrenWidth);
-      } else {
-        currentX += crossOffset;
-      }
-    }
-
-    return currentX;
+  
+  let rootNode: any;
+  if (treeData.length === 1) {
+    rootNode = treeData[0];
+  } else {
+    rootNode = {
+      id: '__virtual_root__',
+      title: '',
+      nodeType: 'group',
+      children: treeData,
+      payload: {},
+      workId: '',
+      parentId: null,
+      sortIndex: 0,
+      createdAt: '',
+      updatedAt: '',
+      depth: 0,
+    } as WorldviewTreeNode;
   }
 
-  layoutSubtree(tree, 0, 0, 0);
+  const root = hierarchy(rootNode, (d: WorldviewTreeNode) => d.children);
 
-  // Center the layout
+  root.each((node: any) => {
+    if (node.children) {
+      for (const child of node.children) {
+        edges.push({
+          id: `${node.data.id}-${child.data.id}`,
+          source: node.data.id,
+          target: child.data.id,
+          type: 'default',
+          style: { strokeWidth: 1.5, stroke: '#94a3b8' },
+        });
+      }
+    }
+  });
+
+  return { root, edges };
+}
+
+function d3LayoutToReactFlow(
+  root: any,
+  edges: Edge[],
+  treeData: WorldviewTreeNode[],
+  options: Required<TreeLayoutOptions>
+): { nodes: LayoutedNode[]; edges: Edge[] } {
+  const nodes: LayoutedNode[] = [];
+  const { direction, nodeWidth, nodeHeight, rootNodeWidth, rootNodeHeight } = options;
+
+  root.each((node: any) => {
+    const data = node.data as WorldviewTreeNode;
+    const isRoot = data.parentId === null && treeData.length === 1;
+    const isVirtualRoot = data.id === '__virtual_root__';
+    
+    if (isVirtualRoot) return;
+
+    let x: number, y: number;
+    if (direction === 'DOWN') {
+      x = node.x;
+      y = node.y;
+    } else {
+      x = node.y;
+      y = node.x;
+    }
+
+    const width = isRoot ? rootNodeWidth : nodeWidth;
+    const height = isRoot ? rootNodeHeight : nodeHeight;
+
+    nodes.push({
+      id: data.id,
+      type: 'custom',
+      position: { x, y },
+      width,
+      height,
+      data: {
+        title: data.title,
+        type: data.nodeType,
+        hasChildren: data.children.length > 0,
+        isRoot,
+        note: data.payload.note,
+        value: data.payload.value,
+      },
+      draggable: false,
+      selectable: true,
+    });
+  });
+
+  const filteredEdges = edges.filter(
+    (e) => e.source !== '__virtual_root__' && e.target !== '__virtual_root__'
+  );
+
+  return { nodes, edges: filteredEdges };
+}
+
+export async function computeWorldviewLayout(
+  treeData: WorldviewTreeNode[],
+  options: TreeLayoutOptions = {}
+): Promise<{ nodes: LayoutedNode[]; edges: Edge[] }> {
+  const {
+    direction = 'DOWN',
+    nodeWidth = 160,
+    nodeHeight = 60,
+    spacing = 40,
+    rootNodeWidth = 200,
+    rootNodeHeight = 80,
+  } = options;
+
+  if (treeData.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  const { root, edges } = treeToD3Hierarchy(treeData);
+
+  const treeLayout = tree<WorldviewTreeNode>();
+  treeLayout.nodeSize(
+    direction === 'DOWN'
+      ? [nodeWidth + spacing, nodeHeight + spacing * 1.5]
+      : [nodeHeight + spacing * 1.5, nodeWidth + spacing]
+  );
+  
+  treeLayout(root);
+
+  let { nodes, edges: flowEdges } = d3LayoutToReactFlow(
+    root,
+    edges,
+    treeData,
+    {
+      direction,
+      nodeWidth,
+      nodeHeight,
+      spacing,
+      rootNodeWidth,
+      rootNodeHeight,
+    }
+  );
+
   if (nodes.length > 0) {
     const minX = Math.min(...nodes.map((n) => n.position.x));
     const minY = Math.min(...nodes.map((n) => n.position.y));
@@ -100,7 +164,7 @@ export function computeWorldviewLayout(
     }
   }
 
-  return { nodes, edges };
+  return { nodes, edges: flowEdges };
 }
 
 export function getLayoutBounds(nodes: LayoutedNode[]): {
