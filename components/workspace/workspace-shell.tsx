@@ -568,7 +568,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           nodes={collections.settingsNodes}
           onClose={() => setIsWorldviewOpen(false)}
           onMutate={async (action, payload) => {
-            await mutateWorkspace({ action, ...payload }, { preserveEditor: true });
+            return await mutateWorkspace({ action, ...payload }, { preserveEditor: true });
           }}
         />
       )}
