@@ -36,6 +36,7 @@ interface AgentRequestPayload {
   steeringMode?: 'all' | 'one-at-a-time';
   followUpMode?: 'all' | 'one-at-a-time';
   sessionId: string;
+  upToMessageId?: string;
 }
 
 export async function POST(request: Request) {
@@ -111,6 +112,7 @@ export async function POST(request: Request) {
     steeringMode: payload.steeringMode,
     followUpMode: payload.followUpMode,
     sessionId,
+    upToMessageId: payload.upToMessageId,
   });
   const fallbackMessageId = crypto.randomUUID();
 

@@ -42,6 +42,7 @@ export interface AgentServiceConfig {
   steeringMode?: AgentQueueMode;
   followUpMode?: AgentQueueMode;
   sessionId?: string;
+  upToMessageId?: string;
 }
 
 export type AgentQueueMode = 'all' | 'one-at-a-time';
@@ -77,7 +78,7 @@ export class AgentService {
     this.toolExecutionConfig = config.toolExecution ?? {};
 
     const sessionHistory = config.sessionId
-      ? this.loadSessionHistorySync(config.sessionId)
+      ? this.loadSessionHistorySync(config.sessionId, config.upToMessageId)
       : [];
 
     this.agent = new Agent({
@@ -101,33 +102,57 @@ export class AgentService {
     });
   }
 
-  private loadSessionHistorySync(sessionId: string): AgentMessage[] {
+  private loadSessionHistorySync(sessionId: string, excludeMessageId?: string): AgentMessage[] {
     try {
       const records = listChatMessages(sessionId);
-      // 找到最后一条 user 消息的索引
+
+      // 如果指定了 excludeMessageId，截断到该消息为止（排除该消息及其之后的所有消息）
+      let effectiveRecords = records;
+      if (excludeMessageId) {
+        const excludeIndex = records.findIndex((r) => r.id === excludeMessageId);
+        if (excludeIndex !== -1) {
+          effectiveRecords = records.slice(0, excludeIndex);
+        }
+      }
+
+      // 找到最后一条 user 消息的索引（在截断后的记录中）
       let lastUserIndex = -1;
-      for (let i = records.length - 1; i >= 0; i--) {
-        if (records[i].role === 'user') {
+      for (let i = effectiveRecords.length - 1; i >= 0; i--) {
+        if (effectiveRecords[i].role === 'user') {
           lastUserIndex = i;
           break;
         }
       }
+
       // 加载所有历史消息（user 和 assistant），但排除最后一条 user 消息
       // 因为最后一条 user 消息就是当前正在发送的 prompt，prompt() 方法会负责添加它
-      const historicalRecords = records.filter((_, index) => index !== lastUserIndex);
+      const historicalRecords = effectiveRecords.filter((_, index) => index !== lastUserIndex);
       return historicalRecords.map((record) => this.hydrateMessage(record));
     } catch {
       return [];
     }
   }
 
+  private resolveMessageBody(record: ChatMessageRecord): { body: string; tps: number } {
+    // 如果有选中的激活版本，使用该版本的内容和性能指标
+    if (record.activeVersionId && record.versions) {
+      const activeVersion = record.versions.find((v) => v.id === record.activeVersionId);
+      if (activeVersion) {
+        return { body: activeVersion.body, tps: activeVersion.tps };
+      }
+    }
+    // 否则使用原始消息内容
+    return { body: record.body, tps: record.tps };
+  }
+
   private hydrateMessage(record: ChatMessageRecord): AgentMessage {
     const timestamp = Date.parse(record.createdAt) || Date.now();
+    const { body } = this.resolveMessageBody(record);
 
     if (record.role === 'assistant') {
       return {
         role: 'assistant',
-        content: [{ type: 'text', text: record.body }],
+        content: [{ type: 'text', text: body }],
         timestamp,
         model: { id: 'unknown', api: 'openai-completions' as const },
         usage: { input: 0, output: 0, total: 0 },
@@ -139,7 +164,7 @@ export class AgentService {
 
     return {
       role: 'user',
-      content: record.body,
+      content: body,
       timestamp,
     };
   }
