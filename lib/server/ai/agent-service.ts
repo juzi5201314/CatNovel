@@ -31,6 +31,7 @@ import type { ToolDefinition } from './tools/types.ts';
 
 export interface AgentServiceConfig {
   model: Model<Api>;
+  apiKey?: string;
   systemPrompt?: string;
   tools?: Array<AgentTool | ToolDefinition>;
   toolExecution?: ToolExecutionConfig;
@@ -77,6 +78,7 @@ export class AgentService {
         systemPrompt: config.systemPrompt ?? '',
         tools: normalizeTools(config.tools, this.toolExecutionConfig),
       },
+      getApiKey: config.apiKey ? () => config.apiKey : undefined,
       transformContext: async (messages, signal) =>
         this.transformContext(messages, signal),
       afterToolCall: async (context) => this.handleAfterToolCall(context),

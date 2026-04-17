@@ -146,18 +146,16 @@ export function ChatSessionList({
               </div>
             ))}
 
-            {streamingMessage && (
+            {streamingMessage && !streamingMessage.isComplete && (
               <div className={cx(
                 "flex flex-col gap-1 max-w-[90%] items-start"
               )}>
                 <div className={cx(
                   "px-3 py-2 rounded-2xl text-sm bg-muted text-foreground rounded-tl-none",
-                  !streamingMessage.isComplete && "animate-pulse"
+                  "animate-pulse"
                 )}>
                   {streamingMessage.text}
-                  {!streamingMessage.isComplete && (
-                    <span className="inline-block w-1.5 h-3 ml-0.5 bg-current animate-pulse" />
-                  )}
+                  <span className="inline-block w-1.5 h-3 ml-0.5 bg-current animate-pulse" />
                 </div>
                 <span className="text-[10px] text-muted-foreground px-1 uppercase tracking-tighter">
                   assistant • streaming

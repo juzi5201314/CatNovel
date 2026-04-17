@@ -70,9 +70,9 @@ export async function POST(request: Request) {
     });
   }
 
-  let model;
+  let modelResult;
   try {
-    ({ model } = getModelFromProfile(providerProfile));
+    modelResult = getModelFromProfile(providerProfile);
   } catch (error) {
     return Response.json({
       error: error instanceof Error ? error.message : 'Failed to create agent model.',
@@ -82,7 +82,8 @@ export async function POST(request: Request) {
   }
 
   const agent = new AgentService({
-    model,
+    model: modelResult.model,
+    apiKey: modelResult.apiKey,
     systemPrompt: payload.systemPrompt,
     tools: payload.tools,
     contextSelection: buildContextSelection(payload),
