@@ -27,6 +27,7 @@ export function AiSidebar({
   onSessionChange,
   onDraftPromptChange,
   onSendPrompt,
+  onAbort,
   onRetryMessage,
   onDeleteMessage,
   onSwitchRetryVersion,
@@ -48,6 +49,7 @@ export function AiSidebar({
   onSessionChange: (sessionId: string) => void;
   onDraftPromptChange: (value: string) => void;
   onSendPrompt: () => void;
+  onAbort: () => void;
   onRetryMessage: (messageId: string, previousBody?: string) => void;
   onDeleteMessage: (messageId: string) => void;
   onSwitchRetryVersion?: (messageId: string, direction: 'prev' | 'next') => void;
@@ -72,6 +74,7 @@ export function AiSidebar({
           onSessionChange={onSessionChange}
           onDraftPromptChange={onDraftPromptChange}
           onSendPrompt={onSendPrompt}
+          onAbort={onAbort}
           onRetryMessage={onRetryMessage}
           onDeleteMessage={onDeleteMessage}
           onSwitchRetryVersion={onSwitchRetryVersion}

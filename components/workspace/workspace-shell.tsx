@@ -200,6 +200,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
   const streamingStartTimeRef = useRef<number | null>(null);
   const streamingTokensRef = useRef(0);
   const latestStreamingTpsRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const copy = resolveMessages(locale);
   const activeWork = collections.works.find((work) => work.id === activeWorkId) ?? collections.works[0] ?? null;
@@ -709,6 +710,12 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     void mutateWorkspace({ action: 'delete-chat-message', messageId });
   }, [mutateWorkspace]);
 
+  const handleAbort = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }, []);
+
   const handleSendPrompt = useCallback(async (prompt?: string) => {
     const currentPrompt = prompt ?? freeChatPrompt;
     if (!currentPrompt.trim() || !activeModel) return;
@@ -743,6 +750,9 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     }, { preserveEditor: true, sessionId });
 
     try {
+      // 创建新的 AbortController 用于此次请求
+      abortControllerRef.current = new AbortController();
+
       const response = await fetch('/api/ai/agent', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -752,6 +762,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           prompt: trimmedPrompt,
           sessionId,
         }),
+        signal: abortControllerRef.current.signal,
       });
 
       const agentResult = await consumeAgentEventStream(response);
@@ -766,8 +777,16 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
         }, { preserveEditor: true, sessionId });
       }
     } catch (error) {
-      setAgentStatus('errored');
-      toast.error(error instanceof Error ? error.message : 'AI 请求失败。');
+      if (error instanceof Error && error.name === 'AbortError') {
+        setAgentStatus('completed');
+      } else {
+        setAgentStatus('errored');
+        toast.error(error instanceof Error ? error.message : 'AI 请求失败。');
+      }
+    } finally {
+      abortControllerRef.current = null;
+      setStreamingMessage(null);
+      setToolCalls([]);
     }
   }, [activeModel, activeSessionId, activeWorkId, consumeAgentEventStream, freeChatPrompt, generateSessionTitle, mutateWorkspace, refreshWorkspace, resetAgentState]);
 
@@ -983,6 +1002,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
                 onSessionChange={(sid) => refreshWorkspace(undefined, sid)}
                 onDraftPromptChange={setFreeChatPrompt}
                 onSendPrompt={handleSendPrompt}
+                onAbort={handleAbort}
                 onRetryMessage={handleRetryMessage}
                 onDeleteMessage={handleDeleteMessage}
                 onSwitchRetryVersion={handleSwitchRetryVersion}

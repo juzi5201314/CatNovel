@@ -48,6 +48,7 @@ export interface ChatSessionListProps {
   onDraftPromptChange: (value: string) => void;
   onSessionChange: (sessionId: string) => void;
   onSendPrompt: (prompt?: string) => void;
+  onAbort: () => void;
   onRetryMessage: (messageId: string, previousBody?: string) => void;
   onDeleteMessage: (messageId: string) => void;
   onSwitchRetryVersion?: (messageId: string, direction: 'prev' | 'next') => void;
@@ -60,6 +61,14 @@ function SendIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M22 2L11 13" />
       <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+    </svg>
+  );
+}
+
+function StopIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
     </svg>
   );
 }
@@ -367,6 +376,7 @@ export function ChatSessionList({
   onDraftPromptChange,
   onSessionChange,
   onSendPrompt,
+  onAbort,
   onRetryMessage,
   onDeleteMessage,
   onSwitchRetryVersion,
@@ -593,21 +603,34 @@ export function ChatSessionList({
               <SettingsIcon className="w-3 h-3" />
               <span className="truncate max-w-[80px]">{activeModelInfo.label}</span>
             </button>
-            {/* 发送按钮 */}
-            <button
-              type="button"
-              onClick={() => onSendPrompt(draftPrompt)}
-              disabled={!canSend}
-              className={cx(
-                "h-7 w-7 rounded-md flex items-center justify-center transition-colors",
-                activeModelInfo.isValid
-                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                  : "bg-destructive/20 text-destructive cursor-not-allowed",
-                (!draftPrompt.trim() || isProcessing) && "opacity-50"
-              )}
-            >
-              <SendIcon className="w-4 h-4" />
-            </button>
+            {isProcessing ? (
+              <button
+                type="button"
+                onClick={onAbort}
+                className={cx(
+                  "h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                  "bg-destructive text-destructive-foreground hover:bg-destructive/90 animate-pulse"
+                )}
+                title="终止生成"
+              >
+                <StopIcon className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onSendPrompt(draftPrompt)}
+                disabled={!canSend}
+                className={cx(
+                  "h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                  activeModelInfo.isValid
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "bg-destructive/20 text-destructive cursor-not-allowed",
+                  !draftPrompt.trim() && "opacity-50"
+                )}
+              >
+                <SendIcon className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -128,7 +128,11 @@ export async function POST(request: Request) {
         streamClosed = true;
         detachAbortListener();
         unsubscribe();
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // Controller 可能已被关闭（如 cancel 回调触发），忽略错误
+        }
       };
 
       const emitEvent = (event: AgentEvent) => {
@@ -160,13 +164,23 @@ export async function POST(request: Request) {
           return;
         }
 
-        controller.enqueue(encoder.encode(formatSseEvent({
-          type: 'ai_error',
-          error: error instanceof Error ? error.message : 'Agent run failed.',
-          timestamp: Date.now(),
-          sessionId: agent.getState().sessionId,
-          messageId: fallbackMessageId,
-        })));
+        // 如果用户主动中止，不需要发送错误事件
+        if (error instanceof Error && error.name === 'AbortError') {
+          closeStream();
+          return;
+        }
+
+        try {
+          controller.enqueue(encoder.encode(formatSseEvent({
+            type: 'ai_error',
+            error: error instanceof Error ? error.message : 'Agent run failed.',
+            timestamp: Date.now(),
+            sessionId: agent.getState().sessionId,
+            messageId: fallbackMessageId,
+          })));
+        } catch {
+          // Controller 可能已关闭，忽略错误
+        }
         closeStream();
       });
     },
