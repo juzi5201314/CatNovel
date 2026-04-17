@@ -10,6 +10,11 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: rootDir,
   },
+  // 让 pi-ai 包保持外部，避免 Turbopack 无法分析其动态导入
+  serverExternalPackages: [
+    "@mariozechner/pi-ai",
+    "@mariozechner/pi-agent-core",
+  ],
 };
 
 export default nextConfig;
