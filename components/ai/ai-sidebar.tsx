@@ -21,7 +21,6 @@ export function AiSidebar({
   toolCalls,
   draftPrompt,
   retryingMessageId,
-  retryVersions,
   onOpenSettings,
   onCreateSession,
   onDeleteSession,
@@ -43,7 +42,6 @@ export function AiSidebar({
   toolCalls: ToolCallItem[];
   draftPrompt: string;
   retryingMessageId?: string | null;
-  retryVersions?: Map<string, { currentIndex: number; versions: string[] }>;
   onOpenSettings: () => void;
   onCreateSession: () => void;
   onDeleteSession: (sessionId: string) => void;
@@ -69,7 +67,6 @@ export function AiSidebar({
           providers={providers}
           activeModel={activeModel}
           retryingMessageId={retryingMessageId}
-          retryVersions={retryVersions}
           onCreateSession={onCreateSession}
           onDeleteSession={onDeleteSession}
           onSessionChange={onSessionChange}

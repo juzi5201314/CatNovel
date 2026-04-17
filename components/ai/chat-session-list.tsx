@@ -43,7 +43,6 @@ export interface ChatSessionListProps {
   providers: { id: string; label: string; enabled: boolean; modelIds: string[] }[];
   activeModel: { profileId: string; modelId: string } | null;
   retryingMessageId?: string | null;
-  retryVersions?: Map<string, { currentIndex: number; versions: string[] }>;
   onCreateSession: () => void;
   onDeleteSession: (sessionId: string) => void;
   onDraftPromptChange: (value: string) => void;
@@ -237,7 +236,8 @@ function MessageActions({
   isUser,
   onRetry,
   onDelete,
-  retryVersions,
+  versions,
+  activeVersionId,
   onSwitchVersion,
 }: {
   messageId: string;
@@ -245,7 +245,8 @@ function MessageActions({
   isUser: boolean;
   onRetry?: (messageId: string, previousBody?: string) => void;
   onDelete: (messageId: string) => void;
-  retryVersions?: { currentIndex: number; versions: string[] };
+  versions?: { id: string; body: string; tps: number; createdAt: string }[];
+  activeVersionId?: string | null;
   onSwitchVersion?: (direction: 'prev' | 'next') => void;
 }) {
   const handleCopy = useCallback(async () => {
@@ -257,9 +258,12 @@ function MessageActions({
     }
   }, [messageText]);
 
-  const hasMultipleVersions = retryVersions && retryVersions.versions.length > 1;
-  const currentIndex = retryVersions?.currentIndex ?? 0;
-  const totalVersions = retryVersions?.versions.length ?? 1;
+  const totalVersions = versions ? versions.length + 1 : 1;
+  const currentVersionIndex = activeVersionId
+    ? (versions?.findIndex((v) => v.id === activeVersionId) ?? -1)
+    : -1;
+  const effectiveIndex = currentVersionIndex === -1 ? 0 : currentVersionIndex + 1;
+  const hasMultipleVersions = totalVersions > 1;
 
   return (
     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity px-1">
@@ -267,18 +271,18 @@ function MessageActions({
         <div className="flex items-center gap-0.5 mr-1">
           <button
             onClick={() => onSwitchVersion('prev')}
-            disabled={currentIndex === 0}
+            disabled={effectiveIndex === 0}
             className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
             title="上一个版本"
           >
             <ChevronLeftIcon className="w-3 h-3" />
           </button>
           <span className="text-[10px] text-muted-foreground tabular-nums min-w-[24px] text-center">
-            {currentIndex + 1}/{totalVersions}
+            {effectiveIndex + 1}/{totalVersions}
           </span>
           <button
             onClick={() => onSwitchVersion('next')}
-            disabled={currentIndex === totalVersions - 1}
+            disabled={effectiveIndex === totalVersions - 1}
             className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
             title="下一个版本"
           >
@@ -358,7 +362,6 @@ export function ChatSessionList({
   providers,
   activeModel,
   retryingMessageId = null,
-  retryVersions = new Map(),
   onCreateSession,
   onDeleteSession,
   onDraftPromptChange,
@@ -464,9 +467,12 @@ export function ChatSessionList({
               );
             }
 
-            const versions = retryVersions.get(message.id);
-
-            const displayBody = versions?.versions[versions.currentIndex] ?? message.body;
+            // 确定显示的内容：如果有激活版本则显示版本内容，否则显示原始内容
+            const activeVersion = message.versions?.find(
+              (v) => v.id === message.activeVersionId
+            );
+            const displayBody = activeVersion?.body ?? message.body;
+            const displayTps = activeVersion?.tps ?? message.tps;
 
             return (
               <div
@@ -488,7 +494,7 @@ export function ChatSessionList({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {message.tps > 0 ? `${message.tps.toFixed(1)} T/s` : ''}
+                    {displayTps > 0 ? `${displayTps.toFixed(1)} T/s` : ''}
                   </span>
                   <MessageActions
                     messageId={message.id}
@@ -496,9 +502,10 @@ export function ChatSessionList({
                     isUser={message.role === 'user'}
                     onRetry={message.role === 'assistant' ? onRetryMessage : undefined}
                     onDelete={onDeleteMessage}
-                    retryVersions={versions}
+                    versions={message.versions}
+                    activeVersionId={message.activeVersionId}
                     onSwitchVersion={
-                      versions && onSwitchRetryVersion
+                      message.versions && message.versions.length > 0 && onSwitchRetryVersion
                         ? (direction) => onSwitchRetryVersion(message.id, direction)
                         : undefined
                     }

@@ -197,7 +197,6 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
   const [snapshots, setSnapshots] = useState(initialSnapshots);
   const [auditLog, setAuditLog] = useState<string[]>([]);
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
-  const [retryVersions, setRetryVersions] = useState<Map<string, { currentIndex: number; versions: string[] }>>(new Map());
   const streamingStartTimeRef = useRef<number | null>(null);
   const streamingTokensRef = useRef(0);
   const latestStreamingTpsRef = useRef(0);
@@ -775,8 +774,27 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!activeSessionId || !activeModel) return;
 
-    const message = collections.chatMessages.find((m) => m.id === messageId);
-    if (!message || message.role !== 'assistant') return;
+    // 找到被重试的 assistant 消息在数组中的索引
+    const messageIndex = collections.chatMessages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    const message = collections.chatMessages[messageIndex];
+    if (message.role !== 'assistant') return;
+
+    // 找到这条 assistant 消息之前的 user 消息（即触发这条回复的原始用户消息）
+    let userPrompt = '';
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (collections.chatMessages[i].role === 'user') {
+        userPrompt = collections.chatMessages[i].body;
+        break;
+      }
+    }
+
+    // 如果没有找到前置 user 消息，无法重试
+    if (!userPrompt) {
+      toast.error('无法重试：未找到原始用户消息');
+      return;
+    }
 
     setRetryingMessageId(messageId);
     resetAgentState();
@@ -788,28 +806,31 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
         body: JSON.stringify({
           profileId: activeModel.profileId,
           modelId: activeModel.modelId,
-          prompt: message.body,
+          prompt: userPrompt,
           sessionId: activeSessionId,
+          upToMessageId: messageId,
         }),
       });
 
       const agentResult = await consumeAgentEventStream(response);
 
       if (agentResult.finalText.trim()) {
-        setRetryVersions((prev) => {
-          const current = prev.get(messageId);
-          if (current) {
-            const newVersions = [...current.versions, agentResult.finalText];
-            return new Map(prev).set(messageId, {
-              currentIndex: newVersions.length - 1,
-              versions: newVersions,
-            });
-          }
-          return new Map(prev).set(messageId, {
-            currentIndex: 1,
-            versions: [message.body, agentResult.finalText],
-          });
-        });
+        // 将新版本保存到数据库并设置为激活版本
+        const result = await mutateWorkspace({
+          action: 'add-message-version',
+          messageId,
+          body: agentResult.finalText,
+          tps: latestStreamingTpsRef.current,
+        }, { sessionId: activeSessionId });
+
+        if (result.result && typeof result.result === 'object' && 'version' in result.result) {
+          const version = (result.result as { version: { id: string } }).version;
+          await mutateWorkspace({
+            action: 'set-active-message-version',
+            messageId,
+            versionId: version.id,
+          }, { sessionId: activeSessionId });
+        }
       }
     } catch (error) {
       setAgentStatus('errored');
@@ -817,23 +838,35 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     } finally {
       setRetryingMessageId(null);
     }
-  }, [activeModel, activeSessionId, collections.chatMessages, consumeAgentEventStream, resetAgentState]);
+  }, [activeModel, activeSessionId, collections.chatMessages, consumeAgentEventStream, mutateWorkspace, resetAgentState]);
 
-  const handleSwitchRetryVersion = useCallback((messageId: string, direction: 'prev' | 'next') => {
-    setRetryVersions((prev) => {
-      const current = prev.get(messageId);
-      if (!current) return prev;
+  const handleSwitchRetryVersion = useCallback(async (messageId: string, direction: 'prev' | 'next') => {
+    const message = collections.chatMessages.find((m) => m.id === messageId);
+    if (!message || !message.versions || message.versions.length === 0) return;
 
-      const newIndex = direction === 'prev'
-        ? Math.max(0, current.currentIndex - 1)
-        : Math.min(current.versions.length - 1, current.currentIndex + 1);
+    const currentVersionIndex = message.activeVersionId
+      ? message.versions.findIndex((v) => v.id === message.activeVersionId)
+      : -1;
 
-      return new Map(prev).set(messageId, {
-        ...current,
-        currentIndex: newIndex,
-      });
-    });
-  }, []);
+    // 如果当前没有激活版本，默认指向原始消息（索引 -1）
+    const effectiveIndex = currentVersionIndex === -1 ? -1 : currentVersionIndex;
+
+    // 计算新的版本索引
+    let newIndex: number;
+    if (direction === 'prev') {
+      newIndex = Math.max(-1, effectiveIndex - 1);
+    } else {
+      newIndex = Math.min(message.versions.length - 1, effectiveIndex + 1);
+    }
+
+    // 设置新的激活版本
+    const newVersionId = newIndex === -1 ? null : message.versions[newIndex].id;
+    await mutateWorkspace({
+      action: 'set-active-message-version',
+      messageId,
+      versionId: newVersionId,
+    }, { sessionId: activeSessionId });
+  }, [activeSessionId, collections.chatMessages, mutateWorkspace]);
 
   return (
     <main className="app-shell">
@@ -944,7 +977,6 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
                 activeSessionId={activeSessionId}
                 draftPrompt={freeChatPrompt}
                 retryingMessageId={retryingMessageId}
-                retryVersions={retryVersions}
                 onOpenSettings={() => setIsSettingsOpen(true)}
                 onCreateSession={handleCreateSession}
                 onDeleteSession={handleDeleteSession}
