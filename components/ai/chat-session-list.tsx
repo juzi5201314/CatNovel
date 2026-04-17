@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type {
   ChatMessageRecord,
   ChatSessionRecord,
@@ -42,13 +42,16 @@ export interface ChatSessionListProps {
   toolCalls?: ToolCallItem[];
   providers: { id: string; label: string; enabled: boolean; modelIds: string[] }[];
   activeModel: { profileId: string; modelId: string } | null;
+  retryingMessageId?: string | null;
+  retryVersions?: Map<string, { currentIndex: number; versions: string[] }>;
   onCreateSession: () => void;
   onDeleteSession: (sessionId: string) => void;
   onDraftPromptChange: (value: string) => void;
   onSessionChange: (sessionId: string) => void;
   onSendPrompt: (prompt?: string) => void;
-  onRetryMessage: (messageId: string) => void;
+  onRetryMessage: (messageId: string, previousBody?: string) => void;
   onDeleteMessage: (messageId: string) => void;
+  onSwitchRetryVersion?: (messageId: string, direction: 'prev' | 'next') => void;
   onOpenModelSettings: () => void;
 }
 
@@ -84,6 +87,22 @@ function RefreshIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <polyline points="23 4 23 10 17 10" />
       <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </svg>
+  );
+}
+
+function ChevronLeftIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="9 18 15 12 9 6" />
     </svg>
   );
 }
@@ -218,12 +237,16 @@ function MessageActions({
   isUser,
   onRetry,
   onDelete,
+  retryVersions,
+  onSwitchVersion,
 }: {
   messageId: string;
   messageText: string;
   isUser: boolean;
-  onRetry?: (messageId: string) => void;
+  onRetry?: (messageId: string, previousBody?: string) => void;
   onDelete: (messageId: string) => void;
+  retryVersions?: { currentIndex: number; versions: string[] };
+  onSwitchVersion?: (direction: 'prev' | 'next') => void;
 }) {
   const handleCopy = useCallback(async () => {
     try {
@@ -234,11 +257,38 @@ function MessageActions({
     }
   }, [messageText]);
 
+  const hasMultipleVersions = retryVersions && retryVersions.versions.length > 1;
+  const currentIndex = retryVersions?.currentIndex ?? 0;
+  const totalVersions = retryVersions?.versions.length ?? 1;
+
   return (
     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity px-1">
+      {hasMultipleVersions && onSwitchVersion && (
+        <div className="flex items-center gap-0.5 mr-1">
+          <button
+            onClick={() => onSwitchVersion('prev')}
+            disabled={currentIndex === 0}
+            className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+            title="上一个版本"
+          >
+            <ChevronLeftIcon className="w-3 h-3" />
+          </button>
+          <span className="text-[10px] text-muted-foreground tabular-nums min-w-[24px] text-center">
+            {currentIndex + 1}/{totalVersions}
+          </span>
+          <button
+            onClick={() => onSwitchVersion('next')}
+            disabled={currentIndex === totalVersions - 1}
+            className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+            title="下一个版本"
+          >
+            <ChevronRightIcon className="w-3 h-3" />
+          </button>
+        </div>
+      )}
       {!isUser && onRetry && (
         <button
-          onClick={() => onRetry(messageId)}
+          onClick={() => onRetry(messageId, messageText)}
           className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           title="重试"
         >
@@ -307,6 +357,8 @@ export function ChatSessionList({
   toolCalls = [],
   providers,
   activeModel,
+  retryingMessageId = null,
+  retryVersions = new Map(),
   onCreateSession,
   onDeleteSession,
   onDraftPromptChange,
@@ -314,6 +366,7 @@ export function ChatSessionList({
   onSendPrompt,
   onRetryMessage,
   onDeleteMessage,
+  onSwitchRetryVersion,
   onOpenModelSettings,
 }: ChatSessionListProps) {
   const getIndicatorStatus = (): 'thinking' | 'executing' | 'completed' | 'error' | null => {
@@ -364,6 +417,15 @@ export function ChatSessionList({
     }
   }, [draftPrompt, isProcessing, onSendPrompt]);
 
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [messages.length, streamingMessage?.text, toolCalls.length]);
+
   return (
     <div className="flex flex-col h-full bg-background" id="ai-sessions">
       {/* 顶部工具栏 */}
@@ -387,7 +449,7 @@ export function ChatSessionList({
       </div>
 
       {/* 消息显示区域 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 relative">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 relative">
         {/* Agent状态指示器 */}
         {indicatorStatus && (
           <div className="px-2">
@@ -403,42 +465,76 @@ export function ChatSessionList({
           <EmptyStateTips onQuickPrompt={handleQuickPrompt} />
         )}
 
-        {/* 消息列表 */}
         <div className="space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={cx(
-                "flex flex-col gap-1 max-w-[90%] group",
-                message.role === 'user' ? "ml-auto items-end" : "items-start"
-              )}
-            >
-              <div className={cx(
-                "px-3 py-2 rounded-2xl text-sm",
-                message.role === 'user'
-                  ? "bg-black text-white rounded-tr-none"
-                  : "bg-muted text-foreground rounded-tl-none"
-              )}>
-                {message.body}
-              </div>
-              {/* TPS显示和操作按钮 */}
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {message.tps ? `${message.tps.toFixed(1)} T/s` : ''}
-                </span>
-                <MessageActions
-                  messageId={message.id}
-                  messageText={message.body}
-                  isUser={message.role === 'user'}
-                  onRetry={message.role === 'assistant' ? onRetryMessage : undefined}
-                  onDelete={onDeleteMessage}
-                />
-              </div>
-            </div>
-          ))}
+          {messages.map((message) => {
+            const isRetrying = retryingMessageId === message.id;
 
-          {/* 流式消息 */}
-          {streamingMessage && !streamingMessage.isComplete && (
+            if (isRetrying) {
+              const retryText = streamingMessage?.text ?? '';
+              return (
+                <div
+                  key={message.id}
+                  className="flex flex-col gap-1 max-w-[90%] items-start"
+                >
+                  <div className={cx(
+                    "px-3 py-2 rounded-2xl text-sm bg-muted text-foreground rounded-tl-none",
+                    "animate-pulse"
+                  )}>
+                    {retryText}
+                    <span className="inline-block w-1.5 h-3 ml-0.5 bg-current animate-pulse" />
+                  </div>
+                  {streamingMessage?.tps && streamingMessage.tps > 0 ? (
+                    <span className="text-[10px] text-muted-foreground tabular-nums px-1">
+                      {streamingMessage.tps.toFixed(1)} T/s
+                    </span>
+                  ) : null}
+                </div>
+              );
+            }
+
+            const versions = retryVersions.get(message.id);
+
+            const displayBody = versions?.versions[versions.currentIndex] ?? message.body;
+
+            return (
+              <div
+                key={message.id}
+                className={cx(
+                  "flex flex-col gap-1 max-w-[90%] group",
+                  message.role === 'user' ? "ml-auto items-end" : "items-start"
+                )}
+              >
+                <div className={cx(
+                  "px-3 py-2 rounded-2xl text-sm",
+                  message.role === 'user'
+                    ? "bg-black text-white rounded-tr-none"
+                    : "bg-muted text-foreground rounded-tl-none"
+                )}>
+                  {displayBody}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground tabular-nums">
+                    {message.tps > 0 ? `${message.tps.toFixed(1)} T/s` : ''}
+                  </span>
+                  <MessageActions
+                    messageId={message.id}
+                    messageText={displayBody}
+                    isUser={message.role === 'user'}
+                    onRetry={message.role === 'assistant' ? onRetryMessage : undefined}
+                    onDelete={onDeleteMessage}
+                    retryVersions={versions}
+                    onSwitchVersion={
+                      versions && onSwitchRetryVersion
+                        ? (direction) => onSwitchRetryVersion(message.id, direction)
+                        : undefined
+                    }
+                  />
+                </div>
+              </div>
+            );
+          })}
+
+          {streamingMessage && !streamingMessage.isComplete && !retryingMessageId && (
             <div className="flex flex-col gap-1 max-w-[90%] items-start">
               <div className={cx(
                 "px-3 py-2 rounded-2xl text-sm bg-muted text-foreground rounded-tl-none",
@@ -447,11 +543,11 @@ export function ChatSessionList({
                 {streamingMessage.text}
                 <span className="inline-block w-1.5 h-3 ml-0.5 bg-current animate-pulse" />
               </div>
-              {streamingMessage.tps && (
+              {streamingMessage.tps && streamingMessage.tps > 0 ? (
                 <span className="text-[10px] text-muted-foreground tabular-nums px-1">
                   {streamingMessage.tps.toFixed(1)} T/s
                 </span>
-              )}
+              ) : null}
             </div>
           )}
 

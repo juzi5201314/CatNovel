@@ -20,6 +20,8 @@ export function AiSidebar({
   streamingMessage,
   toolCalls,
   draftPrompt,
+  retryingMessageId,
+  retryVersions,
   onOpenSettings,
   onCreateSession,
   onDeleteSession,
@@ -28,6 +30,7 @@ export function AiSidebar({
   onSendPrompt,
   onRetryMessage,
   onDeleteMessage,
+  onSwitchRetryVersion,
 }: {
   providers: ProviderProfileRecord[];
   activeModel: ActiveModelSelection | null;
@@ -39,14 +42,17 @@ export function AiSidebar({
   streamingMessage: StreamingMessage | null;
   toolCalls: ToolCallItem[];
   draftPrompt: string;
+  retryingMessageId?: string | null;
+  retryVersions?: Map<string, { currentIndex: number; versions: string[] }>;
   onOpenSettings: () => void;
   onCreateSession: () => void;
   onDeleteSession: (sessionId: string) => void;
   onSessionChange: (sessionId: string) => void;
   onDraftPromptChange: (value: string) => void;
   onSendPrompt: () => void;
-  onRetryMessage: (messageId: string) => void;
+  onRetryMessage: (messageId: string, previousBody?: string) => void;
   onDeleteMessage: (messageId: string) => void;
+  onSwitchRetryVersion?: (messageId: string, direction: 'prev' | 'next') => void;
 }) {
   return (
     <div className="flex flex-col h-full animate-fade-in" id="ai-panel">
@@ -62,6 +68,8 @@ export function AiSidebar({
           toolCalls={toolCalls}
           providers={providers}
           activeModel={activeModel}
+          retryingMessageId={retryingMessageId}
+          retryVersions={retryVersions}
           onCreateSession={onCreateSession}
           onDeleteSession={onDeleteSession}
           onSessionChange={onSessionChange}
@@ -69,6 +77,7 @@ export function AiSidebar({
           onSendPrompt={onSendPrompt}
           onRetryMessage={onRetryMessage}
           onDeleteMessage={onDeleteMessage}
+          onSwitchRetryVersion={onSwitchRetryVersion}
           onOpenModelSettings={onOpenSettings}
         />
       </div>

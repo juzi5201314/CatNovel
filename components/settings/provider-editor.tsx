@@ -88,7 +88,7 @@ export function ProviderEditor({
   const [fetchingModels, setFetchingModels] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const [testMessage, setTestMessage] = useState('');
-  const [selectedModelId, setSelectedModelId] = useState<string>(provider.modelIds[0] ?? '');
+  const [selectedModelId] = useState<string>(provider.modelIds[0] ?? '');
 
   const [localLabel, setLocalLabel] = useState(provider.label);
   const [localEndpoint, setLocalEndpoint] = useState(provider.endpoint);

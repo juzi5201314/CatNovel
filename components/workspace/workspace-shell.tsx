@@ -202,6 +202,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
   const [snapshotDraftLabel, setSnapshotDraftLabel] = useState('Draft checkpoint');
   const [snapshots, setSnapshots] = useState(initialSnapshots);
   const [auditLog, setAuditLog] = useState<string[]>([]);
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
+  const [retryVersions, setRetryVersions] = useState<Map<string, { currentIndex: number; versions: string[] }>>(new Map());
 
   const copy = resolveMessages(locale);
   const activeWork = collections.works.find((work) => work.id === activeWorkId) ?? collections.works[0] ?? null;
@@ -656,17 +658,37 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     const trimmed = prompt.trim();
     if (!trimmed) {
       const now = new Date();
-      return `${now.getMonth() + 1}月${now.getDate()}日 ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
+      return `${now.getMonth() + 1}月${now.getDate()}日 ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
     }
     const firstLine = trimmed.split('\n')[0];
     return firstLine.length > 20 ? `${firstLine.slice(0, 20)}...` : firstLine;
   }, []);
 
-  const handleCreateSession = useCallback(() => {
+  const handleCreateSession = useCallback(async () => {
     if (!activeWorkId) return;
+
+    // 检查当前session是否为空（没有消息），如果是空的则不创建新session
+    const currentSession = collections.chatSessions.find((s) => s.id === activeSessionId);
+    if (currentSession) {
+      const sessionMessages = collections.chatMessages;
+      const hasMessagesInCurrentSession = sessionMessages.length > 0;
+      if (!hasMessagesInCurrentSession) {
+        // 当前session已经是空的，不需要再创建
+        return;
+      }
+    }
+
     const title = generateSessionTitle(freeChatPrompt);
-    void mutateWorkspace({ action: 'create-chat-session', workId: activeWorkId, title });
-  }, [activeWorkId, freeChatPrompt, generateSessionTitle, mutateWorkspace]);
+    const result = await mutateWorkspace({ action: 'create-chat-session', workId: activeWorkId, title });
+
+    // 切换到新创建的session
+    if (result.result && typeof result.result === 'object' && 'session' in result.result) {
+      const newSession = (result.result as { session: { id: string } }).session;
+      if (newSession?.id) {
+        await refreshWorkspace(undefined, newSession.id);
+      }
+    }
+  }, [activeWorkId, activeSessionId, collections.chatMessages, collections.chatSessions, freeChatPrompt, generateSessionTitle, mutateWorkspace, refreshWorkspace]);
 
   const handleDeleteSession = useCallback((sessionId: string) => {
     void mutateWorkspace({ action: 'delete-chat-session', sessionId });
@@ -732,6 +754,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     const message = collections.chatMessages.find((m) => m.id === messageId);
     if (!message || message.role !== 'assistant') return;
 
+    setRetryingMessageId(messageId);
     resetAgentState();
 
     try {
@@ -753,19 +776,44 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       const agentResult = await consumeAgentEventStream(response);
 
       if (agentResult.finalText.trim()) {
-        await mutateWorkspace({
-          action: 'append-chat-message',
-          sessionId: activeSessionId,
-          role: 'assistant',
-          body: agentResult.finalText,
-          tps: 0,
-        }, { preserveEditor: true });
+        setRetryVersions((prev) => {
+          const current = prev.get(messageId);
+          if (current) {
+            const newVersions = [...current.versions, agentResult.finalText];
+            return new Map(prev).set(messageId, {
+              currentIndex: newVersions.length - 1,
+              versions: newVersions,
+            });
+          }
+          return new Map(prev).set(messageId, {
+            currentIndex: 1,
+            versions: [message.body, agentResult.finalText],
+          });
+        });
       }
     } catch (error) {
       setAgentStatus('errored');
       toast.error(error instanceof Error ? error.message : '重试失败。');
+    } finally {
+      setRetryingMessageId(null);
     }
-  }, [activeModel, activeSessionId, collections.chatMessages, consumeAgentEventStream, editorBody, aiContextSettings, mutateWorkspace, resetAgentState]);
+  }, [activeModel, activeSessionId, collections.chatMessages, consumeAgentEventStream, editorBody, aiContextSettings, resetAgentState]);
+
+  const handleSwitchRetryVersion = useCallback((messageId: string, direction: 'prev' | 'next') => {
+    setRetryVersions((prev) => {
+      const current = prev.get(messageId);
+      if (!current) return prev;
+
+      const newIndex = direction === 'prev'
+        ? Math.max(0, current.currentIndex - 1)
+        : Math.min(current.versions.length - 1, current.currentIndex + 1);
+
+      return new Map(prev).set(messageId, {
+        ...current,
+        currentIndex: newIndex,
+      });
+    });
+  }, []);
 
   return (
     <main className="app-shell">
@@ -875,6 +923,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
                 activeModel={activeModel}
                 activeSessionId={activeSessionId}
                 draftPrompt={freeChatPrompt}
+                retryingMessageId={retryingMessageId}
+                retryVersions={retryVersions}
                 onOpenSettings={() => setIsSettingsOpen(true)}
                 onCreateSession={handleCreateSession}
                 onDeleteSession={handleDeleteSession}
@@ -883,6 +933,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
                 onSendPrompt={handleSendPrompt}
                 onRetryMessage={handleRetryMessage}
                 onDeleteMessage={handleDeleteMessage}
+                onSwitchRetryVersion={handleSwitchRetryVersion}
                 providers={collections.providerProfiles}
                 sessions={collections.chatSessions}
                 agentStatus={agentStatus}
