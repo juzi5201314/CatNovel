@@ -88,6 +88,7 @@ export function ProviderEditor({
   const [fetchingModels, setFetchingModels] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle');
   const [testMessage, setTestMessage] = useState('');
+  const [selectedModelId, setSelectedModelId] = useState<string>(provider.modelIds[0] ?? '');
 
   const [localLabel, setLocalLabel] = useState(provider.label);
   const [localEndpoint, setLocalEndpoint] = useState(provider.endpoint);
@@ -301,7 +302,7 @@ export function ProviderEditor({
       const res = await fetch('/api/ai/test-model', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ profileId: provider.id, modelId: provider.modelIds[0] }),
+        body: JSON.stringify({ profileId: provider.id, modelId: selectedModelId }),
       });
       const data = await res.json();
       if (data.success) {

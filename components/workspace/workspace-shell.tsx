@@ -75,15 +75,6 @@ type ImportParseResponse = {
   };
 };
 
-type AiGenerateResponse = {
-  output: string;
-  tokenUsage: {
-    totalTokens: number;
-  };
-};
-
-const freeChatAgentModeStorageKey = 'catnovel:free-chat-agent-mode';
-
 function deriveChapterSelection(collections: WorkspaceCollections, preferredId?: string | null) {
   return collections.chapters.find((chapter) => chapter.id === preferredId) ?? collections.chapters[0] ?? null;
 }
@@ -200,14 +191,14 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
   const [editorBody, setEditorBody] = useState(initialChapter ? parseChapterText(initialChapter.bodyJson) : '');
   const [saveState, setSaveState] = useState('idle');
 
-  const [sessionDraftTitle, setSessionDraftTitle] = useState('');
   const [freeChatPrompt, setFreeChatPrompt] = useState('');
-  const [isFreeChatAgentMode, setIsFreeChatAgentMode] = useState(false);
-  const [freeChatAgentStatus, setFreeChatAgentStatus] = useState<AgentRunStatus>('idle');
-  const [freeChatActiveToolName, setFreeChatActiveToolName] = useState<string | null>(null);
-  const [freeChatStreamingMessage, setFreeChatStreamingMessage] = useState<StreamingMessage | null>(null);
-  const [freeChatToolCalls, setFreeChatToolCalls] = useState<ToolCallItem[]>([]);
+  const [agentStatus, setAgentStatus] = useState<AgentRunStatus>('idle');
+  const [activeToolName, setActiveToolName] = useState<string | null>(null);
+  const [streamingMessage, setStreamingMessage] = useState<StreamingMessage | null>(null);
+  const [toolCalls, setToolCalls] = useState<ToolCallItem[]>([]);
   const [pendingGhostText, setPendingGhostText] = useState('');
+  const [streamingStartTime, setStreamingStartTime] = useState<number | null>(null);
+  const [streamingTokens, setStreamingTokens] = useState(0);
   const [snapshotDraftLabel, setSnapshotDraftLabel] = useState('Draft checkpoint');
   const [snapshots, setSnapshots] = useState(initialSnapshots);
   const [auditLog, setAuditLog] = useState<string[]>([]);
@@ -240,7 +231,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setActiveWorkId(resolvedWorkId);
     setActiveChapterId(resolvedChapter?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
-    setActiveModel(deriveActiveModel(result.collections, result.collections.activeModel ?? activeModel));
+    setActiveModel(deriveActiveModel(result.collections, activeModel ?? result.collections.activeModel));
 
     if (!options.preserveEditor) {
       setSelectedChapterTitle(resolvedChapter?.title ?? '');
@@ -309,7 +300,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setActiveWorkId(resolvedWorkId ?? null);
     setActiveChapterId(resolvedChapter?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
-    setActiveModel(deriveActiveModel(payload.collections, payload.collections.activeModel ?? activeModel));
+    setActiveModel(deriveActiveModel(payload.collections, activeModel ?? payload.collections.activeModel));
     setSelectedChapterTitle(resolvedChapter?.title ?? '');
     setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
   }, [
@@ -332,48 +323,62 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setSnapshots(payload.list);
   }, []);
 
-  const resetFreeChatAgentState = useCallback(() => {
-    setFreeChatAgentStatus('idle');
-    setFreeChatActiveToolName(null);
-    setFreeChatStreamingMessage(null);
-    setFreeChatToolCalls([]);
+  const resetAgentState = useCallback(() => {
+    setAgentStatus('idle');
+    setActiveToolName(null);
+    setStreamingMessage(null);
+    setToolCalls([]);
+    setStreamingStartTime(null);
+    setStreamingTokens(0);
   }, []);
 
   // 使用 queueMicrotask 避免在渲染期间同步调用 setState
   useEffect(() => {
     queueMicrotask(() => {
-      resetFreeChatAgentState();
+      resetAgentState();
     });
-  }, [activeSessionId, resetFreeChatAgentState]);
+  }, [activeSessionId, resetAgentState]);
 
-  const handleFreeChatAgentEvent = useCallback((event: AgentEvent) => {
+  const calculateTPS = useCallback(() => {
+    if (!streamingStartTime) return 0;
+    const elapsed = (Date.now() - streamingStartTime) / 1000;
+    return elapsed > 0 ? streamingTokens / elapsed : 0;
+  }, [streamingStartTime, streamingTokens]);
+
+  const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case 'ai_start': {
-        setFreeChatAgentStatus('streaming');
-        setFreeChatActiveToolName(null);
-        setFreeChatStreamingMessage({
+        setAgentStatus('streaming');
+        setActiveToolName(null);
+        setStreamingStartTime(Date.now());
+        setStreamingTokens(0);
+        setStreamingMessage({
           id: event.messageId,
           role: 'assistant',
           text: '',
           isComplete: false,
+          tps: 0,
         });
         return;
       }
       case 'ai_chunk': {
-        setFreeChatAgentStatus('streaming');
-        setFreeChatActiveToolName(null);
-        setFreeChatStreamingMessage({
+        setAgentStatus('streaming');
+        setActiveToolName(null);
+        setStreamingTokens((prev) => prev + 1);
+        const currentTPS = calculateTPS();
+        setStreamingMessage({
           id: event.messageId,
           role: 'assistant',
           text: event.accumulatedText,
           isComplete: false,
+          tps: currentTPS,
         });
         return;
       }
       case 'ai_tool_call': {
-        setFreeChatAgentStatus('tool_running');
-        setFreeChatActiveToolName(event.toolName);
-        setFreeChatToolCalls((current) => {
+        setAgentStatus('tool_running');
+        setActiveToolName(event.toolName);
+        setToolCalls((current) => {
           const nextItem: ToolCallItem = {
             id: event.toolCallId,
             toolName: event.toolName,
@@ -391,8 +396,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
         return;
       }
       case 'ai_tool_result': {
-        setFreeChatActiveToolName(null);
-        setFreeChatToolCalls((current) => current.map((item) => (
+        setActiveToolName(null);
+        setToolCalls((current) => current.map((item) => (
           item.id === event.toolCallId
             ? {
                 ...item,
@@ -405,25 +410,27 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
         return;
       }
       case 'ai_complete': {
-        setFreeChatAgentStatus('completed');
-        setFreeChatActiveToolName(null);
-        setFreeChatStreamingMessage({
+        setAgentStatus('completed');
+        setActiveToolName(null);
+        const finalTPS = calculateTPS();
+        setStreamingMessage({
           id: event.messageId,
           role: 'assistant',
           text: event.fullText,
           isComplete: true,
+          tps: finalTPS,
         });
         return;
       }
       case 'ai_error': {
-        setFreeChatAgentStatus('errored');
-        setFreeChatActiveToolName(null);
+        setAgentStatus('errored');
+        setActiveToolName(null);
         return;
       }
       default:
         return;
     }
-  }, []);
+  }, [calculateTPS]);
 
   const consumeAgentEventStream = useCallback(async (response: Response) => {
     if (!response.ok) {
@@ -449,7 +456,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       }
 
       const event = JSON.parse(dataLine) as AgentEvent;
-      handleFreeChatAgentEvent(event);
+      handleAgentEvent(event);
 
       if (event.type === 'ai_chunk') {
         finalText = event.accumulatedText;
@@ -488,7 +495,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     return {
       finalText,
     };
-  }, [handleFreeChatAgentEvent]);
+  }, [handleAgentEvent]);
 
   const handleCreateSnapshot = useCallback(async () => {
     if (!activeWorkId) return;
@@ -590,9 +597,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setPendingGhostText('');
   };
 
-  const handleFreeChatModeChange = useCallback((enabled: boolean) => {
-    setIsFreeChatAgentMode(enabled);
-  }, []);
+
 
   const handleCreateChapter = useCallback((volumeId?: string) => {
     const nextVolumeId = volumeId ?? collections.volumes[0]?.id;
@@ -646,6 +651,119 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setActiveModel(selection);
     void mutateWorkspace({ action: 'set-active-model', profileId: selection.profileId, modelId: selection.modelId }, { preserveEditor: true });
   };
+
+  const generateSessionTitle = useCallback((prompt: string) => {
+    const trimmed = prompt.trim();
+    if (!trimmed) {
+      const now = new Date();
+      return `${now.getMonth() + 1}月${now.getDate()}日 ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
+    }
+    const firstLine = trimmed.split('\n')[0];
+    return firstLine.length > 20 ? `${firstLine.slice(0, 20)}...` : firstLine;
+  }, []);
+
+  const handleCreateSession = useCallback(() => {
+    if (!activeWorkId) return;
+    const title = generateSessionTitle(freeChatPrompt);
+    void mutateWorkspace({ action: 'create-chat-session', workId: activeWorkId, title });
+  }, [activeWorkId, freeChatPrompt, generateSessionTitle, mutateWorkspace]);
+
+  const handleDeleteSession = useCallback((sessionId: string) => {
+    void mutateWorkspace({ action: 'delete-chat-session', sessionId });
+  }, [mutateWorkspace]);
+
+  const handleDeleteMessage = useCallback((messageId: string) => {
+    void mutateWorkspace({ action: 'delete-chat-message', messageId });
+  }, [mutateWorkspace]);
+
+  const handleSendPrompt = useCallback(async () => {
+    if (!activeSessionId || !freeChatPrompt.trim() || !activeModel) return;
+    const trimmedPrompt = freeChatPrompt.trim();
+
+    resetAgentState();
+    await mutateWorkspace({
+      action: 'append-chat-message',
+      sessionId: activeSessionId,
+      role: 'user',
+      body: trimmedPrompt,
+      tps: 0,
+    }, { preserveEditor: true });
+
+    try {
+      const response = await fetch('/api/ai/agent', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          profileId: activeModel.profileId,
+          modelId: activeModel.modelId,
+          prompt: trimmedPrompt,
+          sessionId: activeSessionId,
+          chapter: editorBody,
+          settings: aiContextSettings,
+          summaries: [],
+          manualSelections: [],
+        }),
+      });
+
+      const agentResult = await consumeAgentEventStream(response);
+
+      if (agentResult.finalText.trim()) {
+        await mutateWorkspace({
+          action: 'append-chat-message',
+          sessionId: activeSessionId,
+          role: 'assistant',
+          body: agentResult.finalText,
+          tps: streamingMessage?.tps ?? 0,
+        }, { preserveEditor: true });
+      }
+
+      setFreeChatPrompt('');
+    } catch (error) {
+      setAgentStatus('errored');
+      toast.error(error instanceof Error ? error.message : 'AI 请求失败。');
+    }
+  }, [activeModel, activeSessionId, aiContextSettings, consumeAgentEventStream, editorBody, freeChatPrompt, mutateWorkspace, resetAgentState, streamingMessage?.tps]);
+
+  const handleRetryMessage = useCallback(async (messageId: string) => {
+    if (!activeSessionId || !activeModel) return;
+
+    const message = collections.chatMessages.find((m) => m.id === messageId);
+    if (!message || message.role !== 'assistant') return;
+
+    resetAgentState();
+
+    try {
+      const response = await fetch('/api/ai/agent', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          profileId: activeModel.profileId,
+          modelId: activeModel.modelId,
+          prompt: message.body,
+          sessionId: activeSessionId,
+          chapter: editorBody,
+          settings: aiContextSettings,
+          summaries: [],
+          manualSelections: [],
+        }),
+      });
+
+      const agentResult = await consumeAgentEventStream(response);
+
+      if (agentResult.finalText.trim()) {
+        await mutateWorkspace({
+          action: 'append-chat-message',
+          sessionId: activeSessionId,
+          role: 'assistant',
+          body: agentResult.finalText,
+          tps: 0,
+        }, { preserveEditor: true });
+      }
+    } catch (error) {
+      setAgentStatus('errored');
+      toast.error(error instanceof Error ? error.message : '重试失败。');
+    }
+  }, [activeModel, activeSessionId, collections.chatMessages, consumeAgentEventStream, editorBody, aiContextSettings, mutateWorkspace, resetAgentState]);
 
   return (
     <main className="app-shell">
@@ -751,98 +869,24 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           <div className="flex-1 overflow-y-auto">
             {rightSidebarTab === 'ai' && (
               <AiSidebar
-                copy={copy}
-                freeChatPrompt={freeChatPrompt}
-                agentModeStorageKey={freeChatAgentModeStorageKey}
                 messages={collections.chatMessages}
                 activeModel={activeModel}
                 activeSessionId={activeSessionId}
+                draftPrompt={freeChatPrompt}
                 onOpenSettings={() => setIsSettingsOpen(true)}
-                onCreateSession={() => mutateWorkspace({ action: 'create-chat-session', workId: activeWorkId, title: sessionDraftTitle })}
-                onFreeChatPromptChange={setFreeChatPrompt}
-                onSendFreeChat={async () => {
-                  if (!activeSessionId || !freeChatPrompt.trim() || !activeModel) return;
-                  const trimmedPrompt = freeChatPrompt.trim();
-
-                  resetFreeChatAgentState();
-                  await mutateWorkspace({
-                    action: 'append-chat-message',
-                    sessionId: activeSessionId,
-                    role: 'user',
-                    body: trimmedPrompt,
-                    tokenCount: 0,
-                  }, { preserveEditor: true });
-
-                  try {
-                    if (isFreeChatAgentMode) {
-                      const response = await fetch('/api/ai/agent', {
-                        method: 'POST',
-                        headers: { 'content-type': 'application/json' },
-                        body: JSON.stringify({
-                          profileId: activeModel.profileId,
-                          prompt: trimmedPrompt,
-                          sessionId: activeSessionId,
-                          chapter: editorBody,
-                          settings: aiContextSettings,
-                          summaries: [],
-                          manualSelections: [],
-                        }),
-                      });
-
-                      const agentResult = await consumeAgentEventStream(response);
-
-                      if (agentResult.finalText.trim()) {
-                        await mutateWorkspace({
-                          action: 'append-chat-message',
-                          sessionId: activeSessionId,
-                          role: 'assistant',
-                          body: agentResult.finalText,
-                          tokenCount: 0,
-                        }, { preserveEditor: true });
-                      }
-                    } else {
-                      const response = await readJson<AiGenerateResponse>(await fetch('/api/ai', {
-                        method: 'POST',
-                        headers: { 'content-type': 'application/json' },
-                        body: JSON.stringify({
-                          action: 'generate',
-                          profileId: activeModel.profileId,
-                          modelId: activeModel.modelId,
-                          taskClass: '自由对话',
-                          prompt: trimmedPrompt,
-                          chapter: editorBody,
-                          settings: aiContextSettings,
-                          summaries: [],
-                          manualSelections: [],
-                        }),
-                      }));
-
-                      await mutateWorkspace({
-                        action: 'append-chat-message',
-                        sessionId: activeSessionId,
-                        role: 'assistant',
-                        body: response.output,
-                        tokenCount: response.tokenUsage.totalTokens,
-                      }, { preserveEditor: true });
-                    }
-
-                    setFreeChatPrompt('');
-                  } catch (error) {
-                    setFreeChatAgentStatus('errored');
-                    toast.error(error instanceof Error ? error.message : 'AI 请求失败。');
-                  }
-                }}
+                onCreateSession={handleCreateSession}
+                onDeleteSession={handleDeleteSession}
                 onSessionChange={(sid) => refreshWorkspace(undefined, sid)}
-                onSessionDraftTitleChange={setSessionDraftTitle}
-                onAgentModeChange={handleFreeChatModeChange}
+                onDraftPromptChange={setFreeChatPrompt}
+                onSendPrompt={handleSendPrompt}
+                onRetryMessage={handleRetryMessage}
+                onDeleteMessage={handleDeleteMessage}
                 providers={collections.providerProfiles}
                 sessions={collections.chatSessions}
-                sessionDraftTitle={sessionDraftTitle}
-                isAgentMode={isFreeChatAgentMode}
-                agentStatus={freeChatAgentStatus}
-                activeToolName={freeChatActiveToolName}
-                streamingMessage={freeChatStreamingMessage}
-                toolCalls={freeChatToolCalls}
+                agentStatus={agentStatus}
+                activeToolName={activeToolName}
+                streamingMessage={streamingMessage}
+                toolCalls={toolCalls}
               />
             )}
             {rightSidebarTab === 'snapshots' && (

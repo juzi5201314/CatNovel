@@ -15,6 +15,7 @@ import type {
 import {
   appendChatMessage,
   createChatSession,
+  deleteChatMessage,
   deleteChatSession,
   listChatMessages,
   listChatSessions,
@@ -197,7 +198,11 @@ const mutationSchema = z.discriminatedUnion('action', [
     sessionId: z.string().min(1),
     role: roleSchema,
     body: z.string().min(1),
-    tokenCount: z.number().int().nonnegative().optional(),
+    tps: z.number().nonnegative().optional(),
+  }),
+  z.object({
+    action: z.literal('delete-chat-message'),
+    messageId: z.string().min(1),
   }),
   z.object({
     action: z.literal('set-active-model'),
@@ -456,8 +461,13 @@ export function applyWorkspaceMutation(input: unknown) {
           sessionId: mutation.sessionId,
           role: mutation.role as ChatRole,
           body: mutation.body,
-          tokenCount: mutation.tokenCount,
+          tps: mutation.tps,
         }),
+      };
+    case 'delete-chat-message':
+      return {
+        action: mutation.action,
+        message: deleteChatMessage(mutation.messageId),
       };
     case 'set-active-model':
       setActiveModelPreference({

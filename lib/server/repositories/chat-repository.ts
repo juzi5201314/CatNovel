@@ -20,7 +20,7 @@ type ChatMessageRow = {
   sessionId: string;
   role: ChatRole;
   body: string;
-  tokenCount: number;
+  tps: number;
   createdAt: string;
 };
 
@@ -40,7 +40,7 @@ function hydrateChatMessage(row: ChatMessageRow): ChatMessageRecord {
     sessionId: row.sessionId,
     role: row.role,
     body: row.body,
-    tokenCount: row.tokenCount,
+    tps: row.tps,
     createdAt: row.createdAt,
   };
 }
@@ -91,7 +91,7 @@ export function listChatMessages(sessionId: string) {
         session_id AS sessionId,
         role,
         body,
-        token_count AS tokenCount,
+        tps,
         created_at AS createdAt
       FROM chat_messages
       WHERE session_id = ?
@@ -139,7 +139,7 @@ export function appendChatMessage(input: {
   sessionId: string;
   role: ChatRole;
   body: string;
-  tokenCount?: number;
+  tps?: number;
 }) {
   const id = randomUUID();
   const now = new Date().toISOString();
@@ -147,9 +147,9 @@ export function appendChatMessage(input: {
 
   withImmediateTransaction(db, () => {
     db.prepare(
-      `INSERT INTO chat_messages (id, session_id, role, body, token_count, created_at)
+      `INSERT INTO chat_messages (id, session_id, role, body, tps, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(id, input.sessionId, input.role, input.body, input.tokenCount ?? 0, now);
+    ).run(id, input.sessionId, input.role, input.body, input.tps ?? 0, now);
 
     db.prepare(
       `UPDATE chat_sessions
@@ -169,7 +169,7 @@ export function getChatMessage(messageId: string) {
         session_id AS sessionId,
         role,
         body,
-        token_count AS tokenCount,
+        tps,
         created_at AS createdAt
       FROM chat_messages
       WHERE id = ?`,
@@ -181,4 +181,10 @@ export function getChatMessage(messageId: string) {
   }
 
   return hydrateChatMessage(row);
+}
+
+export function deleteChatMessage(messageId: string) {
+  const current = getChatMessage(messageId);
+  getDatabase().prepare('DELETE FROM chat_messages WHERE id = ?').run(messageId);
+  return current;
 }

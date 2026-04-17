@@ -24,6 +24,7 @@ const sseHeaders = {
 interface AgentRequestPayload {
   prompt?: string;
   profileId?: string;
+  modelId?: string;
   providerProfile?: ProviderProfile;
   systemPrompt?: string;
   tools?: Array<AgentTool | ToolDefinition>;
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
 
   let modelResult;
   try {
-    modelResult = getModelFromProfile(providerProfile);
+    modelResult = getModelFromProfile(providerProfile, payload.modelId);
   } catch (error) {
     return Response.json({
       error: error instanceof Error ? error.message : 'Failed to create agent model.',

@@ -116,7 +116,7 @@ export const schemaMigrations = [
         session_id TEXT NOT NULL,
         role TEXT NOT NULL,
         body TEXT NOT NULL,
-        token_count INTEGER NOT NULL DEFAULT 0,
+        tps REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
       )`,
@@ -283,6 +283,12 @@ export const schemaMigrations = [
          ON settings_nodes (work_id, title)`,
     ],
   },
+  {
+    id: "0005_rename_token_count_to_tps",
+    statements: [
+      `ALTER TABLE chat_messages RENAME COLUMN token_count TO tps`,
+    ],
+  },
 ] as const;
 
 export const seedStatements = [
@@ -308,7 +314,7 @@ export const seedStatements = [
     ('setting-rules', 'work-default', NULL, 'group', 4, '世界规则', '{"schemaVersion":1,"note":"力量体系、设定与禁忌条款"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
   `INSERT OR IGNORE INTO chat_sessions (id, work_id, title, created_at, updated_at)
    VALUES ('chat-session-default', 'work-default', '自由对话', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO chat_messages (id, session_id, role, body, token_count, created_at)
+  `INSERT OR IGNORE INTO chat_messages (id, session_id, role, body, tps, created_at)
    VALUES
     ('chat-message-seed-1', 'chat-session-default', 'assistant', '这里是当前章节的自由对话侧栏。你可以先问设定、节奏，或者直接请求 ghost text。', 0, '2026-04-10T00:00:00.000Z')`,
 ] as const;

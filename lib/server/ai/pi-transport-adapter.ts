@@ -26,9 +26,10 @@ export interface ModelFromProfileResult {
 
 export function getModelFromProfile(
   profile: ProviderProfile,
+  preferredModelId?: string,
 ): ModelFromProfileResult {
   const family = assertSupportedFamily(profile.family);
-  const modelId = resolveModelId(profile);
+  const modelId = preferredModelId?.trim() || resolveModelId(profile);
   const apiKey = profile.apiKey.trim();
 
   if (!apiKey) {

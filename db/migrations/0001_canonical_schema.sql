@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   session_id TEXT NOT NULL,
   role TEXT NOT NULL,
   body TEXT NOT NULL,
-  token_count INTEGER NOT NULL DEFAULT 0,
+  tps REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
 );

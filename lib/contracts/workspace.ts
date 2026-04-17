@@ -114,7 +114,7 @@ export interface ChatMessageRecord {
   sessionId: string;
   role: ChatRole;
   body: string;
-  tokenCount: number;
+  tps: number;
   createdAt: string;
 }
 
