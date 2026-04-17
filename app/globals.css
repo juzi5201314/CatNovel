@@ -6,7 +6,8 @@
   --color-muted: var(--cn-bg-muted);
   --color-muted-foreground: var(--cn-text-muted);
   --color-border: var(--cn-line-strong);
-  --color-primary: var(--cn-blue);
+  --color-primary: var(--cn-text);
+  --color-primary-foreground: var(--cn-bg);
   --color-ring: var(--cn-focus);
   --radius-sm: var(--cn-radius-sm);
   --radius-md: var(--cn-radius-md);
@@ -22,12 +23,12 @@
   --cn-text-muted: #666666;
   --cn-line: rgba(0, 0, 0, 0.08);
   --cn-line-strong: #ebebeb;
-  --cn-focus: hsla(212, 100%, 48%, 1);
-  --cn-blue: #0a72ef;
+  --cn-focus: rgba(0, 0, 0, 0.5);
+  --cn-blue: #171717;
   --cn-pink: #de1d8d;
   --cn-red: #ff5b4f;
-  --cn-blue-tint: #ebf5ff;
-  --cn-blue-strong: #0068d6;
+  --cn-blue-tint: #f0f0f0;
+  --cn-blue-strong: #000000;
   --cn-radius-sm: 6px;
   --cn-radius-md: 8px;
   --cn-radius-lg: 12px;
@@ -301,8 +302,8 @@
   }
 
   .badge--blue {
-    background: var(--cn-blue-tint);
-    color: var(--cn-blue-strong);
+    background: var(--cn-text);
+    color: var(--cn-bg);
   }
 
   .badge--neutral {
