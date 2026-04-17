@@ -46,7 +46,7 @@ export interface ChatSessionListProps {
   onDeleteSession: (sessionId: string) => void;
   onDraftPromptChange: (value: string) => void;
   onSessionChange: (sessionId: string) => void;
-  onSendPrompt: () => void;
+  onSendPrompt: (prompt?: string) => void;
   onRetryMessage: (messageId: string) => void;
   onDeleteMessage: (messageId: string) => void;
   onOpenModelSettings: () => void;
@@ -349,7 +349,7 @@ export function ChatSessionList({
     : { label: '—', isValid: false, profile: null };
 
   const hasMessages = messages.length > 0 || (streamingMessage && !streamingMessage.isComplete);
-  const canSend = !isProcessing && draftPrompt.trim() && activeModelInfo.isValid;
+  const canSend = !isProcessing && draftPrompt.trim() && activeModelInfo.isValid && !!activeSessionId;
 
   const handleQuickPrompt = useCallback((prompt: string) => {
     onDraftPromptChange(prompt);
@@ -359,7 +359,7 @@ export function ChatSessionList({
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       if (!isProcessing && draftPrompt.trim()) {
-        onSendPrompt();
+        onSendPrompt(draftPrompt);
       }
     }
   }, [draftPrompt, isProcessing, onSendPrompt]);
@@ -519,7 +519,7 @@ export function ChatSessionList({
             {/* 发送按钮 */}
             <button
               type="button"
-              onClick={() => onSendPrompt()}
+              onClick={() => onSendPrompt(draftPrompt)}
               disabled={!canSend}
               className={cx(
                 "h-7 w-7 rounded-md flex items-center justify-center transition-colors",

@@ -294,17 +294,6 @@ export const schemaMigrations = [
 export const seedStatements = [
   `INSERT OR IGNORE INTO works (id, title, locale, synopsis, created_at, updated_at)
    VALUES ('work-default', 'CatNovel Demo', 'zh', '一个围绕都市异闻与写作现场展开的长篇网文工作区。', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO volumes (id, work_id, title, sort_index, created_at, updated_at)
-   VALUES ('volume-1', 'work-default', '第一卷 迷雾城', 0, '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO chapters (id, work_id, volume_id, title, body_json, plaintext, excerpt, word_count, character_count, reading_minutes, status, last_autosaved_at, created_at, updated_at)
-   VALUES
-    ('chapter-1', 'work-default', 'volume-1', '第一章 雨夜开篇', '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"雨落在旧城的玻璃顶棚上，像一场迟到的开场白。"}]}]}', '雨落在旧城的玻璃顶棚上，像一场迟到的开场白。', '雨夜、旧城、主角初登场。', 23, 24, 1, 'draft', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
-    ('chapter-2', 'work-default', 'volume-1', '第二章 误入禁区', '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"她推开那扇不该打开的门，于是故事终于开始向深处滑去。"}]}]}', '她推开那扇不该打开的门，于是故事终于开始向深处滑去。', '推进冲突，进入主线区域。', 29, 30, 1, 'draft', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO chapter_order (work_id, chapter_id, sort_index)
-   VALUES ('work-default', 'chapter-1', 0), ('work-default', 'chapter-2', 1)`,
-  `INSERT OR IGNORE INTO book_metadata (work_id, author_name, premise, target_readers, serialized_status, tags_json, updated_at)
-   VALUES ('work-default', 'CatNovel', '一个围绕都市异闻与创作现场展开的长篇网文项目。', 'webnovel-core', 'ongoing', '["都市","悬疑","成长"]', '2026-04-10T00:00:00.000Z')`,
-
   `INSERT OR IGNORE INTO settings_nodes (id, work_id, parent_id, node_type, sort_index, title, payload_json, created_at, updated_at)
    VALUES
     ('setting-characters', 'work-default', NULL, 'group', 0, '角色', '{"schemaVersion":1,"note":"主角、盟友与反派的动机与关系"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
@@ -312,9 +301,4 @@ export const seedStatements = [
     ('setting-locations', 'work-default', NULL, 'group', 2, '地点', '{"schemaVersion":1,"note":"书中存在的地点与场景"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
     ('setting-items', 'work-default', NULL, 'group', 3, '物品', '{"schemaVersion":1,"note":"故事中的道具、神器与关键物品"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z'),
     ('setting-rules', 'work-default', NULL, 'group', 4, '世界规则', '{"schemaVersion":1,"note":"力量体系、设定与禁忌条款"}', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO chat_sessions (id, work_id, title, created_at, updated_at)
-   VALUES ('chat-session-default', 'work-default', '自由对话', '2026-04-10T00:00:00.000Z', '2026-04-10T00:00:00.000Z')`,
-  `INSERT OR IGNORE INTO chat_messages (id, session_id, role, body, tps, created_at)
-   VALUES
-    ('chat-message-seed-1', 'chat-session-default', 'assistant', '这里是当前章节的自由对话侧栏。你可以先问设定、节奏，或者直接请求 ghost text。', 0, '2026-04-10T00:00:00.000Z')`,
 ] as const;

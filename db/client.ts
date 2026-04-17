@@ -100,11 +100,14 @@ function bootstrapDatabase(db: DatabaseSync) {
     });
   }
 
-  withImmediateTransaction(db, () => {
-    for (const statement of seedStatements) {
-      runStatement(db, statement);
-    }
-  });
+  const hasExistingData = db.prepare("SELECT 1 FROM works LIMIT 1").get() !== undefined;
+  if (!hasExistingData) {
+    withImmediateTransaction(db, () => {
+      for (const statement of seedStatements) {
+        runStatement(db, statement);
+      }
+    });
+  }
 }
 
 export function getDatabase() {

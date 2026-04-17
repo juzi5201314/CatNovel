@@ -676,11 +676,15 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     void mutateWorkspace({ action: 'delete-chat-message', messageId });
   }, [mutateWorkspace]);
 
-  const handleSendPrompt = useCallback(async () => {
-    if (!activeSessionId || !freeChatPrompt.trim() || !activeModel) return;
-    const trimmedPrompt = freeChatPrompt.trim();
+  const handleSendPrompt = useCallback(async (prompt?: string) => {
+    const currentPrompt = prompt ?? freeChatPrompt;
+    if (!activeSessionId || !currentPrompt.trim() || !activeModel) return;
+    const trimmedPrompt = currentPrompt.trim();
 
+    // 立即清空输入框，防止重复发送
+    setFreeChatPrompt('');
     resetAgentState();
+
     await mutateWorkspace({
       action: 'append-chat-message',
       sessionId: activeSessionId,
@@ -716,13 +720,11 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           tps: streamingMessage?.tps ?? 0,
         }, { preserveEditor: true });
       }
-
-      setFreeChatPrompt('');
     } catch (error) {
       setAgentStatus('errored');
       toast.error(error instanceof Error ? error.message : 'AI 请求失败。');
     }
-  }, [activeModel, activeSessionId, aiContextSettings, consumeAgentEventStream, editorBody, freeChatPrompt, mutateWorkspace, resetAgentState, streamingMessage?.tps]);
+  }, [activeModel, activeSessionId, aiContextSettings, consumeAgentEventStream, editorBody, freeChatPrompt, mutateWorkspace, resetAgentState, streamingMessage]);
 
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!activeSessionId || !activeModel) return;
