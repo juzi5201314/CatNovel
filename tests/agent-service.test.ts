@@ -60,7 +60,7 @@ test('injects context-engine output through transformContext', async () => {
     assert.fail('Expected context transform to inject a string user message.');
   }
 
-  assert.match(contextMessage.content, /Context engine:/);
+  assert.match(contextMessage.content, /Context source:/);
   assert.match(contextMessage.content, /Chapter opening/);
   assert.match(contextMessage.content, /World note/);
   assert.match(contextMessage.content, /Previous scene/);

@@ -22,6 +22,9 @@ import {
   updateChatSession,
 } from '../repositories/chat-repository.ts';
 import {
+  upsertContextSelectionBySource,
+} from '../repositories/context-selection-repository.ts';
+import {
   createChapter,
   deleteChapter,
   getChapterById,
@@ -208,6 +211,12 @@ const mutationSchema = z.discriminatedUnion('action', [
     action: z.literal('set-active-model'),
     profileId: z.string().min(1),
     modelId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal('set-chat-session-context'),
+    sessionId: z.string().min(1),
+    workId: z.string().min(1),
+    chapterId: z.string().nullable().optional(),
   }),
 ]);
 
@@ -477,6 +486,16 @@ export function applyWorkspaceMutation(input: unknown) {
       return {
         action: mutation.action,
         activeModel: { profileId: mutation.profileId, modelId: mutation.modelId } as ActiveModelSelection,
+      };
+    case 'set-chat-session-context':
+      return {
+        action: mutation.action,
+        contextSelection: upsertContextSelectionBySource({
+          sourceType: 'chat-session',
+          sourceId: mutation.sessionId,
+          workId: mutation.workId,
+          chapterId: mutation.chapterId ?? null,
+        }),
       };
   }
 }

@@ -5,6 +5,9 @@ import { POST } from '../app/api/ai/agent/route.ts';
 import type { PublicAgentEvent } from '../lib/contracts/agent-events.ts';
 import { createFauxProvider } from '../lib/server/ai/testing/faux-provider.ts';
 import { closeDatabase } from '../db/client.ts';
+import { createChatSession } from '../lib/server/repositories/chat-repository.ts';
+import { createWork } from '../lib/server/repositories/work-repository.ts';
+import { upsertContextSelectionBySource } from '../lib/server/repositories/context-selection-repository.ts';
 
 function setupMemoryDatabase() {
   closeDatabase();
@@ -15,6 +18,16 @@ function setupMemoryDatabase() {
 
 test('free-chat complete flow streams deterministic SSE events through the agent route', async () => {
   setupMemoryDatabase();
+
+  const work = createWork({ title: 'Test Work', locale: 'zh', synopsis: '' });
+  const session = createChatSession({ workId: work.id, title: 'Test Session' });
+  upsertContextSelectionBySource({
+    workId: work.id,
+    chapterId: null,
+    sourceType: 'chat-session',
+    sourceId: session.id,
+  });
+
   const faux = createFauxProvider({
     api: 'openai-completions',
     provider: 'catnovel-openai-compatible',
@@ -32,6 +45,7 @@ test('free-chat complete flow streams deterministic SSE events through the agent
         body: JSON.stringify({
           prompt: 'Hi',
           providerProfile: buildRouteProviderProfile(faux.model.id),
+          sessionId: session.id,
         }),
       }),
     );

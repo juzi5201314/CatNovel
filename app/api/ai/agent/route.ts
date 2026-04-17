@@ -12,6 +12,11 @@ import {
   type ProviderProfile,
 } from '../../../../lib/server/ai/provider-registry.ts';
 import type { ToolDefinition } from '../../../../lib/server/ai/tools/types.ts';
+import { getChatSession } from '../../../../lib/server/repositories/chat-repository.ts';
+import { getContextSelectionBySource } from '../../../../lib/server/repositories/context-selection-repository.ts';
+import { getChapterSummary } from '../../../../lib/server/repositories/chapter-summary-repository.ts';
+import { getChapterById } from '../../../../lib/server/repositories/chapter-repository.ts';
+import { listSettingsNodes } from '../../../../lib/server/repositories/settings-repository.ts';
 
 const encoder = new TextEncoder();
 
@@ -28,14 +33,9 @@ interface AgentRequestPayload {
   providerProfile?: ProviderProfile;
   systemPrompt?: string;
   tools?: Array<AgentTool | ToolDefinition>;
-  contextSelection?: Partial<ContextSelection>;
-  chapter?: string;
-  settings?: string[];
-  summaries?: string[];
-  manualSelections?: string[];
   steeringMode?: 'all' | 'one-at-a-time';
   followUpMode?: 'all' | 'one-at-a-time';
-  sessionId?: string;
+  sessionId: string;
 }
 
 export async function POST(request: Request) {
@@ -55,6 +55,15 @@ export async function POST(request: Request) {
   if (!prompt) {
     return Response.json({
       error: 'prompt is required',
+    }, {
+      status: 400,
+    });
+  }
+
+  const sessionId = payload.sessionId?.trim();
+  if (!sessionId) {
+    return Response.json({
+      error: 'sessionId is required',
     }, {
       status: 400,
     });
@@ -82,15 +91,26 @@ export async function POST(request: Request) {
     });
   }
 
+  let contextSelection: ContextSelection;
+  try {
+    contextSelection = buildContextSelectionFromSession(sessionId);
+  } catch (error) {
+    return Response.json({
+      error: error instanceof Error ? error.message : 'Failed to build context from session.',
+    }, {
+      status: 400,
+    });
+  }
+
   const agent = new AgentService({
     model: modelResult.model,
     apiKey: modelResult.apiKey,
     systemPrompt: payload.systemPrompt,
     tools: payload.tools,
-    contextSelection: buildContextSelection(payload),
+    contextSelection,
     steeringMode: payload.steeringMode,
     followUpMode: payload.followUpMode,
-    sessionId: payload.sessionId,
+    sessionId,
   });
   const fallbackMessageId = crypto.randomUUID();
 
@@ -170,14 +190,41 @@ function resolveProviderProfile(payload: AgentRequestPayload): ProviderProfile {
   throw new Error('providerProfile or profileId is required');
 }
 
-function buildContextSelection(payload: AgentRequestPayload): ContextSelection {
+function buildContextSelectionFromSession(sessionId: string): ContextSelection {
+  const chatSession = getChatSession(sessionId);
+
+  const contextSelection = getContextSelectionBySource('chat-session', sessionId);
+
+  let chapter = '';
+  const summaries: string[] = [];
+
+  if (contextSelection?.chapterId) {
+    const chapterRecord = getChapterById(contextSelection.chapterId);
+    if (chapterRecord?.plaintext) {
+      chapter = chapterRecord.plaintext;
+    }
+
+    const summaryRecord = getChapterSummary(contextSelection.chapterId);
+    if (summaryRecord?.summary) {
+      summaries.push(summaryRecord.summary);
+    }
+  }
+
+  const settingsNodes = listSettingsNodes(chatSession.workId);
+  const settings = settingsNodes.map((node) => {
+    try {
+      const payload = JSON.parse(node.payloadJson);
+      return `${node.title}: ${payload.description ?? payload.content ?? ''}`;
+    } catch {
+      return `${node.title}: ${node.payloadJson}`;
+    }
+  });
+
   return {
-    chapter: payload.contextSelection?.chapter ?? payload.chapter ?? '',
-    settings: [...(payload.contextSelection?.settings ?? payload.settings ?? [])],
-    summaries: [...(payload.contextSelection?.summaries ?? payload.summaries ?? [])],
-    manualSelections: [
-      ...(payload.contextSelection?.manualSelections ?? payload.manualSelections ?? []),
-    ],
+    chapter,
+    settings,
+    summaries,
+    manualSelections: [],
   };
 }
 
