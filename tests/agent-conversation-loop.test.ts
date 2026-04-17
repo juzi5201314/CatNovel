@@ -5,6 +5,14 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { fauxAssistantMessage, registerFauxProvider } from '@mariozechner/pi-ai';
 
 import { AgentService } from '../lib/server/ai/agent-service.ts';
+import { closeDatabase } from '../db/client.ts';
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
 
 function createFauxRegistration(name: string) {
   const suffix = `${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -43,6 +51,8 @@ function readAssistantText(message: AgentMessage | undefined): string {
 }
 
 test('accumulates transcript across multiple prompt turns', async () => {
+  setupMemoryDatabase();
+
   const registration = createFauxRegistration('conversation-loop');
 
   try {
@@ -87,10 +97,13 @@ test('accumulates transcript across multiple prompt turns', async () => {
     assert.equal(registration.state.callCount, 2);
   } finally {
     registration.unregister();
+    closeDatabase();
   }
 });
 
 test('getMessages returns a snapshot and reset clears transcript for a new session', async () => {
+  setupMemoryDatabase();
+
   const registration = createFauxRegistration('conversation-reset');
 
   try {
@@ -127,5 +140,6 @@ test('getMessages returns a snapshot and reset clears transcript for a new sessi
     assert.equal(readAssistantText(service.getFinalMessage()), 'After reset.');
   } finally {
     registration.unregister();
+    closeDatabase();
   }
 });

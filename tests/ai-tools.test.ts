@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 
 import { validateToolCall as validatePiToolCall } from '@mariozechner/pi-ai';
 
-function createTempDataDir() {
-  return mkdtempSync(join(tmpdir(), 'catnovel-tools-'));
+import { closeDatabase } from '../db/client.ts';
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
 }
 
 function buildToolCall(name: string, args: Record<string, unknown>) {
@@ -20,11 +22,9 @@ function buildToolCall(name: string, args: Record<string, unknown>) {
 }
 
 test('tool registry validates and executes writing tools', async () => {
-  const dataDir = createTempDataDir();
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+  setupMemoryDatabase();
 
   const [
-    { closeDatabase },
     { createWork },
     { createVolume },
     { createChapter },
@@ -32,7 +32,6 @@ test('tool registry validates and executes writing tools', async () => {
     { deriveChapterMetrics },
     { toolRegistry, tools, validateToolCall },
   ] = await Promise.all([
-    import('../db/client.ts'),
     import('../lib/server/repositories/work-repository.ts'),
     import('../lib/server/repositories/volume-repository.ts'),
     import('../lib/server/repositories/chapter-repository.ts'),
@@ -111,7 +110,5 @@ test('tool registry validates and executes writing tools', async () => {
     );
   } finally {
     closeDatabase();
-    rmSync(dataDir, { recursive: true, force: true });
-    delete process.env.CATNOVEL_DATA_DIR;
   }
 });

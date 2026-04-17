@@ -6,8 +6,17 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { AgentEvent } from '../lib/contracts/agent-events.ts';
 import { AgentService } from '../lib/server/ai/agent-service.ts';
 import { createFauxProvider } from '../lib/server/ai/testing/faux-provider.ts';
+import { closeDatabase } from '../db/client.ts';
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
 
 test('steering messages injected during streaming become a follow-on user turn', async () => {
+  setupMemoryDatabase();
   const faux = createFauxProvider({ tokensPerSecond: 6 });
   faux.setResponses([
     'This opening reply is intentionally paced to keep the stream active for steering.',
@@ -47,10 +56,13 @@ test('steering messages injected during streaming become a follow-on user turn',
     assert.equal(faux.registration.state.callCount, 2);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 
 test('follow-up messages injected during streaming become a queued next turn', async () => {
+  setupMemoryDatabase();
+
   const faux = createFauxProvider({ tokensPerSecond: 6 });
   faux.setResponses([
     'The first answer stays open just long enough for follow-up injection.',
@@ -90,6 +102,7 @@ test('follow-up messages injected during streaming become a queued next turn', a
     assert.equal(faux.registration.state.callCount, 2);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 

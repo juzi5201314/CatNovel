@@ -4,6 +4,7 @@ import test from 'node:test';
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from '@mariozechner/pi-ai';
 import { Type } from '@sinclair/typebox';
 
+import { closeDatabase } from '../db/client.ts';
 import type { AgentEvent } from '../lib/contracts/agent-events.ts';
 import { AgentService } from '../lib/server/ai/agent-service.ts';
 import { executeToolWithSafety } from '../lib/server/ai/tool-execution.ts';
@@ -20,6 +21,13 @@ function createTestTool(
     parameters: Type.Object({}),
     handler,
   };
+}
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
 }
 
 function collectEvents(service: AgentService) {
@@ -59,6 +67,7 @@ function readTextContent(content: Array<{ type: string; text?: string }>) {
 }
 
 test('invalid TypeBox parameters return a tool error result instead of throwing', async () => {
+  setupMemoryDatabase();
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const registration = registerFauxProvider({
     api: `faux-api-${suffix}`,
@@ -99,34 +108,47 @@ test('invalid TypeBox parameters return a tool error result instead of throwing'
     assert.equal(toolResultEvent.isError, true);
   } finally {
     registration.unregister();
+    closeDatabase();
   }
 });
 
 test('tool timeout returns an error result', async () => {
-  const tool = createTestTool('slow_tool', async () => {
-    await new Promise(() => undefined);
-    return 'done';
-  });
+  setupMemoryDatabase();
 
-  const result = await executeToolWithSafety(tool, {}, { timeoutMs: 20 });
+  try {
+    const tool = createTestTool('slow_tool', async () => {
+      await new Promise(() => undefined);
+      return 'done';
+    });
 
-  assert.equal(result.isError, true);
-  assert.match(String(result.result.details), /timed out after 20ms/);
-  assert.match(result.result.content[0]?.text ?? '', /timed out after 20ms/);
+    const result = await executeToolWithSafety(tool, {}, { timeoutMs: 20 });
+
+    assert.equal(result.isError, true);
+    assert.match(String(result.result.details), /timed out after 20ms/);
+    assert.match(result.result.content[0]?.text ?? '', /timed out after 20ms/);
+  } finally {
+    closeDatabase();
+  }
 });
 
 test('tool cancellation returns an aborted tool error result', async () => {
-  const tool = createTestTool('abortable_tool', async () => {
-    await new Promise(() => undefined);
-    return 'done';
-  });
-  const controller = new AbortController();
+  setupMemoryDatabase();
 
-  setTimeout(() => controller.abort(), 10);
+  try {
+    const tool = createTestTool('abortable_tool', async () => {
+      await new Promise(() => undefined);
+      return 'done';
+    });
+    const controller = new AbortController();
 
-  const result = await executeToolWithSafety(tool, {}, {}, controller.signal);
+    setTimeout(() => controller.abort(), 10);
 
-  assert.equal(result.isError, true);
-  assert.match(String(result.result.details), /was aborted/);
-  assert.match(result.result.content[0]?.text ?? '', /was aborted/);
+    const result = await executeToolWithSafety(tool, {}, {}, controller.signal);
+
+    assert.equal(result.isError, true);
+    assert.match(String(result.result.details), /was aborted/);
+    assert.match(result.result.content[0]?.text ?? '', /was aborted/);
+  } finally {
+    closeDatabase();
+  }
 });

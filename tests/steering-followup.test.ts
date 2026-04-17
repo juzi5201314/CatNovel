@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { getModel } from '@mariozechner/pi-ai';
 
+import { closeDatabase } from '../db/client.ts';
 import { AgentService } from '../lib/server/ai/agent-service.ts';
 
 type QueueMode = 'all' | 'one-at-a-time';
@@ -37,82 +38,113 @@ function getInternalAgent(service: AgentService): AgentInternals {
   return (service as unknown as { agent: AgentInternals }).agent;
 }
 
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
+
 test('steer queues user messages with one-at-a-time mode by default', () => {
-  const service = createService();
-  const internalAgent = getInternalAgent(service);
+  setupMemoryDatabase();
 
-  service.steer('first steer');
-  service.steer('second steer');
+  try {
+    const service = createService();
+    const internalAgent = getInternalAgent(service);
 
-  assert.equal(internalAgent.steeringMode, 'one-at-a-time');
+    service.steer('first steer');
+    service.steer('second steer');
 
-  const firstDrain = internalAgent.steeringQueue.drain();
-  const secondDrain = internalAgent.steeringQueue.drain();
+    assert.equal(internalAgent.steeringMode, 'one-at-a-time');
 
-  assert.deepEqual(
-    firstDrain.map((message) => ({ role: message.role, content: message.content })),
-    [{ role: 'user', content: 'first steer' }],
-  );
-  assert.deepEqual(
-    secondDrain.map((message) => ({ role: message.role, content: message.content })),
-    [{ role: 'user', content: 'second steer' }],
-  );
-  assert.equal(typeof firstDrain[0]?.timestamp, 'number');
+    const firstDrain = internalAgent.steeringQueue.drain();
+    const secondDrain = internalAgent.steeringQueue.drain();
+
+    assert.deepEqual(
+      firstDrain.map((message) => ({ role: message.role, content: message.content })),
+      [{ role: 'user', content: 'first steer' }],
+    );
+    assert.deepEqual(
+      secondDrain.map((message) => ({ role: message.role, content: message.content })),
+      [{ role: 'user', content: 'second steer' }],
+    );
+    assert.equal(typeof firstDrain[0]?.timestamp, 'number');
+  } finally {
+    closeDatabase();
+  }
 });
 
 test('followUp queues user messages with one-at-a-time mode by default', () => {
-  const service = createService();
-  const internalAgent = getInternalAgent(service);
+  setupMemoryDatabase();
 
-  service.followUp('first follow-up');
-  service.followUp('second follow-up');
+  try {
+    const service = createService();
+    const internalAgent = getInternalAgent(service);
 
-  assert.equal(internalAgent.followUpMode, 'one-at-a-time');
+    service.followUp('first follow-up');
+    service.followUp('second follow-up');
 
-  const firstDrain = internalAgent.followUpQueue.drain();
-  const secondDrain = internalAgent.followUpQueue.drain();
+    assert.equal(internalAgent.followUpMode, 'one-at-a-time');
 
-  assert.deepEqual(
-    firstDrain.map((message) => ({ role: message.role, content: message.content })),
-    [{ role: 'user', content: 'first follow-up' }],
-  );
-  assert.deepEqual(
-    secondDrain.map((message) => ({ role: message.role, content: message.content })),
-    [{ role: 'user', content: 'second follow-up' }],
-  );
-  assert.equal(typeof firstDrain[0]?.timestamp, 'number');
+    const firstDrain = internalAgent.followUpQueue.drain();
+    const secondDrain = internalAgent.followUpQueue.drain();
+
+    assert.deepEqual(
+      firstDrain.map((message) => ({ role: message.role, content: message.content })),
+      [{ role: 'user', content: 'first follow-up' }],
+    );
+    assert.deepEqual(
+      secondDrain.map((message) => ({ role: message.role, content: message.content })),
+      [{ role: 'user', content: 'second follow-up' }],
+    );
+    assert.equal(typeof firstDrain[0]?.timestamp, 'number');
+  } finally {
+    closeDatabase();
+  }
 });
 
 test('supports configuring and updating steering/follow-up queue modes', () => {
-  const service = createService({
-    steeringMode: 'all',
-    followUpMode: 'all',
-  });
-  const internalAgent = getInternalAgent(service);
+  setupMemoryDatabase();
 
-  assert.equal(internalAgent.steeringMode, 'all');
-  assert.equal(internalAgent.followUpMode, 'all');
+  try {
+    const service = createService({
+      steeringMode: 'all',
+      followUpMode: 'all',
+    });
+    const internalAgent = getInternalAgent(service);
 
-  service.setSteeringMode('one-at-a-time');
-  service.setFollowUpMode('one-at-a-time');
+    assert.equal(internalAgent.steeringMode, 'all');
+    assert.equal(internalAgent.followUpMode, 'all');
 
-  assert.equal(internalAgent.steeringMode, 'one-at-a-time');
-  assert.equal(internalAgent.followUpMode, 'one-at-a-time');
+    service.setSteeringMode('one-at-a-time');
+    service.setFollowUpMode('one-at-a-time');
+
+    assert.equal(internalAgent.steeringMode, 'one-at-a-time');
+    assert.equal(internalAgent.followUpMode, 'one-at-a-time');
+  } finally {
+    closeDatabase();
+  }
 });
 
 test('clearSteeringQueue and clearFollowUpQueue drop pending messages', () => {
-  const service = createService({
-    steeringMode: 'all',
-    followUpMode: 'all',
-  });
-  const internalAgent = getInternalAgent(service);
+  setupMemoryDatabase();
 
-  service.steer('discard steer');
-  service.followUp('discard follow-up');
+  try {
+    const service = createService({
+      steeringMode: 'all',
+      followUpMode: 'all',
+    });
+    const internalAgent = getInternalAgent(service);
 
-  service.clearSteeringQueue();
-  service.clearFollowUpQueue();
+    service.steer('discard steer');
+    service.followUp('discard follow-up');
 
-  assert.deepEqual(internalAgent.steeringQueue.drain(), []);
-  assert.deepEqual(internalAgent.followUpQueue.drain(), []);
+    service.clearSteeringQueue();
+    service.clearFollowUpQueue();
+
+    assert.deepEqual(internalAgent.steeringQueue.drain(), []);
+    assert.deepEqual(internalAgent.followUpQueue.drain(), []);
+  } finally {
+    closeDatabase();
+  }
 });

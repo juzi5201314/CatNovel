@@ -4,8 +4,17 @@ import test from 'node:test';
 import { POST } from '../app/api/ai/agent/route.ts';
 import type { PublicAgentEvent } from '../lib/contracts/agent-events.ts';
 import { createFauxProvider } from '../lib/server/ai/testing/faux-provider.ts';
+import { closeDatabase } from '../db/client.ts';
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
 
 test('free-chat complete flow streams deterministic SSE events through the agent route', async () => {
+  setupMemoryDatabase();
   const faux = createFauxProvider({
     api: 'openai-completions',
     provider: 'catnovel-openai-compatible',
@@ -56,6 +65,7 @@ test('free-chat complete flow streams deterministic SSE events through the agent
     assert.equal(faux.getPendingCount(), 0);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 

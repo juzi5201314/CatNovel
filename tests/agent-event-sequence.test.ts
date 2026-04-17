@@ -11,8 +11,17 @@ import {
   fauxToolCall,
 } from '../lib/server/ai/testing/faux-provider.ts';
 import type { ToolDefinition } from '../lib/server/ai/tools/types.ts';
+import { closeDatabase } from '../db/client.ts';
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
 
 test('AgentService emits the full deterministic basic event sequence', async () => {
+  setupMemoryDatabase();
   const faux = createFauxProvider();
   faux.setResponse('Hello from faux provider');
 
@@ -78,10 +87,13 @@ test('AgentService emits the full deterministic basic event sequence', async () 
     assert.equal(completedState.activeToolName, null);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 
 test('AgentService emits deterministic tool call events in sequence', async () => {
+  setupMemoryDatabase();
+
   const faux = createFauxProvider();
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall('demo_tool', { value: 42 }, { id: 'tool-1' })], {
@@ -185,6 +197,7 @@ test('AgentService emits deterministic tool call events in sequence', async () =
     assert.equal(completedState.activeToolName, null);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 

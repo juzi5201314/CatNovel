@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-function createTempDataDir() {
-  return mkdtempSync(join(tmpdir(), "catnovel-db-"));
+import { closeDatabase } from "../db/client.ts";
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = "true";
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
 }
 
 function expectDefined<T>(value: T | undefined, message: string): T {
@@ -16,11 +18,9 @@ function expectDefined<T>(value: T | undefined, message: string): T {
 }
 
 test("move-worldview-node: 将节点移动到另一个分组下，parentId 更新正确", async () => {
-  const dataDir = createTempDataDir();
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+  setupMemoryDatabase();
 
-  const [{ closeDatabase }, { applyWorkspaceMutation }] = await Promise.all([
-    import("../db/client.ts"),
+  const [{ applyWorkspaceMutation }] = await Promise.all([
     import("../lib/server/services/workspace-data-service.ts"),
   ]);
 
@@ -98,15 +98,12 @@ test("move-worldview-node: 将节点移动到另一个分组下，parentId 更�
   );
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });
 
 test("move-worldview-node: 将节点移动到根节点，parentId 设置为 null", async () => {
-  const dataDir = createTempDataDir();
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+  setupMemoryDatabase();
 
-  const [{ closeDatabase }, { applyWorkspaceMutation }] = await Promise.all([
-    import("../db/client.ts"),
+  const [{ applyWorkspaceMutation }] = await Promise.all([
     import("../lib/server/services/workspace-data-service.ts"),
   ]);
 
@@ -165,15 +162,12 @@ test("move-worldview-node: 将节点移动到根节点，parentId 设置为 null
   );
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });
 
 test("move-worldview-node: 尝试将节点移动到其后代下，应该被拒绝（防止循环）", async () => {
-  const dataDir = createTempDataDir();
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+  setupMemoryDatabase();
 
-  const [{ closeDatabase }, { applyWorkspaceMutation }] = await Promise.all([
-    import("../db/client.ts"),
+  const [{ applyWorkspaceMutation }] = await Promise.all([
     import("../lib/server/services/workspace-data-service.ts"),
   ]);
 
@@ -268,15 +262,12 @@ test("move-worldview-node: 尝试将节点移动到其后代下，应该被拒�
   );
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });
 
 test("move-worldview-node: 尝试将节点移动到不同作品下，应该被拒绝", async () => {
-  const dataDir = createTempDataDir();
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+  setupMemoryDatabase();
 
-  const [{ closeDatabase }, { applyWorkspaceMutation }] = await Promise.all([
-    import("../db/client.ts"),
+  const [{ applyWorkspaceMutation }] = await Promise.all([
     import("../lib/server/services/workspace-data-service.ts"),
   ]);
 
@@ -370,5 +361,4 @@ test("move-worldview-node: 尝试将节点移动到不同作品下，应该被�
   );
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });

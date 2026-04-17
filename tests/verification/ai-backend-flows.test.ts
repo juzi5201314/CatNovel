@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { beforeEach, describe, test } from 'node:test';
+import { after, before, beforeEach, describe, test } from 'node:test';
 
 import {
   DELETE,
@@ -8,6 +8,7 @@ import {
   POST,
 } from '../../app/api/ai/route.ts';
 import { GET as getModelRoute } from '../../app/api/ai/models/route.ts';
+import { closeDatabase } from '../../db/client.ts';
 
 async function readStream(response: Response) {
   const reader = response.body?.getReader();
@@ -30,7 +31,22 @@ async function readStream(response: Response) {
   return text;
 }
 
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
+
 describe('AI backend flows', () => {
+  before(() => {
+    setupMemoryDatabase();
+  });
+
+  after(() => {
+    closeDatabase();
+  });
+
   beforeEach(async () => {
     await POST(
       new Request('http://localhost/api/ai', {

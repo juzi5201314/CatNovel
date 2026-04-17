@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-function createTempDataDir() {
-  return mkdtempSync(join(tmpdir(), "catnovel-db-"));
+import { closeDatabase } from "../db/client.ts";
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = "true";
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
 }
 
 function expectDefined<T>(value: T | undefined, message: string): T {
@@ -17,10 +19,9 @@ function expectDefined<T>(value: T | undefined, message: string): T {
 }
 
 test("database bootstrap creates canonical tables and seed rows", async () => {
-  const dataDir = createTempDataDir();
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+  setupMemoryDatabase();
 
-  const [{ canonicalTables }, { closeDatabase, getDatabase }] = await Promise.all([
+  const [{ canonicalTables }, { getDatabase }] = await Promise.all([
     import("../db/schema.ts"),
     import("../db/client.ts"),
   ]);
@@ -49,16 +50,13 @@ test("database bootstrap creates canonical tables and seed rows", async () => {
   assert.equal(work?.locale, "zh");
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });
 
 test("workspace data mutations support work / volume / chapter CRUD", async () => {
-  const dataDir = createTempDataDir();
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+  setupMemoryDatabase();
 
-  const [{ closeDatabase }, { applyWorkspaceMutation, getWorkspaceCollections }] =
+  const [{ applyWorkspaceMutation, getWorkspaceCollections }] =
     await Promise.all([
-      import("../db/client.ts"),
       import("../lib/server/services/workspace-data-service.ts"),
     ]);
 
@@ -131,16 +129,13 @@ test("workspace data mutations support work / volume / chapter CRUD", async () =
   assert.equal(afterDelete.works.some((work) => work.id === workId), false);
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });
 
 test("autosave persists chapter metrics and bootstrap payload surfaces sqlite stats", async () => {
-  const dataDir = createTempDataDir();
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+  setupMemoryDatabase();
 
-  const [{ closeDatabase }, { applyWorkspaceMutation }, { loadBootstrapPayload }] =
+  const [{ applyWorkspaceMutation }, { loadBootstrapPayload }] =
     await Promise.all([
-      import("../db/client.ts"),
       import("../lib/server/services/workspace-data-service.ts"),
       import("../lib/server/bootstrap.ts"),
     ]);
@@ -173,5 +168,4 @@ test("autosave persists chapter metrics and bootstrap payload surfaces sqlite st
   assert.ok(payload.workspace.stats.lastAutosavedAt);
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });

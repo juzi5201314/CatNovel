@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import test from "node:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,10 +14,15 @@ import {
 } from "../lib/server/project-transfer.ts";
 import { closeDatabase, getDatabase, getDatabaseStatus } from "../db/client.ts";
 
-test("project archive export/import round-trips canonical rows", () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "catnovel-transfer-"));
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+function setupMemoryDatabase() {
   closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = "true";
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
+
+test("project archive export/import round-trips canonical rows", () => {
+  setupMemoryDatabase();
 
   const archive = exportProjectArchive();
   assert.equal(archive.format, "catnovel-project-json");
@@ -43,14 +47,15 @@ test("project archive export/import round-trips canonical rows", () => {
   assert.ok(chapterCount.count > 0);
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });
 
 test("backup / restore / corruption recovery scripts have working database primitives", () => {
+  // 此测试需要文件系统来测试备份/恢复功能
   const dataDir = mkdtempSync(join(tmpdir(), "catnovel-backup-"));
   const backupDir = mkdtempSync(join(tmpdir(), "catnovel-backups-"));
-  process.env.CATNOVEL_DATA_DIR = dataDir;
   closeDatabase();
+  delete process.env.CATNOVEL_DB_MEMORY;
+  process.env.CATNOVEL_DATA_DIR = dataDir;
 
   const backup = createDatabaseBackup({ outputRoot: backupDir, label: "rehearsal" });
   assert.equal(backup.manifest.integrity, "ok");

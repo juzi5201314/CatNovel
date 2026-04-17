@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { complete, stream } from '@mariozechner/pi-ai';
 
+import { closeDatabase } from '../db/client.ts';
 import {
   createFauxProvider,
   fauxAssistantMessage,
@@ -11,7 +12,16 @@ import {
   fauxToolCall,
 } from '../lib/server/ai/testing/faux-provider.ts';
 
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
+
 test('createFauxProvider registers a faux model and drains queued responses', async () => {
+  setupMemoryDatabase();
+
   const faux = createFauxProvider();
 
   try {
@@ -31,10 +41,13 @@ test('createFauxProvider registers a faux model and drains queued responses', as
     assert.equal(faux.registration.state.callCount, 2);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 
 test('supports appending scripted responses for deterministic follow-up turns', async () => {
+  setupMemoryDatabase();
+
   const faux = createFauxProvider();
 
   try {
@@ -54,10 +67,13 @@ test('supports appending scripted responses for deterministic follow-up turns', 
     assert.equal(faux.getPendingCount(), 0);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 
 test('uses a predictable streaming event sequence for structured responses', async () => {
+  setupMemoryDatabase();
+
   const faux = createFauxProvider();
 
   try {
@@ -102,6 +118,7 @@ test('uses a predictable streaming event sequence for structured responses', asy
     assert.equal(faux.getPendingCount(), 0);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 

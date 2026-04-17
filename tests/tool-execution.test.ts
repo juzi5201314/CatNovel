@@ -4,6 +4,7 @@ import test from 'node:test';
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from '@mariozechner/pi-ai';
 import { Type } from '@sinclair/typebox';
 
+import { closeDatabase } from '../db/client.ts';
 import type { AgentEvent } from '../lib/contracts/agent-events.ts';
 import { AgentService } from '../lib/server/ai/agent-service.ts';
 import {
@@ -38,64 +39,97 @@ function findToolResultEvent(events: AgentEvent[]) {
   return events.find((event) => event.type === 'ai_tool_result');
 }
 
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
+
 test('executeToolWithSafety blocks tool calls before execution', async () => {
-  const tool = createTestTool('blocked_tool', async () => 'should not run');
+  setupMemoryDatabase();
 
-  const result = await executeToolWithSafety(
-    tool,
-    { text: 'hello' },
-    {
-      beforeToolCall: () => ({ block: true, reason: 'policy blocked' }),
-    },
-  );
+  try {
+    const tool = createTestTool('blocked_tool', async () => 'should not run');
 
-  assert.equal(result.isError, true);
-  assert.equal(result.result.details, 'policy blocked');
-  assert.equal(result.result.content[0]?.type, 'text');
-  assert.equal(result.result.content[0]?.text, 'policy blocked');
+    const result = await executeToolWithSafety(
+      tool,
+      { text: 'hello' },
+      {
+        beforeToolCall: () => ({ block: true, reason: 'policy blocked' }),
+      },
+    );
+
+    assert.equal(result.isError, true);
+    assert.equal(result.result.details, 'policy blocked');
+    assert.equal(result.result.content[0]?.type, 'text');
+    assert.equal(result.result.content[0]?.text, 'policy blocked');
+  } finally {
+    closeDatabase();
+  }
 });
 
 test('executeToolWithSafety converts thrown errors into tool results', async () => {
-  const tool = createTestTool('failing_tool', async () => {
-    throw new Error('tool exploded');
-  });
+  setupMemoryDatabase();
 
-  const result = await executeToolWithSafety(tool, {}, {});
+  try {
+    const tool = createTestTool('failing_tool', async () => {
+      throw new Error('tool exploded');
+    });
 
-  assert.equal(result.isError, true);
-  assert.equal(result.result.details, 'tool exploded');
-  assert.equal(result.result.content[0]?.text, 'tool exploded');
+    const result = await executeToolWithSafety(tool, {}, {});
+
+    assert.equal(result.isError, true);
+    assert.equal(result.result.details, 'tool exploded');
+    assert.equal(result.result.content[0]?.text, 'tool exploded');
+  } finally {
+    closeDatabase();
+  }
 });
 
 test('executeToolWithSafety aborts long-running tools on timeout', async () => {
-  const tool = createTestTool('slow_tool', async () => {
-    await new Promise(() => undefined);
-    return 'done';
-  });
+  setupMemoryDatabase();
 
-  const result = await executeToolWithSafety(tool, {}, { timeoutMs: 20 });
+  try {
+    const tool = createTestTool('slow_tool', async () => {
+      await new Promise(() => undefined);
+      return 'done';
+    });
 
-  assert.equal(result.isError, true);
-  assert.match(String(result.result.details), /timed out after 20ms/);
-  assert.match(result.result.content[0]?.text ?? '', /timed out after 20ms/);
+    const result = await executeToolWithSafety(tool, {}, { timeoutMs: 20 });
+
+    assert.equal(result.isError, true);
+    assert.match(String(result.result.details), /timed out after 20ms/);
+    assert.match(result.result.content[0]?.text ?? '', /timed out after 20ms/);
+  } finally {
+    closeDatabase();
+  }
 });
 
 test('executeToolWithSafety respects external abort signals', async () => {
-  const tool = createTestTool('abortable_tool', async () => {
-    await new Promise(() => undefined);
-    return 'done';
-  });
-  const controller = new AbortController();
+  setupMemoryDatabase();
 
-  setTimeout(() => controller.abort(), 10);
+  try {
+    const tool = createTestTool('abortable_tool', async () => {
+      await new Promise(() => undefined);
+      return 'done';
+    });
+    const controller = new AbortController();
 
-  const result = await executeToolWithSafety(tool, {}, {}, controller.signal);
+    setTimeout(() => controller.abort(), 10);
 
-  assert.equal(result.isError, true);
-  assert.match(String(result.result.details), /was aborted/);
+    const result = await executeToolWithSafety(tool, {}, {}, controller.signal);
+
+    assert.equal(result.isError, true);
+    assert.match(String(result.result.details), /was aborted/);
+  } finally {
+    closeDatabase();
+  }
 });
 
 test('AgentService wraps ToolDefinition results and applies afterToolCall formatting', async () => {
+  setupMemoryDatabase();
+
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const registration = registerFauxProvider({
     api: `faux-api-${suffix}`,
@@ -140,10 +174,13 @@ test('AgentService wraps ToolDefinition results and applies afterToolCall format
     });
   } finally {
     registration.unregister();
+    closeDatabase();
   }
 });
 
 test('AgentService surfaces beforeToolCall blocks as tool errors', async () => {
+  setupMemoryDatabase();
+
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const registration = registerFauxProvider({
     api: `faux-api-${suffix}`,
@@ -178,5 +215,6 @@ test('AgentService surfaces beforeToolCall blocks as tool errors', async () => {
     assert.equal(toolResultEvent.result, 'blocked by policy');
   } finally {
     registration.unregister();
+    closeDatabase();
   }
 });

@@ -5,8 +5,17 @@ import type { Agent } from '@mariozechner/pi-agent-core';
 import { getModel } from '@mariozechner/pi-ai';
 
 import { AgentService } from '../lib/server/ai/agent-service.ts';
+import { closeDatabase } from '../db/client.ts';
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
 
 test('creates an AgentService instance around pi-agent-core Agent', () => {
+  setupMemoryDatabase();
   const service = new AgentService({
     model: getModel('openai', 'gpt-4o-mini'),
     systemPrompt: 'You are a test assistant.',

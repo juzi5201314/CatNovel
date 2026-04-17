@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { closeDatabase } from '../db/client.ts';
 import { AgentService } from '../lib/server/ai/agent-service.ts';
 import { getModelFromProfile } from '../lib/server/ai/pi-transport-adapter.ts';
 
@@ -41,7 +42,16 @@ function assertFamilySmoke({ family, endpoint, modelId, api, authStyle }: SmokeC
   assert.equal(state.isStreaming, false);
 }
 
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
+
 test('openai-compatible family smoke test', () => {
+  setupMemoryDatabase();
+
   assertFamilySmoke({
     family: 'openai-compatible',
     endpoint: 'https://example.invalid/openai-compatible/',
@@ -49,9 +59,13 @@ test('openai-compatible family smoke test', () => {
     api: 'openai-completions',
     authStyle: 'bearer',
   });
+
+  closeDatabase();
 });
 
 test('openai-responses family smoke test', () => {
+  setupMemoryDatabase();
+
   assertFamilySmoke({
     family: 'openai-responses',
     endpoint: 'https://example.invalid/openai-responses/',
@@ -59,9 +73,13 @@ test('openai-responses family smoke test', () => {
     api: 'openai-responses',
     authStyle: 'bearer',
   });
+
+  closeDatabase();
 });
 
 test('claude-native family smoke test', () => {
+  setupMemoryDatabase();
+
   assertFamilySmoke({
     family: 'claude-native',
     endpoint: 'https://example.invalid/claude-native/',
@@ -69,9 +87,13 @@ test('claude-native family smoke test', () => {
     api: 'anthropic-messages',
     authStyle: 'api-key',
   });
+
+  closeDatabase();
 });
 
 test('gemini-native family smoke test', () => {
+  setupMemoryDatabase();
+
   assertFamilySmoke({
     family: 'gemini-native',
     endpoint: 'https://example.invalid/gemini-native/',
@@ -79,4 +101,6 @@ test('gemini-native family smoke test', () => {
     api: 'google-generative-ai',
     authStyle: 'custom',
   });
+
+  closeDatabase();
 });

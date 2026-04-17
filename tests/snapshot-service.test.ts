@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
 import test from "node:test";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { closeDatabase, getDatabase } from "../db/client.ts";
 import {
@@ -12,10 +9,15 @@ import {
   restoreSnapshot,
 } from "../lib/server/snapshots.ts";
 
-test("snapshot service creates, restores, lists, and deletes database-backed snapshots", () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "catnovel-snapshot-"));
-  process.env.CATNOVEL_DATA_DIR = dataDir;
+function setupMemoryDatabase() {
   closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = "true";
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
+
+test("snapshot service creates, restores, lists, and deletes database-backed snapshots", () => {
+  setupMemoryDatabase();
 
   const db = getDatabase();
   const originalChapter = db
@@ -50,5 +52,4 @@ test("snapshot service creates, restores, lists, and deletes database-backed sna
   assert.equal(listSnapshots().length, 0);
 
   closeDatabase();
-  rmSync(dataDir, { recursive: true, force: true });
 });

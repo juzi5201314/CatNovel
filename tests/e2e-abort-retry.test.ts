@@ -10,8 +10,17 @@ import {
   createFauxProvider,
   fauxAssistantMessage,
 } from '../lib/server/ai/testing/faux-provider.ts';
+import { closeDatabase } from '../db/client.ts';
+
+function setupMemoryDatabase() {
+  closeDatabase();
+  process.env.CATNOVEL_DB_MEMORY = 'true';
+  delete process.env.CATNOVEL_DATA_DIR;
+  delete process.env.CATNOVEL_DB_FILE;
+}
 
 test('abort preserves the partial assistant message and continue retries successfully', async () => {
+  setupMemoryDatabase();
   const abortedResponse = 'This partial answer survives the abort boundary.';
   const retriedResponse = 'Retry finishes the answer cleanly.';
   const faux = createFauxProvider();
@@ -72,6 +81,7 @@ test('abort preserves the partial assistant message and continue retries success
     assert.equal(faux.getPendingCount(), 0);
   } finally {
     faux.cleanup();
+    closeDatabase();
   }
 });
 
