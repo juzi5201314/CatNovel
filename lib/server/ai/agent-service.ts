@@ -12,9 +12,12 @@ import type {
   Model,
   UserMessage,
   Api,
+  ToolResultMessage,
 } from '@mariozechner/pi-ai';
 
-import type { AgentEvent, AgentRunStatus } from '@/lib/contracts/agent-events.ts';
+import type { AgentEvent, AgentRunStatus } from '../../../lib/contracts/agent-events.ts';
+import type { ChatMessageRecord } from '../../../lib/contracts/workspace.ts';
+import { listChatMessages } from '../../../lib/server/repositories/chat-repository.ts';
 
 import {
   buildContextPacket,
@@ -72,11 +75,17 @@ export class AgentService {
     this.sessionId = config.sessionId ?? createIdentifier();
     this.contextSelection = cloneContextSelection(config.contextSelection);
     this.toolExecutionConfig = config.toolExecution ?? {};
+
+    const sessionHistory = config.sessionId
+      ? this.loadSessionHistorySync(config.sessionId)
+      : [];
+
     this.agent = new Agent({
       initialState: {
         model: config.model,
         systemPrompt: config.systemPrompt ?? '',
         tools: normalizeTools(config.tools, this.toolExecutionConfig),
+        messages: sessionHistory,
       },
       getApiKey: config.apiKey ? () => config.apiKey : undefined,
       transformContext: async (messages, signal) =>
@@ -90,6 +99,29 @@ export class AgentService {
     this.agent.subscribe((event) => {
       this.handleAgentEvent(event);
     });
+  }
+
+  private loadSessionHistorySync(sessionId: string): AgentMessage[] {
+    try {
+      const records = listChatMessages(sessionId);
+      const userRecords = records.filter((record) => record.role === 'user');
+      // 排除最后一条 user 消息，因为它就是当前正在发送的 prompt
+      // prompt() 方法会负责添加它，避免重复
+      const historicalRecords = userRecords.slice(0, -1);
+      return historicalRecords.map((record) => this.hydrateUserMessage(record));
+    } catch {
+      return [];
+    }
+  }
+
+  private hydrateUserMessage(record: ChatMessageRecord): AgentMessage {
+    const timestamp = Date.parse(record.createdAt) || Date.now();
+
+    return {
+      role: 'user',
+      content: record.body,
+      timestamp,
+    };
   }
 
   async prompt(userMessage: string): Promise<void> {
@@ -195,11 +227,17 @@ export class AgentService {
     }
 
     const contextPacket = buildContextPacket(this.contextSelection);
-    if (!contextPacket.combinedContext) {
-      return messages;
+    const contextMessage = buildContextMessage(contextPacket);
+
+    const finalMessages = contextMessage
+      ? [contextMessage, ...messages]
+      : messages;
+
+    if (process.env.NODE_ENV === 'development') {
+      logMessages(finalMessages, this.sessionId);
     }
 
-    return [buildContextMessage(contextPacket), ...messages];
+    return finalMessages;
   }
 
   private handleAgentEvent(event: PiAgentEvent): void {
@@ -289,6 +327,10 @@ export class AgentService {
           });
         }
 
+        if (process.env.NODE_ENV === 'development') {
+          logAgentResponse(event, this.sessionId);
+        }
+
         this.activeToolName = null;
         this.status = isFailedAssistantMessage(finalAssistantMessage) || this.agent.state.errorMessage
           ? 'errored'
@@ -355,6 +397,144 @@ export class AgentService {
   }
 }
 
+const MAX_LOG_TEXT_LENGTH = 100;
+
+function truncateText(text: string, maxLen: number = MAX_LOG_TEXT_LENGTH): string {
+  if (!text || text.length <= maxLen) {
+    return text || '';
+  }
+  const head = Math.ceil(maxLen / 2);
+  const tail = Math.floor(maxLen / 2) - 3;
+  return `${text.slice(0, head)}...${text.slice(-tail)}`;
+}
+
+
+// ANSI 颜色代码
+const COLORS = {
+  reset: '\x1b[0m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  gray: '\x1b[90m',
+} as const;
+
+function logAgentResponse(event: PiAgentEvent & { type: 'agent_end' }, sessionId: string): void {
+  const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+
+  console.log(`\n[${timestamp}] ${COLORS.green}📥 AI Response${COLORS.reset} | session=${sessionId.slice(0, 8)}.. | ${event.messages.length} messages`);
+  console.log('─'.repeat(60));
+
+  event.messages.forEach((msg, idx) => {
+    if (msg.role === 'user') {
+      const content = typeof msg.content === 'string'
+        ? msg.content
+        : msg.content.map((c: { type: string; text?: string }) =>
+            c.type === 'text' ? c.text : `[${c.type}]`
+          ).join('');
+      console.log(`  [${idx}] ${COLORS.cyan}👤 user${COLORS.reset}    : ${truncateText(content, MAX_LOG_TEXT_LENGTH)}`);
+    } else if (msg.role === 'assistant') {
+      const assistantMsg = msg as AssistantMessage;
+      let hasOutput = false;
+
+      assistantMsg.content.forEach((block) => {
+        if (block.type === 'text' && block.text) {
+          console.log(`  [${idx}] ${COLORS.green}🤖 assistant${COLORS.reset}: ${truncateText(block.text, MAX_LOG_TEXT_LENGTH)}`);
+          hasOutput = true;
+        } else if (block.type === 'thinking' && block.thinking) {
+          // thinking 内容用灰色缩进显示
+          const thinkingLines = truncateText(block.thinking, MAX_LOG_TEXT_LENGTH).split('\n');
+          thinkingLines.forEach((line, lineIdx) => {
+            const prefix = lineIdx === 0 ? '  [think]' : '         ';
+            console.log(`${COLORS.gray}${prefix} ${line}${COLORS.reset}`);
+          });
+        } else if (block.type === 'toolCall') {
+          console.log(`  [${idx}] ${COLORS.yellow}🔧 toolCall${COLORS.reset}: ${block.name} (id=${block.id.slice(0, 8)}..)`);
+          hasOutput = true;
+        }
+      });
+
+      if (!hasOutput) {
+        console.log(`  [${idx}] ${COLORS.green}🤖 assistant${COLORS.reset}: [no text output]`);
+      }
+    } else if (msg.role === 'toolResult') {
+      const toolMsg = msg as ToolResultMessage;
+      const resultText = toolMsg.content
+        .filter((c) => c.type === 'text')
+        .map((c) => c.text)
+        .join('');
+      const icon = toolMsg.isError ? `${COLORS.red}❌` : `${COLORS.yellow}🔧`;
+      console.log(`  [${idx}] ${icon} toolResult${COLORS.reset}: ${toolMsg.toolName}=${truncateText(resultText, 60)}`);
+    } else {
+      console.log(`  [${idx}] ${COLORS.gray}❓ ${(msg as { role: string }).role}: [unknown type]${COLORS.reset}`);
+    }
+  });
+
+  // 显示用量信息
+  const lastAssistant = [...event.messages].reverse().find((m): m is AssistantMessage => m.role === 'assistant');
+  if (lastAssistant?.usage) {
+    const { input, output, totalTokens } = lastAssistant.usage;
+    console.log(`${COLORS.gray}  tokens: input=${input} output=${output} total=${totalTokens}${COLORS.reset}`);
+  }
+
+  console.log('─'.repeat(60));
+}
+
+function logMessages(messages: AgentMessage[], sessionId: string): void {
+  const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+  console.log(`\n[${timestamp}] ${COLORS.blue}📤 AI Request${COLORS.reset} | session=${sessionId.slice(0, 8)}.. | ${messages.length} messages`);
+  console.log('─'.repeat(60));
+
+  messages.forEach((msg, idx) => {
+    if (msg.role === 'user') {
+      const content = typeof msg.content === 'string'
+        ? msg.content
+        : msg.content.map((c: { type: string; text?: string }) =>
+            c.type === 'text' ? c.text : `[${c.type}]`
+          ).join('');
+      // 检测是否是 context 消息（以 Context only 开头）
+      const isContext = content.startsWith('Context only');
+      const prefix = isContext ? `${COLORS.gray}📋 context` : `${COLORS.cyan}👤 user`;
+      console.log(`  [${idx}] ${prefix}${COLORS.reset}   : ${truncateText(content, MAX_LOG_TEXT_LENGTH)}`);
+    } else if (msg.role === 'assistant') {
+      const assistantMsg = msg as AssistantMessage;
+      let hasOutput = false;
+
+      assistantMsg.content.forEach((block) => {
+        if (block.type === 'text' && block.text) {
+          console.log(`  [${idx}] ${COLORS.green}🤖 assistant${COLORS.reset}: ${truncateText(block.text, MAX_LOG_TEXT_LENGTH)}`);
+          hasOutput = true;
+        } else if (block.type === 'thinking' && block.thinking) {
+          const thinkingLines = truncateText(block.thinking, MAX_LOG_TEXT_LENGTH).split('\n');
+          thinkingLines.forEach((line, lineIdx) => {
+            const prefix = lineIdx === 0 ? '  [think]' : '         ';
+            console.log(`${COLORS.gray}${prefix} ${line}${COLORS.reset}`);
+          });
+        }
+      });
+
+      if (!hasOutput) {
+        console.log(`  [${idx}] ${COLORS.green}🤖 assistant${COLORS.reset}: [no text output]`);
+      }
+    } else if (msg.role === 'toolResult') {
+      const toolMsg = msg as ToolResultMessage;
+      const resultText = toolMsg.content
+        .filter((c) => c.type === 'text')
+        .map((c) => c.text)
+        .join('');
+      const icon = toolMsg.isError ? `${COLORS.red}❌` : `${COLORS.yellow}🔧`;
+      console.log(`  [${idx}] ${icon} toolResult${COLORS.reset}: ${toolMsg.toolName}=${truncateText(resultText, 60)}`);
+    } else {
+      console.log(`  [${idx}] ${COLORS.gray}❓ ${(msg as { role: string }).role}: [unknown type]${COLORS.reset}`);
+    }
+  });
+
+  console.log('─'.repeat(60));
+}
+
 function normalizeTools(
   tools: Array<AgentTool | ToolDefinition> | undefined,
   toolExecutionConfig: ToolExecutionConfig,
@@ -372,16 +552,20 @@ function isToolDefinition(tool: AgentTool | ToolDefinition): tool is ToolDefinit
   return 'handler' in tool;
 }
 
-function buildContextMessage(contextPacket: ContextPacket): UserMessage {
+function buildContextMessage(contextPacket: ContextPacket): UserMessage | undefined {
+  if (!contextPacket.combinedContext) {
+    return undefined;
+  }
+
   return {
     role: 'user',
     content: [
-      'Workspace context follows. Treat it as background context, not as a direct user request.',
-      `Context engine: ${contextPacket.contextEngineLabel}`,
+      'Context only. This is workspace background, not a new user instruction.',
+      `Context source: ${contextPacket.contextEngineLabel}`,
       contextPacket.chapter ? `Chapter:\n${contextPacket.chapter}` : '',
       contextPacket.settingsContext ? `Settings:\n${contextPacket.settingsContext}` : '',
       contextPacket.summaryContext ? `Summaries:\n${contextPacket.summaryContext}` : '',
-      contextPacket.manualContext ? `Manual selections:\n${contextPacket.manualContext}` : '',
+      contextPacket.manualContext ? `Pinned context:\n${contextPacket.manualContext}` : '',
     ]
       .filter(Boolean)
       .join('\n\n'),
