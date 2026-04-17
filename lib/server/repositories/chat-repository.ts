@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { getDatabase, withImmediateTransaction } from '../../../db/client.ts';
 import type {
   ChatMessageRecord,
+  ChatMessageVersion,
   ChatRole,
   ChatSessionRecord,
 } from '../../contracts/workspace.ts';
@@ -19,6 +20,15 @@ type ChatMessageRow = {
   id: string;
   sessionId: string;
   role: ChatRole;
+  body: string;
+  tps: number;
+  createdAt: string;
+  activeVersionId: string | null;
+};
+
+type ChatMessageVersionRow = {
+  id: string;
+  messageId: string;
   body: string;
   tps: number;
   createdAt: string;
@@ -39,6 +49,18 @@ function hydrateChatMessage(row: ChatMessageRow): ChatMessageRecord {
     id: row.id,
     sessionId: row.sessionId,
     role: row.role,
+    body: row.body,
+    tps: row.tps,
+    createdAt: row.createdAt,
+    activeVersionId: row.activeVersionId,
+    versions: undefined,
+  };
+}
+
+function hydrateChatMessageVersion(row: ChatMessageVersionRow): ChatMessageVersion {
+  return {
+    id: row.id,
+    messageId: row.messageId,
     body: row.body,
     tps: row.tps,
     createdAt: row.createdAt,
@@ -83,8 +105,11 @@ export function getChatSession(sessionId: string) {
   return hydrateChatSession(row);
 }
 
-export function listChatMessages(sessionId: string) {
-  return getDatabase()
+export function listChatMessages(sessionId: string): ChatMessageRecord[] {
+  const db = getDatabase();
+
+  // 加载消息
+  const messages = db
     .prepare(
       `SELECT
         id,
@@ -92,13 +117,45 @@ export function listChatMessages(sessionId: string) {
         role,
         body,
         tps,
-        created_at AS createdAt
+        created_at AS createdAt,
+        active_version_id AS activeVersionId
       FROM chat_messages
       WHERE session_id = ?
       ORDER BY created_at ASC`,
     )
     .all(sessionId)
     .map((row) => hydrateChatMessage(row as ChatMessageRow));
+
+  // 加载所有版本并按消息ID分组
+  const versions = db
+    .prepare(
+      `SELECT
+        v.id,
+        v.message_id AS messageId,
+        v.body,
+        v.tps,
+        v.created_at AS createdAt
+      FROM chat_message_versions v
+      JOIN chat_messages m ON v.message_id = m.id
+      WHERE m.session_id = ?
+      ORDER BY v.created_at ASC`,
+    )
+    .all(sessionId)
+    .map((row) => hydrateChatMessageVersion(row as ChatMessageVersionRow));
+
+  const versionsByMessageId = new Map<string, ChatMessageVersion[]>();
+  for (const version of versions) {
+    const list = versionsByMessageId.get(version.messageId) ?? [];
+    list.push(version);
+    versionsByMessageId.set(version.messageId, list);
+  }
+
+  // 将版本附加到对应的消息
+  for (const message of messages) {
+    message.versions = versionsByMessageId.get(message.id);
+  }
+
+  return messages;
 }
 
 export function createChatSession(input: { workId: string; title: string }) {
@@ -187,4 +244,68 @@ export function deleteChatMessage(messageId: string) {
   const current = getChatMessage(messageId);
   getDatabase().prepare('DELETE FROM chat_messages WHERE id = ?').run(messageId);
   return current;
+}
+
+// Message Version Operations
+
+export function addMessageVersion(input: {
+  messageId: string;
+  body: string;
+  tps?: number;
+}): ChatMessageVersion {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  const db = getDatabase();
+
+  db.prepare(
+    `INSERT INTO chat_message_versions (id, message_id, body, tps, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(id, input.messageId, input.body, input.tps ?? 0, now);
+
+  const row = db
+    .prepare(
+      `SELECT id, message_id AS messageId, body, tps, created_at AS createdAt
+       FROM chat_message_versions
+       WHERE id = ?`,
+    )
+    .get(id) as ChatMessageVersionRow;
+
+  return hydrateChatMessageVersion(row);
+}
+
+export function listMessageVersions(messageId: string): ChatMessageVersion[] {
+  return getDatabase()
+    .prepare(
+      `SELECT id, message_id AS messageId, body, tps, created_at AS createdAt
+       FROM chat_message_versions
+       WHERE message_id = ?
+       ORDER BY created_at ASC`,
+    )
+    .all(messageId)
+    .map((row) => hydrateChatMessageVersion(row as ChatMessageVersionRow));
+}
+
+export function setActiveMessageVersion(messageId: string, versionId: string | null): void {
+  const db = getDatabase();
+  db.prepare(
+    `UPDATE chat_messages SET active_version_id = ? WHERE id = ?`,
+  ).run(versionId, messageId);
+}
+
+export function getActiveMessageVersion(messageId: string): ChatMessageVersion | null {
+  const db = getDatabase();
+  const row = db
+    .prepare(
+      `SELECT v.id, v.message_id AS messageId, v.body, v.tps, v.created_at AS createdAt
+       FROM chat_message_versions v
+       JOIN chat_messages m ON v.id = m.active_version_id
+       WHERE m.id = ?`,
+    )
+    .get(messageId) as ChatMessageVersionRow | undefined;
+
+  return row ? hydrateChatMessageVersion(row) : null;
+}
+
+export function deleteMessageVersion(versionId: string): void {
+  getDatabase().prepare('DELETE FROM chat_message_versions WHERE id = ?').run(versionId);
 }
