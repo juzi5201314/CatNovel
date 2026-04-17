@@ -240,3 +240,11 @@ See `DESIGN.md` for the complete Vercel/Geist design system specification:
 - Typography: Geist Sans (primary), Geist Mono (code)
 - Shadows: Multi-layer shadow stacks for depth
 - Spacing: 8px base unit, scale: 1,2,4,8,12,16,32...
+
+### AI Engine Reference
+
+See `docs/PI-MONO-REFERENCE.md` for the complete `@mariozechner/pi-agent-core` API documentation:
+- Core methods: `prompt()`, `continue()`, `steer()`, `followUp()`
+- Event system: streaming, tool execution, lifecycle
+- State management: `transformContext`, `beforeToolCall`, tools
+- CatNovel usage patterns and best practices
