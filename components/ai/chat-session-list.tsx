@@ -341,7 +341,7 @@ export function ChatSessionList({
         const profile = providers.find((p) => p.id === activeModel.profileId);
         const isValid = profile && profile.enabled && profile.modelIds.includes(activeModel.modelId);
         return {
-          label: profile ? `${profile.label}/${activeModel.modelId}` : activeModel.modelId,
+          label: activeModel.modelId,
           isValid,
           profile,
         };
