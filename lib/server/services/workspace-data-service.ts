@@ -13,12 +13,14 @@ import type {
   WorkspaceLocale,
 } from '../../contracts/workspace.ts';
 import {
+  addMessageVersion,
   appendChatMessage,
   createChatSession,
   deleteChatMessage,
   deleteChatSession,
   listChatMessages,
   listChatSessions,
+  setActiveMessageVersion,
   updateChatSession,
 } from '../repositories/chat-repository.ts';
 import {
@@ -206,6 +208,17 @@ const mutationSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('delete-chat-message'),
     messageId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal('add-message-version'),
+    messageId: z.string().min(1),
+    body: z.string().min(1),
+    tps: z.number().nonnegative().optional(),
+  }),
+  z.object({
+    action: z.literal('set-active-message-version'),
+    messageId: z.string().min(1),
+    versionId: z.string().min(1).nullable(),
   }),
   z.object({
     action: z.literal('set-active-model'),
@@ -477,6 +490,22 @@ export function applyWorkspaceMutation(input: unknown) {
       return {
         action: mutation.action,
         message: deleteChatMessage(mutation.messageId),
+      };
+    case 'add-message-version':
+      return {
+        action: mutation.action,
+        version: addMessageVersion({
+          messageId: mutation.messageId,
+          body: mutation.body,
+          tps: mutation.tps,
+        }),
+      };
+    case 'set-active-message-version':
+      setActiveMessageVersion(mutation.messageId, mutation.versionId);
+      return {
+        action: mutation.action,
+        messageId: mutation.messageId,
+        versionId: mutation.versionId,
       };
     case 'set-active-model':
       setActiveModelPreference({
