@@ -10,7 +10,7 @@ import type { AgentRunStatus } from '@/lib/contracts/agent-events';
 
 import { Textarea } from '../ui/textarea';
 import { AgentToolCall } from './agent-tool-call';
-import { AgentStatusIndicator } from './agent-status-indicator';
+import { MarkdownContent } from './markdown-content';
 import { cx } from '@/lib/design/cx';
 import { toast } from 'sonner';
 
@@ -369,24 +369,6 @@ export function ChatSessionList({
   onSwitchRetryVersion,
   onOpenModelSettings,
 }: ChatSessionListProps) {
-  const getIndicatorStatus = (): 'thinking' | 'executing' | 'completed' | 'error' | null => {
-    if (agentStatus === 'idle') return null;
-
-    switch (agentStatus) {
-      case 'streaming':
-        return 'thinking';
-      case 'tool_running':
-        return 'executing';
-      case 'completed':
-        return 'completed';
-      case 'errored':
-        return 'error';
-      default:
-        return null;
-    }
-  };
-
-  const indicatorStatus = getIndicatorStatus();
   const isProcessing = agentStatus === 'streaming' || agentStatus === 'tool_running';
 
   const activeModelInfo = activeModel
@@ -402,7 +384,7 @@ export function ChatSessionList({
     : { label: '—', isValid: false, profile: null };
 
   const hasMessages = messages.length > 0 || (streamingMessage && !streamingMessage.isComplete);
-  const canSend = !isProcessing && draftPrompt.trim() && activeModelInfo.isValid && !!activeSessionId;
+  const canSend = !isProcessing && draftPrompt.trim() && activeModelInfo.isValid;
 
   const handleQuickPrompt = useCallback((prompt: string) => {
     onDraftPromptChange(prompt);
@@ -450,18 +432,8 @@ export function ChatSessionList({
 
       {/* 消息显示区域 */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 relative">
-        {/* Agent状态指示器 */}
-        {indicatorStatus && (
-          <div className="px-2">
-            <AgentStatusIndicator
-              status={indicatorStatus}
-              toolName={activeToolName || undefined}
-            />
-          </div>
-        )}
-
         {/* 空状态提示 */}
-        {!hasMessages && !indicatorStatus && (
+        {!hasMessages && (
           <EmptyStateTips onQuickPrompt={handleQuickPrompt} />
         )}
 
@@ -480,7 +452,7 @@ export function ChatSessionList({
                     "px-3 py-2 rounded-2xl text-sm bg-muted text-foreground rounded-tl-none",
                     "animate-pulse"
                   )}>
-                    {retryText}
+                    <MarkdownContent content={retryText} />
                     <span className="inline-block w-1.5 h-3 ml-0.5 bg-current animate-pulse" />
                   </div>
                   {streamingMessage?.tps && streamingMessage.tps > 0 ? (
@@ -510,7 +482,9 @@ export function ChatSessionList({
                     ? "bg-black text-white rounded-tr-none"
                     : "bg-muted text-foreground rounded-tl-none"
                 )}>
-                  {displayBody}
+                  {message.role === 'assistant'
+                    ? <MarkdownContent content={displayBody} />
+                    : displayBody}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -540,7 +514,7 @@ export function ChatSessionList({
                 "px-3 py-2 rounded-2xl text-sm bg-muted text-foreground rounded-tl-none",
                 "animate-pulse"
               )}>
-                {streamingMessage.text}
+                <MarkdownContent content={streamingMessage.text} />
                 <span className="inline-block w-1.5 h-3 ml-0.5 bg-current animate-pulse" />
               </div>
               {streamingMessage.tps && streamingMessage.tps > 0 ? (

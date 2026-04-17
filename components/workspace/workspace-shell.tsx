@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 
@@ -32,10 +32,6 @@ import {
   parseChapterText,
   serializeChapterText,
 } from './workspace-data';
-import {
-  formatWorldviewContextForAI,
-  serializeWorldviewContext,
-} from '@/lib/worldview/worldview-context';
 import { WorkspaceHeader } from './workspace-header';
 import { cx } from '@/lib/design/cx';
 
@@ -197,31 +193,29 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState<StreamingMessage | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCallItem[]>([]);
   const [pendingGhostText, setPendingGhostText] = useState('');
-  const [streamingStartTime, setStreamingStartTime] = useState<number | null>(null);
-  const [streamingTokens, setStreamingTokens] = useState(0);
   const [snapshotDraftLabel, setSnapshotDraftLabel] = useState('Draft checkpoint');
   const [snapshots, setSnapshots] = useState(initialSnapshots);
   const [auditLog, setAuditLog] = useState<string[]>([]);
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const [retryVersions, setRetryVersions] = useState<Map<string, { currentIndex: number; versions: string[] }>>(new Map());
+  const streamingStartTimeRef = useRef<number | null>(null);
+  const streamingTokensRef = useRef(0);
+  const latestStreamingTpsRef = useRef(0);
 
   const copy = resolveMessages(locale);
   const activeWork = collections.works.find((work) => work.id === activeWorkId) ?? collections.works[0] ?? null;
   const activeChapter = deriveChapterSelection(collections, activeChapterId);
 
-  const aiContextSettings = useMemo(() => {
-    const entries = serializeWorldviewContext(collections.settingsNodes);
-    return formatWorldviewContextForAI(entries);
-  }, [collections.settingsNodes]);
-
   const mutateWorkspace = useCallback(async (
     payload: Record<string, unknown>,
     options: WorkspaceMutationOptions = {},
   ) => {
+    const payloadSessionId = typeof payload.sessionId === 'string' ? payload.sessionId : null;
+    const requestedSessionId = options.sessionId ?? payloadSessionId ?? activeSessionId;
     const result = await readJson<WorkspaceMutationResponse>(await fetch('/api/bootstrap', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...payload, currentWorkId: activeWorkId, currentSessionId: activeSessionId }),
+      body: JSON.stringify({ ...payload, currentWorkId: activeWorkId, currentSessionId: requestedSessionId }),
     }));
 
     const resolvedWorkId = activeWorkId ?? result.collections.activeWorkId ?? initialBootstrap.workspace.workId;
@@ -256,6 +250,18 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setLocale,
     setSelectedChapterTitle,
   ]);
+
+  // Persist session context (chapter association) when session or chapter changes
+  useEffect(() => {
+    if (!activeSessionId || !activeWorkId) return;
+
+    void mutateWorkspace({
+      action: 'set-chat-session-context',
+      sessionId: activeSessionId,
+      workId: activeWorkId,
+      chapterId: activeChapterId,
+    }, { preserveEditor: true });
+  }, [activeSessionId, activeWorkId, activeChapterId, mutateWorkspace]);
 
   const handleManualSave = useCallback(async () => {
     if (!activeChapter) return;
@@ -330,8 +336,9 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setActiveToolName(null);
     setStreamingMessage(null);
     setToolCalls([]);
-    setStreamingStartTime(null);
-    setStreamingTokens(0);
+    streamingStartTimeRef.current = null;
+    streamingTokensRef.current = 0;
+    latestStreamingTpsRef.current = 0;
   }, []);
 
   // 使用 queueMicrotask 避免在渲染期间同步调用 setState
@@ -342,18 +349,21 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
   }, [activeSessionId, resetAgentState]);
 
   const calculateTPS = useCallback(() => {
-    if (!streamingStartTime) return 0;
-    const elapsed = (Date.now() - streamingStartTime) / 1000;
-    return elapsed > 0 ? streamingTokens / elapsed : 0;
-  }, [streamingStartTime, streamingTokens]);
+    const startTime = streamingStartTimeRef.current;
+    if (!startTime) return 0;
+    const elapsed = (Date.now() - startTime) / 1000;
+    return elapsed > 0 ? streamingTokensRef.current / elapsed : 0;
+  }, []);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case 'ai_start': {
+        const startedAt = Date.now();
         setAgentStatus('streaming');
         setActiveToolName(null);
-        setStreamingStartTime(Date.now());
-        setStreamingTokens(0);
+        streamingStartTimeRef.current = startedAt;
+        streamingTokensRef.current = 0;
+        latestStreamingTpsRef.current = 0;
         setStreamingMessage({
           id: event.messageId,
           role: 'assistant',
@@ -366,8 +376,9 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       case 'ai_chunk': {
         setAgentStatus('streaming');
         setActiveToolName(null);
-        setStreamingTokens((prev) => prev + 1);
+        streamingTokensRef.current += 1;
         const currentTPS = calculateTPS();
+        latestStreamingTpsRef.current = currentTPS;
         setStreamingMessage({
           id: event.messageId,
           role: 'assistant',
@@ -414,7 +425,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       case 'ai_complete': {
         setAgentStatus('completed');
         setActiveToolName(null);
-        const finalTPS = calculateTPS();
+        const finalTPS = Math.max(latestStreamingTpsRef.current, calculateTPS());
+        latestStreamingTpsRef.current = finalTPS;
         setStreamingMessage({
           id: event.messageId,
           role: 'assistant',
@@ -700,8 +712,24 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
 
   const handleSendPrompt = useCallback(async (prompt?: string) => {
     const currentPrompt = prompt ?? freeChatPrompt;
-    if (!activeSessionId || !currentPrompt.trim() || !activeModel) return;
+    if (!currentPrompt.trim() || !activeModel) return;
     const trimmedPrompt = currentPrompt.trim();
+
+    // 如果没有 active session，先创建一个新 session
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      if (!activeWorkId) return;
+      const title = generateSessionTitle(trimmedPrompt);
+      const result = await mutateWorkspace({ action: 'create-chat-session', workId: activeWorkId, title });
+      if (result.result && typeof result.result === 'object' && 'session' in result.result) {
+        const newSession = (result.result as { session: { id: string } }).session;
+        if (newSession?.id) {
+          sessionId = newSession.id;
+          await refreshWorkspace(undefined, newSession.id);
+        }
+      }
+      if (!sessionId) return;
+    }
 
     // 立即清空输入框，防止重复发送
     setFreeChatPrompt('');
@@ -709,11 +737,11 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
 
     await mutateWorkspace({
       action: 'append-chat-message',
-      sessionId: activeSessionId,
+      sessionId,
       role: 'user',
       body: trimmedPrompt,
       tps: 0,
-    }, { preserveEditor: true });
+    }, { preserveEditor: true, sessionId });
 
     try {
       const response = await fetch('/api/ai/agent', {
@@ -723,11 +751,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           profileId: activeModel.profileId,
           modelId: activeModel.modelId,
           prompt: trimmedPrompt,
-          sessionId: activeSessionId,
-          chapter: editorBody,
-          settings: aiContextSettings,
-          summaries: [],
-          manualSelections: [],
+          sessionId,
         }),
       });
 
@@ -736,17 +760,17 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       if (agentResult.finalText.trim()) {
         await mutateWorkspace({
           action: 'append-chat-message',
-          sessionId: activeSessionId,
+          sessionId,
           role: 'assistant',
           body: agentResult.finalText,
-          tps: streamingMessage?.tps ?? 0,
-        }, { preserveEditor: true });
+          tps: latestStreamingTpsRef.current,
+        }, { preserveEditor: true, sessionId });
       }
     } catch (error) {
       setAgentStatus('errored');
       toast.error(error instanceof Error ? error.message : 'AI 请求失败。');
     }
-  }, [activeModel, activeSessionId, aiContextSettings, consumeAgentEventStream, editorBody, freeChatPrompt, mutateWorkspace, resetAgentState, streamingMessage]);
+  }, [activeModel, activeSessionId, activeWorkId, consumeAgentEventStream, freeChatPrompt, generateSessionTitle, mutateWorkspace, refreshWorkspace, resetAgentState]);
 
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!activeSessionId || !activeModel) return;
@@ -766,10 +790,6 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           modelId: activeModel.modelId,
           prompt: message.body,
           sessionId: activeSessionId,
-          chapter: editorBody,
-          settings: aiContextSettings,
-          summaries: [],
-          manualSelections: [],
         }),
       });
 
@@ -797,7 +817,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     } finally {
       setRetryingMessageId(null);
     }
-  }, [activeModel, activeSessionId, collections.chatMessages, consumeAgentEventStream, editorBody, aiContextSettings, resetAgentState]);
+  }, [activeModel, activeSessionId, collections.chatMessages, consumeAgentEventStream, resetAgentState]);
 
   const handleSwitchRetryVersion = useCallback((messageId: string, direction: 'prev' | 'next') => {
     setRetryVersions((prev) => {
