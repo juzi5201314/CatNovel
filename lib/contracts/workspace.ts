@@ -109,6 +109,14 @@ export interface ChatSessionRecord {
   updatedAt: string;
 }
 
+export interface ChatMessageVersion {
+  id: string;
+  messageId: string;
+  body: string;
+  tps: number;
+  createdAt: string;
+}
+
 export interface ChatMessageRecord {
   id: string;
   sessionId: string;
@@ -116,6 +124,8 @@ export interface ChatMessageRecord {
   body: string;
   tps: number;
   createdAt: string;
+  activeVersionId?: string | null;
+  versions?: ChatMessageVersion[];
 }
 
 export interface ActiveModelSelection {

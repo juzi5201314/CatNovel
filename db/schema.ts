@@ -9,6 +9,7 @@ export const canonicalTables = [
   "snapshot_items",
   "chat_sessions",
   "chat_messages",
+  "chat_message_versions",
   "ai_provider_profiles",
   "context_selections",
   "chapter_summaries",
@@ -287,6 +288,22 @@ export const schemaMigrations = [
     id: "0005_rename_token_count_to_tps",
     statements: [
       `ALTER TABLE chat_messages RENAME COLUMN token_count TO tps`,
+    ],
+  },
+  {
+    id: "0006_chat_message_versions",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_message_versions (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        body TEXT NOT NULL,
+        tps REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_message_versions_message_id
+         ON chat_message_versions (message_id)`,
+      `ALTER TABLE chat_messages ADD COLUMN active_version_id TEXT`,
     ],
   },
 ] as const;
