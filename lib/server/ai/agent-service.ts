@@ -104,18 +104,38 @@ export class AgentService {
   private loadSessionHistorySync(sessionId: string): AgentMessage[] {
     try {
       const records = listChatMessages(sessionId);
-      const userRecords = records.filter((record) => record.role === 'user');
-      // 排除最后一条 user 消息，因为它就是当前正在发送的 prompt
-      // prompt() 方法会负责添加它，避免重复
-      const historicalRecords = userRecords.slice(0, -1);
-      return historicalRecords.map((record) => this.hydrateUserMessage(record));
+      // 找到最后一条 user 消息的索引
+      let lastUserIndex = -1;
+      for (let i = records.length - 1; i >= 0; i--) {
+        if (records[i].role === 'user') {
+          lastUserIndex = i;
+          break;
+        }
+      }
+      // 加载所有历史消息（user 和 assistant），但排除最后一条 user 消息
+      // 因为最后一条 user 消息就是当前正在发送的 prompt，prompt() 方法会负责添加它
+      const historicalRecords = records.filter((_, index) => index !== lastUserIndex);
+      return historicalRecords.map((record) => this.hydrateMessage(record));
     } catch {
       return [];
     }
   }
 
-  private hydrateUserMessage(record: ChatMessageRecord): AgentMessage {
+  private hydrateMessage(record: ChatMessageRecord): AgentMessage {
     const timestamp = Date.parse(record.createdAt) || Date.now();
+
+    if (record.role === 'assistant') {
+      return {
+        role: 'assistant',
+        content: [{ type: 'text', text: record.body }],
+        timestamp,
+        model: { id: 'unknown', api: 'openai-completions' as const },
+        usage: { input: 0, output: 0, total: 0 },
+        api: 'openai-completions' as const,
+        provider: 'unknown',
+        stopReason: 'stop' as const,
+      } as unknown as AssistantMessage;
+    }
 
     return {
       role: 'user',
