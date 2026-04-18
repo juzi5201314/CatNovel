@@ -15,7 +15,8 @@ const noStoreHeaders = {
   'Cache-Control': 'no-store, no-cache, must-revalidate',
 } as const;
 
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
+  void _request;
   return Response.json({
     profiles: listProviderProfiles(),
   }, {

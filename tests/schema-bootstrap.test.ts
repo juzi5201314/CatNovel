@@ -2,13 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { closeDatabase } from "../db/client.ts";
-
-function setupMemoryDatabase() {
-  closeDatabase();
-  process.env.CATNOVEL_DB_MEMORY = "true";
-  delete process.env.CATNOVEL_DATA_DIR;
-  delete process.env.CATNOVEL_DB_FILE;
-}
+import { setupMemoryDatabase } from "./helpers/db-test-utils.ts";
 
 function expectDefined<T>(value: T | undefined, message: string): T {
   if (value === undefined) {

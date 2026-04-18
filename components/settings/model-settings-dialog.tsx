@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import type { ActiveModelSelection, ProviderProfileRecord } from '@/lib/contracts/workspace';
 import type { AppMessages } from '@/lib/i18n/messages';
 
@@ -56,7 +57,7 @@ export function ModelSettingsDialog({
       }
       onProvidersChangeAction();
     } catch {
-      // silent
+      toast.error('Failed to create provider.');
     }
   }, [onProvidersChangeAction]);
 
@@ -76,7 +77,7 @@ export function ModelSettingsDialog({
       setSelectedProviderId(providers.find((p) => p.id !== selectedProviderId)?.id ?? null);
       onProvidersChangeAction();
     } catch {
-      // silent
+      toast.error('Failed to delete provider.');
     }
   }, [activeModel, onActiveModelChangeAction, onProvidersChangeAction, providers, selectedProviderId]);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type {
   ChatMessageRecord,
   ChatSessionRecord,
@@ -365,7 +365,6 @@ export function ChatSessionList({
   messages,
   draftPrompt,
   agentStatus = 'idle',
-  activeToolName = null,
   streamingMessage = null,
   toolCalls = [],
   providers,
@@ -384,20 +383,26 @@ export function ChatSessionList({
 }: ChatSessionListProps) {
   const isProcessing = agentStatus === 'streaming' || agentStatus === 'tool_running';
 
-  const activeModelInfo = activeModel
-    ? (() => {
-        const profile = providers.find((p) => p.id === activeModel.profileId);
-        const isValid = profile && profile.enabled && profile.modelIds.includes(activeModel.modelId);
-        return {
-          label: activeModel.modelId,
-          isValid,
-          profile,
-        };
-      })()
-    : { label: '—', isValid: false, profile: null };
+  const activeModelInfo = useMemo(() => {
+    if (!activeModel) {
+      return { label: '—', isValid: false, profile: null };
+    }
 
-  const hasMessages = messages.length > 0 || (streamingMessage && !streamingMessage.isComplete);
-  const canSend = !isProcessing && draftPrompt.trim() && activeModelInfo.isValid;
+    const profile = providers.find((p) => p.id === activeModel.profileId) ?? null;
+    const isValid = Boolean(profile?.enabled && profile.modelIds.includes(activeModel.modelId));
+
+    return {
+      label: activeModel.modelId,
+      isValid,
+      profile,
+    };
+  }, [activeModel, providers]);
+
+  const hasMessages = useMemo(
+    () => messages.length > 0 || Boolean(streamingMessage && !streamingMessage.isComplete),
+    [messages.length, streamingMessage],
+  );
+  const canSend = !isProcessing && draftPrompt.trim().length > 0 && activeModelInfo.isValid;
 
   const handleQuickPrompt = useCallback((prompt: string) => {
     onDraftPromptChange(prompt);

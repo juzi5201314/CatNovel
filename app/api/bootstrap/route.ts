@@ -22,7 +22,20 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const input = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+  let input: Record<string, unknown>;
+
+  try {
+    input = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'Invalid JSON payload.',
+      },
+      { status: 400 },
+    );
+  }
+
   const workId =
     typeof input.currentWorkId === 'string' ? input.currentWorkId : undefined;
   const sessionId =

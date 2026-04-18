@@ -2,19 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { closeDatabase, getDatabase } from "../db/client.ts";
+import { setupMemoryDatabase } from "./helpers/db-test-utils.ts";
 import {
   createSnapshot,
   deleteSnapshot,
   listSnapshots,
   restoreSnapshot,
 } from "../lib/server/snapshots.ts";
-
-function setupMemoryDatabase() {
-  closeDatabase();
-  process.env.CATNOVEL_DB_MEMORY = "true";
-  delete process.env.CATNOVEL_DATA_DIR;
-  delete process.env.CATNOVEL_DB_FILE;
-}
 
 test("snapshot service creates, restores, lists, and deletes database-backed snapshots", () => {
   setupMemoryDatabase();

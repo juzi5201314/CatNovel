@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 import type {
   ActiveModelSelection,
   ChatMessageRecord,
@@ -9,7 +11,7 @@ import type { AgentRunStatus } from '@/lib/contracts/agent-events';
 import { ChatSessionList } from './chat-session-list';
 import type { StreamingMessage, ToolCallItem } from './chat-session-list';
 
-export function AiSidebar({
+export const AiSidebar = memo(function AiSidebar({
   providers,
   activeModel,
   sessions,
@@ -83,4 +85,4 @@ export function AiSidebar({
       </div>
     </div>
   );
-}
+});

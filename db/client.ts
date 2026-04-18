@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { schemaMigrations, seedStatements } from "./schema.ts";
+import { memorySeedStatements, schemaMigrations, seedStatements } from "./schema.ts";
 
 export type DatabaseStatus = {
   file: string;
@@ -15,7 +15,7 @@ let dbStatus: DatabaseStatus | null = null;
 
 function resolveDatabaseFile() {
   // 内存模式：用于测试环境，数据不会持久化到磁盘
-  if (process.env.CATNOVEL_DB_MEMORY === 'true') {
+  if (isMemoryDatabase()) {
     return ':memory:';
   }
   
@@ -28,6 +28,14 @@ function resolveDatabaseFile() {
   const dataDir = process.env.CATNOVEL_DATA_DIR ?? join(process.cwd(), "data");
   mkdirSync(dataDir, { recursive: true });
   return join(dataDir, "app.db");
+}
+
+function isMemoryDatabase() {
+  return process.env.CATNOVEL_DB_MEMORY === 'true';
+}
+
+function shouldLogIgnoredMigrationError() {
+  return process.env.NODE_ENV !== 'test' && !isMemoryDatabase();
 }
 
 function runStatement(db: DatabaseSync, statement: string) {
@@ -94,6 +102,13 @@ function bootstrapDatabase(db: DatabaseSync) {
           if (!shouldIgnoreMigrationError(error)) {
             throw error;
           }
+
+          if (shouldLogIgnoredMigrationError()) {
+            console.warn('Ignoring schema migration error:', {
+              migrationId: migration.id,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
       insertMigration.run(migration.id, now);
@@ -105,6 +120,12 @@ function bootstrapDatabase(db: DatabaseSync) {
     withImmediateTransaction(db, () => {
       for (const statement of seedStatements) {
         runStatement(db, statement);
+      }
+
+      if (isMemoryDatabase()) {
+        for (const statement of memorySeedStatements) {
+          runStatement(db, statement);
+        }
       }
     });
   }

@@ -128,7 +128,12 @@ export class AgentService {
       // 因为最后一条 user 消息就是当前正在发送的 prompt，prompt() 方法会负责添加它
       const historicalRecords = effectiveRecords.filter((_, index) => index !== lastUserIndex);
       return historicalRecords.map((record) => this.hydrateMessage(record));
-    } catch {
+    } catch (error) {
+      console.error('Failed to load agent session history.', {
+        sessionId,
+        excludeMessageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return [];
     }
   }

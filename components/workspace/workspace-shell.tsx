@@ -1,14 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { toast } from 'sonner';
-import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
+import { useCallback, useState } from 'react';
+
+import { AiSidebar } from '../ai/ai-sidebar';
+import { EditorPanel } from '../editor/editor-panel';
+import { ModelSettingsDialog } from '../settings/model-settings-dialog';
+import { SnapshotPanel } from '../snapshots/snapshot-panel';
+import { WorldviewDialog } from '../worldview/worldview-dialog';
 
 import type { BootstrapPayload } from '@/lib/contracts/bootstrap';
-import type {
-  AgentEvent,
-  AgentRunStatus,
-} from '@/lib/contracts/agent-events';
 import type {
   ChapterExportFormat,
   ImportFileFormat,
@@ -19,500 +19,288 @@ import type {
   WorkspaceCollections,
 } from '@/lib/contracts/workspace';
 import type { SupportedLocale } from '@/lib/i18n/messages';
-
-import { AiSidebar } from '../ai/ai-sidebar';
-import type { StreamingMessage, ToolCallItem } from '../ai/chat-session-list';
-import { EditorPanel } from '../editor/editor-panel';
-import { ModelSettingsDialog } from '../settings/model-settings-dialog';
-import { SnapshotPanel } from '../snapshots/snapshot-panel';
-import { WorldviewDialog } from '../worldview/worldview-dialog';
-import { resolveMessages } from '../../lib/i18n/messages';
-import { SidebarNav } from './sidebar-nav';
-import {
-  parseChapterText,
-  serializeChapterText,
-} from './workspace-data';
-import { WorkspaceHeader } from './workspace-header';
 import { cx } from '@/lib/design/cx';
 
-async function readJson<T>(response: Response) {
-  const payload = (await response.json()) as T;
-  if (!response.ok) throw new Error(JSON.stringify(payload));
-  return payload;
-}
+import { resolveMessages } from '../../lib/i18n/messages';
+import { SidebarNav } from './sidebar-nav';
+import { parseChapterText, serializeChapterText } from './workspace-data';
+import { WorkspaceHeader } from './workspace-header';
+import { useAiSession } from './hooks/use-ai-session';
+import { useEditorDraft } from './hooks/use-editor-draft';
+import { useWorkspaceUi } from './hooks/use-workspace-ui';
+import { readJson } from './workspace-shell-http';
+import {
+  deriveActiveModel,
+  deriveChapterSelection,
+  deriveSessionSelection,
+} from './workspace-shell-selectors';
+import type {
+  ExportPayloadResponse,
+  ImportParseResponse,
+  SnapshotListItem,
+  WorkspaceBootstrapResponse,
+  WorkspaceMutationOptions,
+  WorkspaceMutationResponse,
+} from './workspace-shell.types';
 
-type WorkspaceBootstrapResponse = {
-  bootstrap: BootstrapPayload;
-  collections: WorkspaceCollections;
+type WorkspaceShellProps = {
+  initialBootstrap: BootstrapPayload;
+  initialCollections: WorkspaceCollections;
+  initialSnapshots: SnapshotListItem[];
 };
-
-type WorkspaceMutationResponse = WorkspaceBootstrapResponse & {
-  ok?: boolean;
-  result?: unknown;
-};
-
-type WorkspaceMutationOptions = {
-  preserveEditor?: boolean;
-  chapterId?: string | null;
-  sessionId?: string | null;
-};
-
-type ExportPayloadResponse = {
-  exportPayload: {
-    format: ProjectExportFormat | ChapterExportFormat;
-    fileName: string;
-    content: string;
-  };
-};
-
-type ImportParseResponse = {
-  parsedDocument: {
-    format: ImportFileFormat;
-  };
-};
-
-function deriveChapterSelection(collections: WorkspaceCollections, preferredId?: string | null) {
-  return collections.chapters.find((chapter) => chapter.id === preferredId) ?? collections.chapters[0] ?? null;
-}
-
-function deriveSessionSelection(collections: WorkspaceCollections, preferredId?: string | null) {
-  return collections.chatSessions.find((session) => session.id === preferredId) ?? collections.chatSessions[0] ?? null;
-}
-
-function deriveActiveModel(collections: WorkspaceCollections, preferred?: ActiveModelSelection | null): ActiveModelSelection | null {
-  const availableModels = collections.providerProfiles
-    .filter((p) => p.enabled && p.modelIds.length > 0);
-
-  if (availableModels.length === 0) {
-    return null;
-  }
-
-  if (preferred?.profileId && preferred?.modelId) {
-    const profile = collections.providerProfiles.find((p) => p.id === preferred.profileId);
-    if (profile && profile.enabled && profile.modelIds.includes(preferred.modelId)) {
-      return preferred;
-    }
-  }
-
-  return { profileId: availableModels[0].id, modelId: availableModels[0].modelIds[0] };
-}
 
 export function WorkspaceShell({
   initialBootstrap,
   initialCollections,
   initialSnapshots,
-}: {
-  initialBootstrap: BootstrapPayload;
-  initialCollections: WorkspaceCollections;
-  initialSnapshots: Array<{ id: string; label: string; createdAt: string }>;
-}) {
-const initialChapter = deriveChapterSelection(initialCollections);
-const initialSession = deriveSessionSelection(initialCollections);
+}: WorkspaceShellProps) {
+  const initialChapter = deriveChapterSelection(initialCollections);
+  const initialSession = deriveSessionSelection(initialCollections);
   const initialActiveModel = deriveActiveModel(initialCollections, initialCollections.activeModel);
 
   const [collections, setCollections] = useState(initialCollections);
   const [locale, setLocale] = useState<SupportedLocale>(initialBootstrap.workspace.locale);
   const [activeWorkId, setActiveWorkId] = useState(initialCollections.activeWorkId ?? initialBootstrap.workspace.workId);
-const [activeChapterId, setActiveChapterId] = useState(initialChapter?.id ?? null);
-const [activeSessionId, setActiveSessionId] = useState(initialSession?.id ?? null);
+  const [activeChapterId, setActiveChapterId] = useState(initialChapter?.id ?? null);
+  const [activeSessionId, setActiveSessionId] = useState(initialSession?.id ?? null);
   const [activeModel, setActiveModel] = useState<ActiveModelSelection | null>(initialActiveModel);
-const [rightSidebarTab, setRightSidebarTab] = useState<'ai' | 'snapshots'>('ai');
-const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
-
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
-  const sidebarRef = useRef<HTMLElement>(null);
-  const isResizingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(320);
-  const rafRef = useRef<number | null>(null);
-
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    isResizingRef.current = true;
-    startXRef.current = e.clientX;
-    startWidthRef.current = rightSidebarWidth;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, [rightSidebarWidth]);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizingRef.current) return;
-
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-
-      rafRef.current = requestAnimationFrame(() => {
-        const delta = startXRef.current - e.clientX;
-        const newWidth = Math.max(240, Math.min(600, startWidthRef.current + delta));
-
-        if (sidebarRef.current) {
-          sidebarRef.current.style.width = `${newWidth}px`;
-        }
-      });
-    };
-
-    const handleMouseUp = () => {
-      if (!isResizingRef.current) return;
-      isResizingRef.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-
-      if (sidebarRef.current) {
-        const finalWidth = parseInt(sidebarRef.current.style.width, 10);
-        setRightSidebarWidth(finalWidth);
-      }
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-    };
-  }, []);
-
   const [workDraftTitle, setWorkDraftTitle] = useState('');
   const [volumeDraftTitle, setVolumeDraftTitle] = useState('');
-  const [selectedChapterTitle, setSelectedChapterTitle] = useState(initialChapter?.title ?? '');
-  const [editorBody, setEditorBody] = useState(initialChapter ? parseChapterText(initialChapter.bodyJson) : '');
-  const [saveState, setSaveState] = useState('idle');
-
-  const [freeChatPrompt, setFreeChatPrompt] = useState('');
-  const [agentStatus, setAgentStatus] = useState<AgentRunStatus>('idle');
-  const [activeToolName, setActiveToolName] = useState<string | null>(null);
-  const [streamingMessage, setStreamingMessage] = useState<StreamingMessage | null>(null);
-  const [toolCalls, setToolCalls] = useState<ToolCallItem[]>([]);
-  const [pendingGhostText, setPendingGhostText] = useState('');
   const [snapshotDraftLabel, setSnapshotDraftLabel] = useState('Draft checkpoint');
   const [snapshots, setSnapshots] = useState(initialSnapshots);
   const [auditLog, setAuditLog] = useState<string[]>([]);
-  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
-  const streamingStartTimeRef = useRef<number | null>(null);
-  const streamingTokensRef = useRef(0);
-  const latestStreamingTpsRef = useRef(0);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const copy = resolveMessages(locale);
   const activeWork = collections.works.find((work) => work.id === activeWorkId) ?? collections.works[0] ?? null;
   const activeChapter = deriveChapterSelection(collections, activeChapterId);
+  const copy = resolveMessages(locale);
 
-  const mutateWorkspace = useCallback(async (
+  const sendWorkspaceMutation = useCallback(async (
     payload: Record<string, unknown>,
     options: WorkspaceMutationOptions = {},
   ) => {
     const payloadSessionId = typeof payload.sessionId === 'string' ? payload.sessionId : null;
     const requestedSessionId = options.sessionId ?? payloadSessionId ?? activeSessionId;
-    const result = await readJson<WorkspaceMutationResponse>(await fetch('/api/bootstrap', {
+    const response = await readJson<WorkspaceMutationResponse>(await fetch('/api/bootstrap', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...payload, currentWorkId: activeWorkId, currentSessionId: requestedSessionId }),
+      body: JSON.stringify({
+        ...payload,
+        currentWorkId: activeWorkId,
+        currentSessionId: requestedSessionId,
+      }),
     }));
 
-    const resolvedWorkId = activeWorkId ?? result.collections.activeWorkId ?? initialBootstrap.workspace.workId;
-    const resolvedChapter = deriveChapterSelection(result.collections, options.chapterId ?? activeChapterId);
-    const resolvedSession = deriveSessionSelection(result.collections, options.sessionId ?? activeSessionId);
+    const resolvedWorkId = activeWorkId ?? response.collections.activeWorkId ?? initialBootstrap.workspace.workId;
+    const resolvedChapter = deriveChapterSelection(response.collections, options.chapterId ?? activeChapterId);
+    const resolvedSession = deriveSessionSelection(response.collections, options.sessionId ?? activeSessionId);
+    const resolvedActiveModel = deriveActiveModel(response.collections, activeModel ?? response.collections.activeModel);
 
-    setCollections(result.collections);
-    setLocale(result.bootstrap.workspace.locale);
+    setCollections(response.collections);
+    setLocale(response.bootstrap.workspace.locale);
     setActiveWorkId(resolvedWorkId);
     setActiveChapterId(resolvedChapter?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
-    setActiveModel(deriveActiveModel(result.collections, activeModel ?? result.collections.activeModel));
+    setActiveModel(resolvedActiveModel);
 
-    if (!options.preserveEditor) {
-      setSelectedChapterTitle(resolvedChapter?.title ?? '');
-      setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
-    }
+    return {
+      response,
+      resolvedChapter,
+    };
+  }, [activeChapterId, activeModel, activeSessionId, activeWorkId, initialBootstrap.workspace.workId]);
 
-    return result;
-  }, [
-    activeChapterId,
-    activeModel,
-    activeSessionId,
-    activeWorkId,
-    initialBootstrap.workspace.workId,
-    setActiveChapterId,
-    setActiveModel,
-    setActiveSessionId,
-    setActiveWorkId,
-    setCollections,
-    setEditorBody,
-    setLocale,
-    setSelectedChapterTitle,
-  ]);
+  const persistWorkspaceMutation = useCallback(async (
+    payload: Record<string, unknown>,
+    options: WorkspaceMutationOptions = {},
+  ) => {
+    const { response } = await sendWorkspaceMutation(payload, options);
+    return response;
+  }, [sendWorkspaceMutation]);
 
-  // Persist session context (chapter association) when session or chapter changes
-  useEffect(() => {
-    if (!activeSessionId || !activeWorkId) return;
-
-    void mutateWorkspace({
-      action: 'set-chat-session-context',
-      sessionId: activeSessionId,
-      workId: activeWorkId,
-      chapterId: activeChapterId,
-    }, { preserveEditor: true });
-  }, [activeSessionId, activeWorkId, activeChapterId, mutateWorkspace]);
-
-  const handleManualSave = useCallback(async () => {
-    if (!activeChapter) return;
-    setSaveState('saving');
-    try {
-      await mutateWorkspace({
-        action: 'autosave-chapter',
-        chapterId: activeChapter.id,
-        title: selectedChapterTitle,
-        bodyJson: serializeChapterText(editorBody),
-       }, { preserveEditor: true });
-       setSaveState('saved');
-       toast.success('Chapter saved manually.');
-    } catch {
-      setSaveState('failed');
-      toast.error('Failed to save. Check connection.');
-    }
-  }, [activeChapter, editorBody, mutateWorkspace, selectedChapterTitle]);
-
-  useKeyboardShortcuts({
-    'mod+s': handleManualSave,
-    'mod+b': () => setIsSidebarOpen(prev => !prev),
-    'mod+j': () => {
-      const tabs: Array<'ai' | 'snapshots'> = ['ai', 'snapshots'];
-      const nextIndex = (tabs.indexOf(rightSidebarTab) + 1) % tabs.length;
-      setRightSidebarTab(tabs[nextIndex]);
-    },
-    'mod+,': () => setIsSettingsOpen(true),
-    'mod+shift+w': () => setIsWorldviewOpen(true),
+  const editorDraft = useEditorDraft({
+    initialChapter,
+    activeChapter,
+    mutateWorkspace: persistWorkspaceMutation,
   });
+  const {
+    selectedChapterTitle,
+    editorBody,
+    saveState,
+    pendingGhostText,
+    replaceFromChapter,
+    handleManualSave,
+    handleBodyChange,
+    handleTitleChange,
+    acceptGhostText,
+    rejectGhostText,
+  } = editorDraft;
+
+  const mutateWorkspace = useCallback(async (
+    payload: Record<string, unknown>,
+    options: WorkspaceMutationOptions = {},
+  ) => {
+    const { response, resolvedChapter } = await sendWorkspaceMutation(payload, options);
+    if (!options.preserveEditor) {
+      replaceFromChapter(resolvedChapter);
+    }
+    return response;
+  }, [replaceFromChapter, sendWorkspaceMutation]);
 
   const refreshWorkspace = useCallback(async (nextWorkId?: string, nextSessionId?: string) => {
     const search = new URLSearchParams();
-    if (nextWorkId) search.set('workId', nextWorkId);
-    if (nextSessionId) search.set('sessionId', nextSessionId);
+    if (nextWorkId) {
+      search.set('workId', nextWorkId);
+    }
+    if (nextSessionId) {
+      search.set('sessionId', nextSessionId);
+    }
 
-    const payload = await readJson<WorkspaceBootstrapResponse>(await fetch(`/api/bootstrap?${search.toString()}`, { cache: 'no-store' }));
+    const payload = await readJson<WorkspaceBootstrapResponse>(
+      await fetch(`/api/bootstrap?${search.toString()}`, { cache: 'no-store' }),
+    );
     const resolvedWorkId = nextWorkId ?? payload.collections.activeWorkId ?? payload.bootstrap.workspace.workId;
     const resolvedChapter = deriveChapterSelection(payload.collections, activeChapterId);
     const resolvedSession = deriveSessionSelection(payload.collections, nextSessionId ?? activeSessionId);
+    const resolvedActiveModel = deriveActiveModel(payload.collections, activeModel ?? payload.collections.activeModel);
 
     setCollections(payload.collections);
     setLocale(payload.bootstrap.workspace.locale);
     setActiveWorkId(resolvedWorkId ?? null);
     setActiveChapterId(resolvedChapter?.id ?? null);
     setActiveSessionId(resolvedSession?.id ?? null);
-    setActiveModel(deriveActiveModel(payload.collections, activeModel ?? payload.collections.activeModel));
-    setSelectedChapterTitle(resolvedChapter?.title ?? '');
-    setEditorBody(resolvedChapter ? parseChapterText(resolvedChapter.bodyJson) : '');
-  }, [
-    activeChapterId,
-    activeModel,
-    activeSessionId,
-    setActiveChapterId,
-    setActiveModel,
-    setActiveSessionId,
-    setActiveWorkId,
-    setCollections,
-    setEditorBody,
-    setLocale,
-    setSelectedChapterTitle,
-  ]);
+    setActiveModel(resolvedActiveModel);
+    replaceFromChapter(resolvedChapter);
+  }, [activeChapterId, activeModel, activeSessionId, replaceFromChapter]);
 
   const refreshSnapshots = useCallback(async (workId?: string) => {
     const query = workId ? `?workId=${workId}` : '';
-    const payload = await readJson<{ list: Array<{ id: string; label: string; createdAt: string }> }>(await fetch(`/api/snapshots${query}`, { cache: 'no-store' }));
+    const payload = await readJson<{ list: SnapshotListItem[] }>(
+      await fetch(`/api/snapshots${query}`, { cache: 'no-store' }),
+    );
     setSnapshots(payload.list);
   }, []);
 
-  const resetAgentState = useCallback(() => {
-    setAgentStatus('idle');
-    setActiveToolName(null);
-    setStreamingMessage(null);
-    setToolCalls([]);
-    streamingStartTimeRef.current = null;
-    streamingTokensRef.current = 0;
-    latestStreamingTpsRef.current = 0;
-  }, []);
+  const handleManualSaveShortcut = useCallback(() => {
+    void handleManualSave();
+  }, [handleManualSave]);
 
-  // 使用 queueMicrotask 避免在渲染期间同步调用 setState
-  useEffect(() => {
-    queueMicrotask(() => {
-      resetAgentState();
+  const ui = useWorkspaceUi({ onManualSave: handleManualSaveShortcut });
+  const {
+    isSidebarOpen,
+    toggleSidebar,
+    rightSidebarTab,
+    setAiTab,
+    setSnapshotsTab,
+    isSettingsOpen,
+    openSettings,
+    closeSettings,
+    isWorldviewOpen,
+    openWorldview,
+    closeWorldview,
+    rightSidebarWidth,
+    sidebarRef,
+    handleResizeStart,
+  } = ui;
+
+  const aiSession = useAiSession({
+    activeModel,
+    activeSessionId,
+    activeWorkId,
+    chatMessages: collections.chatMessages,
+    chatSessions: collections.chatSessions,
+    mutateWorkspace,
+    refreshWorkspace,
+  });
+
+  const handleSwitchWork = useCallback((workId: string) => {
+    void refreshWorkspace(workId);
+  }, [refreshWorkspace]);
+
+  const handleSessionChange = useCallback((sessionId: string) => {
+    void refreshWorkspace(undefined, sessionId);
+  }, [refreshWorkspace]);
+
+  const handleSwitchLocale = useCallback((nextLocale: SupportedLocale) => {
+    setLocale(nextLocale);
+    void mutateWorkspace({ action: 'update-work', workId: activeWorkId, locale: nextLocale });
+  }, [activeWorkId, mutateWorkspace]);
+
+  const handleSwitchChapter = useCallback((chapterId: string) => {
+    const chapter = collections.chapters.find((entry) => entry.id === chapterId);
+    if (!chapter) {
+      return;
+    }
+    setActiveChapterId(chapterId);
+    replaceFromChapter(chapter);
+  }, [collections.chapters, replaceFromChapter]);
+
+  const handleCreateChapter = useCallback((volumeId?: string) => {
+    const nextVolumeId = volumeId ?? collections.volumes[0]?.id;
+    if (!activeWorkId || !nextVolumeId) {
+      return;
+    }
+
+    const chapterCount = collections.chapters.filter((chapter) => chapter.volumeId === nextVolumeId).length;
+    void mutateWorkspace({
+      action: 'create-chapter',
+      workId: activeWorkId,
+      volumeId: nextVolumeId,
+      title: `第${chapterCount + 1}章`,
+      bodyJson: serializeChapterText(''),
     });
-  }, [activeSessionId, resetAgentState]);
+  }, [activeWorkId, collections.chapters, collections.volumes, mutateWorkspace]);
 
-  const calculateTPS = useCallback(() => {
-    const startTime = streamingStartTimeRef.current;
-    if (!startTime) return 0;
-    const elapsed = (Date.now() - startTime) / 1000;
-    return elapsed > 0 ? streamingTokensRef.current / elapsed : 0;
-  }, []);
-
-  const handleAgentEvent = useCallback((event: AgentEvent) => {
-    switch (event.type) {
-      case 'ai_start': {
-        const startedAt = Date.now();
-        setAgentStatus('streaming');
-        setActiveToolName(null);
-        streamingStartTimeRef.current = startedAt;
-        streamingTokensRef.current = 0;
-        latestStreamingTpsRef.current = 0;
-        setStreamingMessage({
-          id: event.messageId,
-          role: 'assistant',
-          text: '',
-          isComplete: false,
-          tps: 0,
-        });
-        return;
-      }
-      case 'ai_chunk': {
-        setAgentStatus('streaming');
-        setActiveToolName(null);
-        streamingTokensRef.current += 1;
-        const currentTPS = calculateTPS();
-        latestStreamingTpsRef.current = currentTPS;
-        setStreamingMessage({
-          id: event.messageId,
-          role: 'assistant',
-          text: event.accumulatedText,
-          isComplete: false,
-          tps: currentTPS,
-        });
-        return;
-      }
-      case 'ai_tool_call': {
-        setAgentStatus('tool_running');
-        setActiveToolName(event.toolName);
-        setToolCalls((current) => {
-          const nextItem: ToolCallItem = {
-            id: event.toolCallId,
-            toolName: event.toolName,
-            args: event.args,
-            status: 'running',
-          };
-          const index = current.findIndex((item) => item.id === event.toolCallId);
-
-          if (index === -1) {
-            return [...current, nextItem];
-          }
-
-          return current.map((item, itemIndex) => itemIndex === index ? nextItem : item);
-        });
-        return;
-      }
-      case 'ai_tool_result': {
-        setActiveToolName(null);
-        setToolCalls((current) => current.map((item) => (
-          item.id === event.toolCallId
-            ? {
-                ...item,
-                status: event.isError ? 'error' : 'success',
-                result: event.result,
-                error: event.isError ? String(event.result) : undefined,
-              }
-            : item
-        )));
-        return;
-      }
-      case 'ai_complete': {
-        setAgentStatus('completed');
-        setActiveToolName(null);
-        const finalTPS = Math.max(latestStreamingTpsRef.current, calculateTPS());
-        latestStreamingTpsRef.current = finalTPS;
-        setStreamingMessage({
-          id: event.messageId,
-          role: 'assistant',
-          text: event.fullText,
-          isComplete: true,
-          tps: finalTPS,
-        });
-        return;
-      }
-      case 'ai_error': {
-        setAgentStatus('errored');
-        setActiveToolName(null);
-        return;
-      }
-      default:
-        return;
+  const handleCreateVolume = useCallback(() => {
+    if (!activeWorkId || !volumeDraftTitle.trim()) {
+      return;
     }
-  }, [calculateTPS]);
+    void mutateWorkspace({ action: 'create-volume', workId: activeWorkId, title: volumeDraftTitle });
+  }, [activeWorkId, mutateWorkspace, volumeDraftTitle]);
 
-  const consumeAgentEventStream = useCallback(async (response: Response) => {
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null) as { error?: string } | null;
-      throw new Error(payload?.error ?? 'Agent request failed.');
+  const handleCreateWork = useCallback(() => {
+    if (!workDraftTitle.trim()) {
+      return;
     }
+    void mutateWorkspace({ action: 'create-work', title: workDraftTitle, locale, synopsis: '' });
+  }, [locale, mutateWorkspace, workDraftTitle]);
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Agent stream is unavailable.');
-    }
+  const handleUpdateWork = useCallback((workId: string, title: string) => {
+    void mutateWorkspace({ action: 'update-work', workId, title });
+  }, [mutateWorkspace]);
 
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let finalText = '';
+  const handleDeleteWork = useCallback((workId: string) => {
+    void mutateWorkspace({ action: 'delete-work', workId });
+  }, [mutateWorkspace]);
 
-    const parseEventBlock = (block: string) => {
-      const lines = block.split('\n');
-      const dataLine = lines.find((line) => line.startsWith('data: '))?.slice(6).trim();
+  const handleUpdateVolume = useCallback((volumeId: string, title: string) => {
+    void mutateWorkspace({ action: 'update-volume', volumeId, title });
+  }, [mutateWorkspace]);
 
-      if (!dataLine) {
-        return;
-      }
+  const handleDeleteVolume = useCallback((volumeId: string) => {
+    void mutateWorkspace({ action: 'delete-volume', volumeId });
+  }, [mutateWorkspace]);
 
-      const event = JSON.parse(dataLine) as AgentEvent;
-      handleAgentEvent(event);
+  const handleDeleteChapter = useCallback((chapterId: string) => {
+    void mutateWorkspace({ action: 'delete-chapter', chapterId });
+  }, [mutateWorkspace]);
 
-      if (event.type === 'ai_chunk') {
-        finalText = event.accumulatedText;
-      }
+  const handleUpdateChapter = useCallback((chapterId: string, title: string) => {
+    void mutateWorkspace({ action: 'update-chapter', chapterId, title });
+  }, [mutateWorkspace]);
 
-      if (event.type === 'ai_complete') {
-        finalText = event.fullText;
-      }
-
-      if (event.type === 'ai_error') {
-        throw new Error(event.error);
-      }
-    };
-
-    while (true) {
-      const { done, value } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-
-      const blocks = buffer.split('\n\n');
-      buffer = blocks.pop() ?? '';
-
-      for (const block of blocks) {
-        if (block.trim()) {
-          parseEventBlock(block);
-        }
-      }
-
-      if (done) {
-        if (buffer.trim()) {
-          parseEventBlock(buffer);
-        }
-        break;
-      }
-    }
-
-    return {
-      finalText,
-    };
-  }, [handleAgentEvent]);
+  const handleActiveModelChange = useCallback((selection: ActiveModelSelection) => {
+    setActiveModel(selection);
+    void mutateWorkspace({
+      action: 'set-active-model',
+      profileId: selection.profileId,
+      modelId: selection.modelId,
+    }, { preserveEditor: true });
+  }, [mutateWorkspace]);
 
   const handleCreateSnapshot = useCallback(async () => {
-    if (!activeWorkId) return;
+    if (!activeWorkId) {
+      return;
+    }
+
     await readJson(await fetch('/api/snapshots', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -553,7 +341,13 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     const payload = await readJson<ExportPayloadResponse>(await fetch('/api/export/chapters', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ format, chapters: collections.chapters.map((c) => ({ title: c.title, content: parseChapterText(c.bodyJson) })) }),
+      body: JSON.stringify({
+        format,
+        chapters: collections.chapters.map((chapter) => ({
+          title: chapter.title,
+          content: parseChapterText(chapter.bodyJson),
+        })),
+      }),
     }));
     setAuditLog((current) => [`chapter-export:${payload.exportPayload.fileName}`, ...current].slice(0, 12));
   }, [collections.chapters]);
@@ -567,325 +361,13 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
     setAuditLog((current) => [`import-parse:${payload.parsedDocument.format}`, ...current].slice(0, 12));
   }, []);
 
-  useEffect(() => {
-    if (!activeChapter) return;
-    const canonicalText = parseChapterText(activeChapter.bodyJson);
-    if (selectedChapterTitle === activeChapter.title && editorBody === canonicalText) return;
+  const handleRefreshProviders = useCallback(() => {
+    void refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined);
+  }, [activeSessionId, activeWorkId, refreshWorkspace]);
 
-    const timer = window.setTimeout(async () => {
-      setSaveState('autosaving');
-      try {
-        await mutateWorkspace({
-          action: 'autosave-chapter',
-          chapterId: activeChapter.id,
-          title: selectedChapterTitle,
-          bodyJson: serializeChapterText(editorBody),
-        }, { preserveEditor: true });
-        setSaveState('saved');
-      } catch {
-        setSaveState('failed');
-        toast.error('Autosave failed. Check your connection.', {
-          action: {
-            label: 'Retry',
-            onClick: () => { handleManualSave(); },
-          },
-        });
-      }
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [activeChapter, editorBody, handleManualSave, mutateWorkspace, selectedChapterTitle]);
-
-  const handleSwitchWork = useCallback((workId: string) => {
-    void refreshWorkspace(workId);
-  }, [refreshWorkspace]);
-  const handleSwitchLocale = (nextLocale: SupportedLocale) => {
-    setLocale(nextLocale);
-    void mutateWorkspace({ action: 'update-work', workId: activeWorkId, locale: nextLocale });
-  };
-  const handleSwitchChapter = (chapterId: string) => {
-    const chapter = collections.chapters.find((entry) => entry.id === chapterId);
-    if (!chapter) return;
-    setActiveChapterId(chapterId);
-    setSelectedChapterTitle(chapter.title);
-    setEditorBody(parseChapterText(chapter.bodyJson));
-    setPendingGhostText('');
-  };
-
-
-
-  const handleCreateChapter = useCallback((volumeId?: string) => {
-    const nextVolumeId = volumeId ?? collections.volumes[0]?.id;
-    if (!activeWorkId || !nextVolumeId) return;
-
-    const chapterCount = collections.chapters.filter((chapter) => chapter.volumeId === nextVolumeId).length;
-    void mutateWorkspace({
-      action: 'create-chapter',
-      workId: activeWorkId,
-      volumeId: nextVolumeId,
-      title: `第${chapterCount + 1}章`,
-      bodyJson: serializeChapterText(''),
-    });
-  }, [activeWorkId, collections.chapters, collections.volumes, mutateWorkspace]);
-
-  const handleCreateVolume = useCallback(() => {
-    if (!activeWorkId || !volumeDraftTitle.trim()) return;
-    void mutateWorkspace({ action: 'create-volume', workId: activeWorkId, title: volumeDraftTitle });
-  }, [activeWorkId, mutateWorkspace, volumeDraftTitle]);
-
-  const handleCreateWork = useCallback(() => {
-    if (!workDraftTitle.trim()) return;
-    void mutateWorkspace({ action: 'create-work', title: workDraftTitle, locale, synopsis: '' });
-  }, [locale, mutateWorkspace, workDraftTitle]);
-
-  const handleUpdateWork = useCallback((workId: string, title: string) => {
-    void mutateWorkspace({ action: 'update-work', workId, title });
+  const handleWorldviewMutate = useCallback(async (action: string, payload: Record<string, unknown>) => {
+    return await mutateWorkspace({ action, ...payload }, { preserveEditor: true });
   }, [mutateWorkspace]);
-
-  const handleDeleteWork = useCallback((workId: string) => {
-    void mutateWorkspace({ action: 'delete-work', workId });
-  }, [mutateWorkspace]);
-
-  const handleUpdateVolume = useCallback((volumeId: string, title: string) => {
-    void mutateWorkspace({ action: 'update-volume', volumeId, title });
-  }, [mutateWorkspace]);
-
-  const handleDeleteVolume = useCallback((volumeId: string) => {
-    void mutateWorkspace({ action: 'delete-volume', volumeId });
-  }, [mutateWorkspace]);
-
-  const handleDeleteChapter = useCallback((chapterId: string) => {
-    void mutateWorkspace({ action: 'delete-chapter', chapterId });
-  }, [mutateWorkspace]);
-
-  const handleUpdateChapter = useCallback((chapterId: string, title: string) => {
-    void mutateWorkspace({ action: 'update-chapter', chapterId, title });
-  }, [mutateWorkspace]);
-
-  const handleActiveModelChange = (selection: ActiveModelSelection) => {
-    setActiveModel(selection);
-    void mutateWorkspace({ action: 'set-active-model', profileId: selection.profileId, modelId: selection.modelId }, { preserveEditor: true });
-  };
-
-  const generateSessionTitle = useCallback((prompt: string) => {
-    const trimmed = prompt.trim();
-    if (!trimmed) {
-      const now = new Date();
-      return `${now.getMonth() + 1}月${now.getDate()}日 ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-    }
-    const firstLine = trimmed.split('\n')[0];
-    return firstLine.length > 20 ? `${firstLine.slice(0, 20)}...` : firstLine;
-  }, []);
-
-  const handleCreateSession = useCallback(async () => {
-    if (!activeWorkId) return;
-
-    // 检查当前session是否为空（没有消息），如果是空的则不创建新session
-    const currentSession = collections.chatSessions.find((s) => s.id === activeSessionId);
-    if (currentSession) {
-      const sessionMessages = collections.chatMessages;
-      const hasMessagesInCurrentSession = sessionMessages.length > 0;
-      if (!hasMessagesInCurrentSession) {
-        // 当前session已经是空的，不需要再创建
-        return;
-      }
-    }
-
-    const title = generateSessionTitle(freeChatPrompt);
-    const result = await mutateWorkspace({ action: 'create-chat-session', workId: activeWorkId, title });
-
-    // 切换到新创建的session
-    if (result.result && typeof result.result === 'object' && 'session' in result.result) {
-      const newSession = (result.result as { session: { id: string } }).session;
-      if (newSession?.id) {
-        await refreshWorkspace(undefined, newSession.id);
-      }
-    }
-  }, [activeWorkId, activeSessionId, collections.chatMessages, collections.chatSessions, freeChatPrompt, generateSessionTitle, mutateWorkspace, refreshWorkspace]);
-
-  const handleDeleteSession = useCallback((sessionId: string) => {
-    void mutateWorkspace({ action: 'delete-chat-session', sessionId });
-  }, [mutateWorkspace]);
-
-  const handleDeleteMessage = useCallback((messageId: string) => {
-    void mutateWorkspace({ action: 'delete-chat-message', messageId });
-  }, [mutateWorkspace]);
-
-  const handleAbort = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-  }, []);
-
-  const handleSendPrompt = useCallback(async (prompt?: string) => {
-    const currentPrompt = prompt ?? freeChatPrompt;
-    if (!currentPrompt.trim() || !activeModel) return;
-    const trimmedPrompt = currentPrompt.trim();
-
-    // 如果没有 active session，先创建一个新 session
-    let sessionId = activeSessionId;
-    if (!sessionId) {
-      if (!activeWorkId) return;
-      const title = generateSessionTitle(trimmedPrompt);
-      const result = await mutateWorkspace({ action: 'create-chat-session', workId: activeWorkId, title });
-      if (result.result && typeof result.result === 'object' && 'session' in result.result) {
-        const newSession = (result.result as { session: { id: string } }).session;
-        if (newSession?.id) {
-          sessionId = newSession.id;
-          await refreshWorkspace(undefined, newSession.id);
-        }
-      }
-      if (!sessionId) return;
-    }
-
-    // 立即清空输入框，防止重复发送
-    setFreeChatPrompt('');
-    resetAgentState();
-
-    await mutateWorkspace({
-      action: 'append-chat-message',
-      sessionId,
-      role: 'user',
-      body: trimmedPrompt,
-      tps: 0,
-    }, { preserveEditor: true, sessionId });
-
-    try {
-      // 创建新的 AbortController 用于此次请求
-      abortControllerRef.current = new AbortController();
-
-      const response = await fetch('/api/ai/agent', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          profileId: activeModel.profileId,
-          modelId: activeModel.modelId,
-          prompt: trimmedPrompt,
-          sessionId,
-        }),
-        signal: abortControllerRef.current.signal,
-      });
-
-      const agentResult = await consumeAgentEventStream(response);
-
-      if (agentResult.finalText.trim()) {
-        await mutateWorkspace({
-          action: 'append-chat-message',
-          sessionId,
-          role: 'assistant',
-          body: agentResult.finalText,
-          tps: latestStreamingTpsRef.current,
-        }, { preserveEditor: true, sessionId });
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setAgentStatus('completed');
-      } else {
-        setAgentStatus('errored');
-        toast.error(error instanceof Error ? error.message : 'AI 请求失败。');
-      }
-    } finally {
-      abortControllerRef.current = null;
-      setStreamingMessage(null);
-      setToolCalls([]);
-    }
-  }, [activeModel, activeSessionId, activeWorkId, consumeAgentEventStream, freeChatPrompt, generateSessionTitle, mutateWorkspace, refreshWorkspace, resetAgentState]);
-
-  const handleRetryMessage = useCallback(async (messageId: string) => {
-    if (!activeSessionId || !activeModel) return;
-
-    // 找到被重试的 assistant 消息在数组中的索引
-    const messageIndex = collections.chatMessages.findIndex((m) => m.id === messageId);
-    if (messageIndex === -1) return;
-
-    const message = collections.chatMessages[messageIndex];
-    if (message.role !== 'assistant') return;
-
-    // 找到这条 assistant 消息之前的 user 消息（即触发这条回复的原始用户消息）
-    let userPrompt = '';
-    for (let i = messageIndex - 1; i >= 0; i--) {
-      if (collections.chatMessages[i].role === 'user') {
-        userPrompt = collections.chatMessages[i].body;
-        break;
-      }
-    }
-
-    // 如果没有找到前置 user 消息，无法重试
-    if (!userPrompt) {
-      toast.error('无法重试：未找到原始用户消息');
-      return;
-    }
-
-    setRetryingMessageId(messageId);
-    resetAgentState();
-
-    try {
-      const response = await fetch('/api/ai/agent', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          profileId: activeModel.profileId,
-          modelId: activeModel.modelId,
-          prompt: userPrompt,
-          sessionId: activeSessionId,
-          upToMessageId: messageId,
-        }),
-      });
-
-      const agentResult = await consumeAgentEventStream(response);
-
-      if (agentResult.finalText.trim()) {
-        // 将新版本保存到数据库并设置为激活版本
-        const result = await mutateWorkspace({
-          action: 'add-message-version',
-          messageId,
-          body: agentResult.finalText,
-          tps: latestStreamingTpsRef.current,
-        }, { sessionId: activeSessionId });
-
-        if (result.result && typeof result.result === 'object' && 'version' in result.result) {
-          const version = (result.result as { version: { id: string } }).version;
-          await mutateWorkspace({
-            action: 'set-active-message-version',
-            messageId,
-            versionId: version.id,
-          }, { sessionId: activeSessionId });
-        }
-      }
-    } catch (error) {
-      setAgentStatus('errored');
-      toast.error(error instanceof Error ? error.message : '重试失败。');
-    } finally {
-      setRetryingMessageId(null);
-    }
-  }, [activeModel, activeSessionId, collections.chatMessages, consumeAgentEventStream, mutateWorkspace, resetAgentState]);
-
-  const handleSwitchRetryVersion = useCallback(async (messageId: string, direction: 'prev' | 'next') => {
-    const message = collections.chatMessages.find((m) => m.id === messageId);
-    if (!message || !message.versions || message.versions.length === 0) return;
-
-    const currentVersionIndex = message.activeVersionId
-      ? message.versions.findIndex((v) => v.id === message.activeVersionId)
-      : -1;
-
-    // 如果当前没有激活版本，默认指向原始消息（索引 -1）
-    const effectiveIndex = currentVersionIndex === -1 ? -1 : currentVersionIndex;
-
-    // 计算新的版本索引
-    let newIndex: number;
-    if (direction === 'prev') {
-      newIndex = Math.max(-1, effectiveIndex - 1);
-    } else {
-      newIndex = Math.min(message.versions.length - 1, effectiveIndex + 1);
-    }
-
-    // 设置新的激活版本
-    const newVersionId = newIndex === -1 ? null : message.versions[newIndex].id;
-    await mutateWorkspace({
-      action: 'set-active-message-version',
-      messageId,
-      versionId: newVersionId,
-    }, { sessionId: activeSessionId });
-  }, [activeSessionId, collections.chatMessages, mutateWorkspace]);
 
   return (
     <main className="app-shell">
@@ -897,7 +379,7 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           copy={copy}
           locale={locale}
           onLocaleChange={handleSwitchLocale}
-          onOpenModelSelector={() => setIsSettingsOpen(true)}
+          onOpenModelSelector={openSettings}
           providers={collections.providerProfiles}
         />
       </div>
@@ -905,8 +387,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
       <div className="app-main">
         <aside
           className={cx(
-            "app-sidebar sidebar-transition overflow-hidden",
-            isSidebarOpen ? "w-[240px] opacity-100" : "w-0 opacity-0 border-none"
+            'app-sidebar sidebar-transition overflow-hidden',
+            isSidebarOpen ? 'w-[240px] opacity-100' : 'w-0 opacity-0 border-none',
           )}
         >
           <div className="w-[240px] h-full">
@@ -928,8 +410,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
               onDeleteVolumeAction={handleDeleteVolume}
               onDeleteChapterAction={handleDeleteChapter}
               onUpdateChapterAction={handleUpdateChapter}
-              onOpenSettingsAction={() => setIsSettingsOpen(true)}
-              onOpenWorldviewAction={() => setIsWorldviewOpen(true)}
+              onOpenSettingsAction={openSettings}
+              onOpenWorldviewAction={openWorldview}
               onVolumeTitleChangeAction={setVolumeDraftTitle}
               onWorkChangeAction={handleSwitchWork}
               onWorkTitleChangeAction={setWorkDraftTitle}
@@ -946,11 +428,11 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
             body={editorBody}
             draftTitle={selectedChapterTitle}
             isSidebarOpen={isSidebarOpen}
-            onBodyChange={(value) => { setEditorBody(value); setSaveState('modified'); }}
-            onTitleChange={(value) => { setSelectedChapterTitle(value); setSaveState('modified'); }}
-            onAcceptGhostText={() => { setEditorBody((c) => `${c}\n\n${pendingGhostText}`.trim()); setPendingGhostText(''); setSaveState('modified'); }}
-            onRejectGhostText={() => setPendingGhostText('')}
-            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+            onBodyChange={handleBodyChange}
+            onTitleChange={handleTitleChange}
+            onAcceptGhostText={acceptGhostText}
+            onRejectGhostText={rejectGhostText}
+            onToggleSidebar={toggleSidebar}
             pendingGhostText={pendingGhostText}
             saveState={saveState}
           />
@@ -972,8 +454,11 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
             <button
               role="tab"
               aria-selected={rightSidebarTab === 'ai'}
-              className={cx("flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors", rightSidebarTab === 'ai' ? "bg-background border-b-2 border-primary" : "bg-muted/50 text-muted-foreground")}
-              onClick={() => setRightSidebarTab('ai')}
+              className={cx(
+                'flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors',
+                rightSidebarTab === 'ai' ? 'bg-background border-b-2 border-primary' : 'bg-muted/50 text-muted-foreground',
+              )}
+              onClick={setAiTab}
             >
               AI
             </button>
@@ -981,8 +466,11 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
             <button
               role="tab"
               aria-selected={rightSidebarTab === 'snapshots'}
-              className={cx("flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors", rightSidebarTab === 'snapshots' ? "bg-background border-b-2 border-primary" : "bg-muted/50 text-muted-foreground")}
-              onClick={() => setRightSidebarTab('snapshots')}
+              className={cx(
+                'flex-1 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors',
+                rightSidebarTab === 'snapshots' ? 'bg-background border-b-2 border-primary' : 'bg-muted/50 text-muted-foreground',
+              )}
+              onClick={setSnapshotsTab}
             >
               Snapshots
             </button>
@@ -994,24 +482,24 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
                 messages={collections.chatMessages}
                 activeModel={activeModel}
                 activeSessionId={activeSessionId}
-                draftPrompt={freeChatPrompt}
-                retryingMessageId={retryingMessageId}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-                onCreateSession={handleCreateSession}
-                onDeleteSession={handleDeleteSession}
-                onSessionChange={(sid) => refreshWorkspace(undefined, sid)}
-                onDraftPromptChange={setFreeChatPrompt}
-                onSendPrompt={handleSendPrompt}
-                onAbort={handleAbort}
-                onRetryMessage={handleRetryMessage}
-                onDeleteMessage={handleDeleteMessage}
-                onSwitchRetryVersion={handleSwitchRetryVersion}
+                draftPrompt={aiSession.freeChatPrompt}
+                retryingMessageId={aiSession.retryingMessageId}
+                onOpenSettings={openSettings}
+                onCreateSession={aiSession.handleCreateSession}
+                onDeleteSession={aiSession.handleDeleteSession}
+                onSessionChange={handleSessionChange}
+                onDraftPromptChange={aiSession.setFreeChatPrompt}
+                onSendPrompt={aiSession.handleSendPrompt}
+                onAbort={aiSession.handleAbort}
+                onRetryMessage={aiSession.handleRetryMessage}
+                onDeleteMessage={aiSession.handleDeleteMessage}
+                onSwitchRetryVersion={aiSession.handleSwitchRetryVersion}
                 providers={collections.providerProfiles}
                 sessions={collections.chatSessions}
-                agentStatus={agentStatus}
-                activeToolName={activeToolName}
-                streamingMessage={streamingMessage}
-                toolCalls={toolCalls}
+                agentStatus={aiSession.agentStatus}
+                activeToolName={aiSession.activeToolName}
+                streamingMessage={aiSession.streamingMessage}
+                toolCalls={aiSession.toolCalls}
               />
             )}
             {rightSidebarTab === 'snapshots' && (
@@ -1039,8 +527,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           providers={collections.providerProfiles}
           activeModel={activeModel}
           onActiveModelChangeAction={handleActiveModelChange}
-          onProvidersChangeAction={() => refreshWorkspace(activeWorkId ?? undefined, activeSessionId ?? undefined)}
-          onCloseAction={() => setIsSettingsOpen(false)}
+          onProvidersChangeAction={handleRefreshProviders}
+          onCloseAction={closeSettings}
         />
       )}
       {isWorldviewOpen && (
@@ -1048,10 +536,8 @@ const [isWorldviewOpen, setIsWorldviewOpen] = useState(false);
           copy={copy}
           workId={activeWorkId ?? ''}
           nodes={collections.settingsNodes}
-          onClose={() => setIsWorldviewOpen(false)}
-          onMutate={async (action, payload) => {
-            return await mutateWorkspace({ action, ...payload }, { preserveEditor: true });
-          }}
+          onClose={closeWorldview}
+          onMutate={handleWorldviewMutate}
         />
       )}
     </main>

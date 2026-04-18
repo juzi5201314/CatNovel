@@ -5,8 +5,8 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
+import { countCharacters, countParagraphs } from '@/lib/client/workspace-metrics';
 import { cx } from '@/lib/design/cx';
-import { countCharacters, countParagraphs } from '@/lib/server/services/workspace-metrics';
 
 export type EditorModes = {
   slash: boolean;

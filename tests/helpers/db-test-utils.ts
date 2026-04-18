@@ -67,6 +67,7 @@ export const defaultTestProfiles: Array<{
  * 在导入数据库模块之前调用
  */
 export function setupMemoryDatabase(): void {
+  closeDatabase();
   process.env.CATNOVEL_DB_MEMORY = 'true';
   // 清除其他数据库路径设置，确保使用内存模式
   delete process.env.CATNOVEL_DB_FILE;

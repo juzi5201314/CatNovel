@@ -13,13 +13,7 @@ import {
   runDatabaseIntegrityCheck,
 } from "../lib/server/project-transfer.ts";
 import { closeDatabase, getDatabase, getDatabaseStatus } from "../db/client.ts";
-
-function setupMemoryDatabase() {
-  closeDatabase();
-  process.env.CATNOVEL_DB_MEMORY = "true";
-  delete process.env.CATNOVEL_DATA_DIR;
-  delete process.env.CATNOVEL_DB_FILE;
-}
+import { setupMemoryDatabase } from "./helpers/db-test-utils.ts";
 
 test("project archive export/import round-trips canonical rows", () => {
   setupMemoryDatabase();
