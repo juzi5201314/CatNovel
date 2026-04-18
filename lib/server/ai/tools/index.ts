@@ -4,11 +4,13 @@ import {
 } from '@mariozechner/pi-ai';
 
 import { applySuggestionTool } from './apply-suggestion.ts';
+import { askUserTool } from './ask-user.ts';
 import { readChapterTool } from './read-chapter.ts';
 import { searchCharactersTool } from './search-characters.ts';
 import type { AnyToolDefinition, ToolDefinition, ValidatedToolCall } from './types.ts';
 
 export { ApplySuggestionSchema, applySuggestionTool } from './apply-suggestion.ts';
+export { AskUserSchema, askUserTool } from './ask-user.ts';
 export { ReadChapterSchema, readChapterTool } from './read-chapter.ts';
 export { SearchCharactersSchema, searchCharactersTool } from './search-characters.ts';
 export type {
@@ -23,7 +25,17 @@ export const tools: ToolDefinition[] = [
   readChapterTool,
   searchCharactersTool,
   applySuggestionTool,
+  askUserTool,
 ];
+
+export {
+  clearAllPendingAskUsers,
+  getPendingAskUsers,
+  hasPendingAskUser,
+  setAskUserNotificationCallback,
+  submitUserResponse,
+  cancelAskUser,
+} from './ask-user.ts';
 
 export class ToolRegistry {
   private readonly toolMap = new Map<string, AnyToolDefinition>();

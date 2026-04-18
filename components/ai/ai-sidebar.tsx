@@ -7,7 +7,9 @@ import type {
   ProviderProfileRecord,
 } from '@/lib/contracts/workspace';
 import type { AgentRunStatus } from '@/lib/contracts/agent-events';
+import type { Question } from './ask-user-panel';
 
+import { AskUserPanel } from './ask-user-panel';
 import { ChatSessionList } from './chat-session-list';
 import type { StreamingMessage, ToolCallItem } from './chat-session-list';
 
@@ -23,6 +25,9 @@ export const AiSidebar = memo(function AiSidebar({
   toolCalls,
   draftPrompt,
   retryingMessageId,
+  askUserQuestions,
+  activeAskUserId,
+  isSubmittingAskUser,
   onOpenSettings,
   onCreateSession,
   onDeleteSession,
@@ -33,6 +38,12 @@ export const AiSidebar = memo(function AiSidebar({
   onRetryMessage,
   onDeleteMessage,
   onSwitchRetryVersion,
+  onAskUserQuestionChange,
+  onAskUserResponseChange,
+  onAskUserMultiSelectChange,
+  onAskUserOtherInputChange,
+  onSubmitSingleAskUser,
+  onSubmitAllAskUsers,
 }: {
   providers: ProviderProfileRecord[];
   activeModel: ActiveModelSelection | null;
@@ -45,6 +56,9 @@ export const AiSidebar = memo(function AiSidebar({
   toolCalls: ToolCallItem[];
   draftPrompt: string;
   retryingMessageId?: string | null;
+  askUserQuestions: Question[];
+  activeAskUserId: string | null;
+  isSubmittingAskUser: boolean;
   onOpenSettings: () => void;
   onCreateSession: () => void;
   onDeleteSession: (sessionId: string) => void;
@@ -55,6 +69,12 @@ export const AiSidebar = memo(function AiSidebar({
   onRetryMessage: (messageId: string, previousBody?: string) => void;
   onDeleteMessage: (messageId: string) => void;
   onSwitchRetryVersion?: (messageId: string, direction: 'prev' | 'next') => void;
+  onAskUserQuestionChange: (toolCallId: string) => void;
+  onAskUserResponseChange: (toolCallId: string, response: string) => void;
+  onAskUserMultiSelectChange: (toolCallId: string, selectedOptions: string[]) => void;
+  onAskUserOtherInputChange: (toolCallId: string, value: string) => void;
+  onSubmitSingleAskUser: (toolCallId: string) => void;
+  onSubmitAllAskUsers: () => void;
 }) {
   return (
     <div className="flex flex-col h-full animate-fade-in" id="ai-panel">
@@ -83,6 +103,19 @@ export const AiSidebar = memo(function AiSidebar({
           onOpenModelSettings={onOpenSettings}
         />
       </div>
+      {askUserQuestions.length > 0 && (
+        <AskUserPanel
+          questions={askUserQuestions}
+          activeQuestionId={activeAskUserId ?? askUserQuestions[0]?.toolCallId}
+          onQuestionChange={onAskUserQuestionChange}
+          onResponseChange={onAskUserResponseChange}
+          onMultiSelectChange={onAskUserMultiSelectChange}
+          onOtherInputChange={onAskUserOtherInputChange}
+          onSubmit={onSubmitAllAskUsers}
+          onSubmitSingle={onSubmitSingleAskUser}
+          isSubmitting={isSubmittingAskUser}
+        />
+      )}
     </div>
   );
 });

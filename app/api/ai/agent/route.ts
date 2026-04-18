@@ -4,7 +4,9 @@ import {
   isPublicAgentEvent,
   type AgentEvent,
 } from '../../../../lib/contracts/agent-events.ts';
-import { AgentService } from '../../../../lib/server/ai/agent-service.ts';
+import { AgentService, submitUserResponse } from '../../../../lib/server/ai/agent-service.ts';
+import { deletePendingAskUserQuestion } from '../../../../lib/server/repositories/chat-repository.ts';
+import { tools as defaultTools } from '../../../../lib/server/ai/tools/index.ts';
 import type { ContextSelection } from '../../../../lib/server/ai/context-engine.ts';
 import { getModelFromProfile } from '../../../../lib/server/ai/pi-transport-adapter.ts';
 import {
@@ -107,7 +109,7 @@ export async function POST(request: Request) {
     model: modelResult.model,
     apiKey: modelResult.apiKey,
     systemPrompt: payload.systemPrompt,
-    tools: payload.tools,
+    tools: payload.tools ?? defaultTools,
     contextSelection,
     steeringMode: payload.steeringMode,
     followUpMode: payload.followUpMode,
@@ -246,4 +248,50 @@ function buildContextSelectionFromSession(sessionId: string): ContextSelection {
 
 function formatSseEvent(event: AgentEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+}
+
+export async function PUT(request: Request) {
+  let payload: { toolCallId?: string; response?: string; sessionId?: string };
+
+  try {
+    payload = (await request.json()) as typeof payload;
+  } catch {
+    return Response.json({
+      error: 'Invalid JSON payload.',
+    }, {
+      status: 400,
+    });
+  }
+
+  const { toolCallId, response } = payload;
+
+  if (!toolCallId || typeof toolCallId !== 'string') {
+    return Response.json({
+      error: 'toolCallId is required and must be a string.',
+    }, {
+      status: 400,
+    });
+  }
+
+  if (response === undefined || response === null) {
+    return Response.json({
+      error: 'response is required.',
+    }, {
+      status: 400,
+    });
+  }
+
+  const success = submitUserResponse(toolCallId, String(response));
+
+  if (!success) {
+    return Response.json({
+      error: 'No pending ask_user request found with the provided toolCallId. It may have timed out or already been answered.',
+    }, {
+      status: 404,
+    });
+  }
+
+  deletePendingAskUserQuestion(toolCallId);
+
+  return Response.json({ success: true });
 }

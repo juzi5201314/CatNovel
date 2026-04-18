@@ -10,6 +10,7 @@ import type {
   ChatSessionRecord,
 } from '@/lib/contracts/workspace';
 
+import type { Question } from '@/components/ai/ask-user-panel';
 import type { StreamingMessage, ToolCallItem } from '@/components/ai/chat-session-list';
 import type { WorkspaceMutationOptions, WorkspaceMutationResponse } from '../workspace-shell.types';
 
@@ -47,6 +48,9 @@ export function useAiSession({
   const streamingTokensRef = useRef(0);
   const latestStreamingTpsRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [askUserQuestions, setAskUserQuestions] = useState<Question[]>([]);
+  const [activeAskUserId, setActiveAskUserId] = useState<string | null>(null);
+  const [isSubmittingAskUser, setIsSubmittingAskUser] = useState(false);
 
   const resetAgentState = useCallback(() => {
     setAgentStatus('idle');
@@ -141,6 +145,28 @@ export function useAiSession({
         )));
         return;
       }
+      case 'ai_ask_user_pending': {
+        setAskUserQuestions((current) => {
+          const exists = current.some((q) => q.toolCallId === event.toolCallId);
+          if (exists) return current;
+          
+          const newQuestion: Question = {
+            toolCallId: event.toolCallId,
+            question: event.question,
+            options: event.options,
+            multiselect: event.multiselect,
+            context: event.context,
+            type: event.options && event.options.length > 0 ? 'choice' : 'text',
+          };
+          
+          const next = [...current, newQuestion];
+          if (!activeAskUserId || current.length === 0) {
+            setActiveAskUserId(event.toolCallId);
+          }
+          return next;
+        });
+        return;
+      }
       case 'ai_complete': {
         setAgentStatus('completed');
         setActiveToolName(null);
@@ -163,7 +189,7 @@ export function useAiSession({
       default:
         return;
     }
-  }, [calculateTPS]);
+  }, [calculateTPS, activeAskUserId]);
 
   const consumeAgentEventStream = useCallback(async (response: Response) => {
     if (!response.ok) {
@@ -460,6 +486,118 @@ export function useAiSession({
     );
   }, [activeSessionId, chatMessages, mutateWorkspace]);
 
+  const handleAskUserQuestionChange = useCallback((toolCallId: string) => {
+    setActiveAskUserId(toolCallId);
+  }, []);
+
+  const handleAskUserResponseChange = useCallback((toolCallId: string, response: string) => {
+    setAskUserQuestions((current) =>
+      current.map((q) =>
+        q.toolCallId === toolCallId ? { ...q, response } : q
+      )
+    );
+  }, []);
+
+  const handleAskUserMultiSelectChange = useCallback((toolCallId: string, selectedOptions: string[]) => {
+    setAskUserQuestions((current) =>
+      current.map((q) =>
+        q.toolCallId === toolCallId ? { ...q, selectedOptions } : q
+      )
+    );
+  }, []);
+
+  const handleAskUserOtherInputChange = useCallback((toolCallId: string, otherInput: string) => {
+    setAskUserQuestions((current) =>
+      current.map((q) =>
+        q.toolCallId === toolCallId ? { ...q, otherInput } : q
+      )
+    );
+  }, []);
+
+  const submitSingleAskUserResponse = useCallback(async (toolCallId: string) => {
+    const question = askUserQuestions.find((q) => q.toolCallId === toolCallId);
+    if (!question || !activeSessionId) return;
+
+    const finalResponse = question.response === '其他' && question.otherInput
+      ? question.otherInput
+      : question.response;
+
+    if (!finalResponse?.trim()) return;
+
+    setIsSubmittingAskUser(true);
+    try {
+      const result = await fetch('/api/ai/agent', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          toolCallId,
+          response: finalResponse,
+          sessionId: activeSessionId,
+        }),
+      });
+
+      if (!result.ok) {
+        const data = await result.json().catch(() => ({ error: '提交失败' }));
+        throw new Error(data.error ?? '提交失败');
+      }
+
+      setAskUserQuestions((current) => {
+        const next = current.filter((q) => q.toolCallId !== toolCallId);
+        if (next.length > 0 && activeAskUserId === toolCallId) {
+          setActiveAskUserId(next[0].toolCallId);
+        } else if (next.length === 0) {
+          setActiveAskUserId(null);
+        }
+        return next;
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '提交回复失败');
+    } finally {
+      setIsSubmittingAskUser(false);
+    }
+  }, [askUserQuestions, activeSessionId, activeAskUserId]);
+
+  const submitAllAskUserResponses = useCallback(async () => {
+    const unanswered = askUserQuestions.filter((q) => !q.response);
+    if (unanswered.length > 0) {
+      toast.error(`还有 ${unanswered.length} 个问题未回答`);
+      return;
+    }
+
+    setIsSubmittingAskUser(true);
+    try {
+      for (const question of askUserQuestions) {
+        const finalResponse = question.response === '其他' && question.otherInput
+          ? question.otherInput
+          : question.response;
+
+        if (!finalResponse?.trim()) continue;
+
+        const result = await fetch('/api/ai/agent', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            toolCallId: question.toolCallId,
+            response: finalResponse,
+            sessionId: activeSessionId,
+          }),
+        });
+
+        if (!result.ok) {
+          const data = await result.json().catch(() => ({ error: '提交失败' }));
+          throw new Error(data.error ?? '提交失败');
+        }
+      }
+
+      setAskUserQuestions([]);
+      setActiveAskUserId(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '批量提交失败');
+    } finally {
+      setIsSubmittingAskUser(false);
+    }
+  }, [askUserQuestions, activeSessionId]);
+
   return {
     freeChatPrompt,
     setFreeChatPrompt,
@@ -468,6 +606,9 @@ export function useAiSession({
     streamingMessage,
     toolCalls,
     retryingMessageId,
+    askUserQuestions,
+    activeAskUserId,
+    isSubmittingAskUser,
     handleCreateSession,
     handleDeleteSession,
     handleDeleteMessage,
@@ -475,5 +616,11 @@ export function useAiSession({
     handleSendPrompt,
     handleRetryMessage,
     handleSwitchRetryVersion,
+    handleAskUserQuestionChange,
+    handleAskUserResponseChange,
+    handleAskUserMultiSelectChange,
+    handleAskUserOtherInputChange,
+    submitSingleAskUserResponse,
+    submitAllAskUserResponses,
   };
 }

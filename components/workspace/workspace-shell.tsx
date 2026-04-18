@@ -484,6 +484,9 @@ export function WorkspaceShell({
                 activeSessionId={activeSessionId}
                 draftPrompt={aiSession.freeChatPrompt}
                 retryingMessageId={aiSession.retryingMessageId}
+                askUserQuestions={aiSession.askUserQuestions}
+                activeAskUserId={aiSession.activeAskUserId}
+                isSubmittingAskUser={aiSession.isSubmittingAskUser}
                 onOpenSettings={openSettings}
                 onCreateSession={aiSession.handleCreateSession}
                 onDeleteSession={aiSession.handleDeleteSession}
@@ -494,6 +497,12 @@ export function WorkspaceShell({
                 onRetryMessage={aiSession.handleRetryMessage}
                 onDeleteMessage={aiSession.handleDeleteMessage}
                 onSwitchRetryVersion={aiSession.handleSwitchRetryVersion}
+                onAskUserQuestionChange={aiSession.handleAskUserQuestionChange}
+                onAskUserResponseChange={aiSession.handleAskUserResponseChange}
+                onAskUserMultiSelectChange={aiSession.handleAskUserMultiSelectChange}
+                onAskUserOtherInputChange={aiSession.handleAskUserOtherInputChange}
+                onSubmitSingleAskUser={aiSession.submitSingleAskUserResponse}
+                onSubmitAllAskUsers={aiSession.submitAllAskUserResponses}
                 providers={collections.providerProfiles}
                 sessions={collections.chatSessions}
                 agentStatus={aiSession.agentStatus}

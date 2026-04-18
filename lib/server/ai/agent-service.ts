@@ -17,7 +17,11 @@ import type {
 
 import type { AgentEvent, AgentRunStatus } from '../../../lib/contracts/agent-events.ts';
 import type { ChatMessageRecord } from '../../../lib/contracts/workspace.ts';
-import { listChatMessages } from '../../../lib/server/repositories/chat-repository.ts';
+import {
+  listChatMessages,
+  listPendingAskUserQuestions,
+  savePendingAskUserQuestion,
+} from '../../../lib/server/repositories/chat-repository.ts';
 
 import {
   buildContextPacket,
@@ -30,7 +34,15 @@ import {
   isWrappedToolExecutionDetails,
   type ToolExecutionConfig,
 } from './tool-execution.ts';
+import {
+  cancelAskUser,
+  clearAllPendingAskUsers,
+  setAskUserNotificationCallback,
+  submitUserResponse,
+} from './tools/index.ts';
 import type { ToolDefinition } from './tools/types.ts';
+
+export { clearAllPendingAskUsers, submitUserResponse, cancelAskUser };
 
 export interface AgentServiceConfig {
   model: Model<Api>;
@@ -100,6 +112,52 @@ export class AgentService {
     this.agent.subscribe((event) => {
       this.handleAgentEvent(event);
     });
+
+    setAskUserNotificationCallback((data) => {
+      savePendingAskUserQuestion({
+        sessionId: this.sessionId,
+        toolCallId: data.toolCallId,
+        question: data.question,
+        options: data.options,
+        multiselect: data.multiselect,
+        context: data.context,
+        type: data.options && data.options.length > 0 ? 'choice' : 'text',
+      });
+
+      this.emit({
+        type: 'ai_ask_user_pending',
+        toolCallId: data.toolCallId,
+        question: data.question,
+        options: data.options,
+        multiselect: data.multiselect,
+        context: data.context,
+        timestamp: Date.now(),
+        sessionId: this.sessionId,
+        messageId: this.currentMessageId,
+      });
+    });
+
+    this.loadPendingAskUserQuestions();
+  }
+
+  private loadPendingAskUserQuestions(): void {
+    try {
+      const pending = listPendingAskUserQuestions(this.sessionId);
+      for (const question of pending) {
+        this.emit({
+          type: 'ai_ask_user_pending',
+          toolCallId: question.toolCallId,
+          question: question.question,
+          options: question.options,
+          multiselect: question.multiselect,
+          context: question.context,
+          timestamp: new Date(question.createdAt).getTime(),
+          sessionId: this.sessionId,
+          messageId: this.currentMessageId,
+        });
+      }
+    } catch {
+    }
   }
 
   private loadSessionHistorySync(sessionId: string, excludeMessageId?: string): AgentMessage[] {
@@ -252,6 +310,7 @@ export class AgentService {
     this.currentMessageId = createIdentifier();
     this.currentStreamText = '';
     this.lastAssistantText = '';
+    clearAllPendingAskUsers();
     this.emitState();
   }
 

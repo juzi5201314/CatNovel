@@ -309,3 +309,130 @@ export function getActiveMessageVersion(messageId: string): ChatMessageVersion |
 export function deleteMessageVersion(versionId: string): void {
   getDatabase().prepare('DELETE FROM chat_message_versions WHERE id = ?').run(versionId);
 }
+
+export interface PendingAskUserQuestion {
+  id: string;
+  sessionId: string;
+  toolCallId: string;
+  question: string;
+  options?: string[];
+  multiselect?: boolean;
+  context?: string;
+  type: 'text' | 'choice';
+  createdAt: string;
+}
+
+type PendingAskUserRow = {
+  id: string;
+  sessionId: string;
+  toolCallId: string;
+  question: string;
+  optionsJson: string | null;
+  multiselect: number;
+  context: string | null;
+  questionType: 'text' | 'choice';
+  createdAt: string;
+};
+
+function hydratePendingAskUser(row: PendingAskUserRow): PendingAskUserQuestion {
+  return {
+    id: row.id,
+    sessionId: row.sessionId,
+    toolCallId: row.toolCallId,
+    question: row.question,
+    options: row.optionsJson ? JSON.parse(row.optionsJson) : undefined,
+    multiselect: row.multiselect === 1,
+    context: row.context ?? undefined,
+    type: row.questionType,
+    createdAt: row.createdAt,
+  };
+}
+
+export function listPendingAskUserQuestions(sessionId: string): PendingAskUserQuestion[] {
+  return getDatabase()
+    .prepare(
+      `SELECT
+        id,
+        session_id AS sessionId,
+        tool_call_id AS toolCallId,
+        question,
+        options_json AS optionsJson,
+        multiselect,
+        context,
+        question_type AS questionType,
+        created_at AS createdAt
+      FROM pending_ask_user_questions
+      WHERE session_id = ?
+      ORDER BY created_at ASC`,
+    )
+    .all(sessionId)
+    .map((row) => hydratePendingAskUser(row as PendingAskUserRow));
+}
+
+export function savePendingAskUserQuestion(input: {
+  sessionId: string;
+  toolCallId: string;
+  question: string;
+  options?: string[];
+  multiselect?: boolean;
+  context?: string;
+  type: 'text' | 'choice';
+}): PendingAskUserQuestion {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+
+  getDatabase()
+    .prepare(
+      `INSERT INTO pending_ask_user_questions
+       (id, session_id, tool_call_id, question, options_json, multiselect, context, question_type, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id, tool_call_id) DO UPDATE SET
+       question = excluded.question,
+       options_json = excluded.options_json,
+       multiselect = excluded.multiselect,
+       context = excluded.context,
+       question_type = excluded.question_type`,
+    )
+    .run(
+      id,
+      input.sessionId,
+      input.toolCallId,
+      input.question,
+      input.options ? JSON.stringify(input.options) : null,
+      input.multiselect ? 1 : 0,
+      input.context ?? null,
+      input.type,
+      now,
+    );
+
+  const row = getDatabase()
+    .prepare(
+      `SELECT
+        id,
+        session_id AS sessionId,
+        tool_call_id AS toolCallId,
+        question,
+        options_json AS optionsJson,
+        multiselect,
+        context,
+        question_type AS questionType,
+        created_at AS createdAt
+      FROM pending_ask_user_questions
+      WHERE id = ?`,
+    )
+    .get(id) as PendingAskUserRow;
+
+  return hydratePendingAskUser(row);
+}
+
+export function deletePendingAskUserQuestion(toolCallId: string): void {
+  getDatabase()
+    .prepare('DELETE FROM pending_ask_user_questions WHERE tool_call_id = ?')
+    .run(toolCallId);
+}
+
+export function deleteAllPendingAskUserQuestions(sessionId: string): void {
+  getDatabase()
+    .prepare('DELETE FROM pending_ask_user_questions WHERE session_id = ?')
+    .run(sessionId);
+}

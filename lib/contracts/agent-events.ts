@@ -5,6 +5,7 @@ export const publicAgentEventTypes = [
   'ai_chunk',
   'ai_tool_call',
   'ai_tool_result',
+  'ai_ask_user_pending',
   'ai_complete',
   'ai_error',
 ] as const;
@@ -63,6 +64,15 @@ export interface AIToolResultEvent extends AgentEventBase {
   isError: boolean;
 }
 
+export interface AIAskUserPendingEvent extends AgentEventBase {
+  type: 'ai_ask_user_pending';
+  toolCallId: string;
+  question: string;
+  options?: string[];
+  multiselect?: boolean;
+  context?: string;
+}
+
 export interface AICompleteEvent extends AgentEventBase {
   type: 'ai_complete';
   fullText: string;
@@ -92,6 +102,7 @@ export type PublicAgentEvent =
   | AIChunkEvent
   | AIToolCallEvent
   | AIToolResultEvent
+  | AIAskUserPendingEvent
   | AICompleteEvent
   | AIErrorEvent;
 
@@ -113,6 +124,10 @@ export function isAIToolCallEvent(event: AgentEvent): event is AIToolCallEvent {
 
 export function isAIToolResultEvent(event: AgentEvent): event is AIToolResultEvent {
   return event.type === 'ai_tool_result';
+}
+
+export function isAIAskUserPendingEvent(event: AgentEvent): event is AIAskUserPendingEvent {
+  return event.type === 'ai_ask_user_pending';
 }
 
 export function isAICompleteEvent(event: AgentEvent): event is AICompleteEvent {
