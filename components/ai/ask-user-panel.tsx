@@ -227,7 +227,7 @@ export function AskUserPanel({
 
           {activeQuestion.type === 'choice' && activeQuestion.options && (
             <div className="space-y-2">
-              {[...activeQuestion.options, OTHER_OPTION].map((option) => {
+              {[...activeQuestion.options, OTHER_OPTION].map((option, index) => {
                 const isSelected = isMultiSelect
                   ? selectedOptionsSet.has(option)
                   : activeQuestion.response === option;
@@ -235,7 +235,7 @@ export function AskUserPanel({
                 const showOtherInput = isOther && isSelected;
                 
                 return (
-                  <div key={option} className="space-y-2">
+                  <div key={`${activeQuestion.toolCallId}-${index}`} className="space-y-2">
                     <button
                       onClick={() => handleSelectOption(option)}
                       className={cx(
